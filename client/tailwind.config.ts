@@ -1,60 +1,76 @@
 import type { Config } from 'tailwindcss';
 
+/**
+ * Every color points at a CSS variable defined in `src/themes.css`. Switching
+ * `<body class="theme-…">` flips the variables — every Tailwind utility in the
+ * tree re-renders without re-compiling.
+ */
 const config: Config = {
   content: ['./index.html', './src/**/*.{ts,tsx}'],
   theme: {
     extend: {
       colors: {
-        ink: '#17191f',
-        muted: '#68707b',
-        line: '#d7dce2',
-        'line-strong': '#aeb8c3',
+        // semantic
+        ink:           'var(--text-primary)',
+        muted:         'var(--text-secondary)',
+        dim:           'var(--text-muted)',
+        line:          'var(--border-subtle)',
+        'line-strong': 'var(--border-subtle)',
+        'line-hair':   'var(--border-hair)',
+        'line-glow':   'var(--border-glow)',
+        glow:          'var(--text-glow)',
+
+        // surfaces (kept legacy keys for back-compat with existing pages)
+        void:           'var(--bg-void)',
         surface: {
-          DEFAULT: '#ffffff',
-          soft: '#f7f8fa',
-          bg: '#edf0f3',
+          DEFAULT: 'var(--bg-primary)',
+          soft:    'var(--bg-secondary)',
+          bg:      'var(--bg-void)',
         },
-        accent: '#e8ff67',
+        'surface-2':    'var(--bg-secondary)',
+        elevated:       'var(--bg-elevated)',
+        glass:          'var(--bg-glass)',
+
+        // neon palette
+        cyan:    'var(--neon-cyan)',
+        magenta: 'var(--neon-magenta)',
+        purple:  'var(--neon-purple)',
+
+        // status & provider (preserve API used by StatusPill / ProviderBadge)
+        accent: 'var(--neon-cyan)',
         status: {
-          inbox: '#1269e8',
-          planned: '#1269e8',
-          active: '#1f9d62',
-          waiting: '#b96f0c',
-          blocked: '#c13f4a',
-          someday: '#7c4a03',
-          done: '#596272',
-          dropped: '#596272',
+          inbox:   'var(--neon-cyan)',
+          planned: 'var(--neon-cyan)',
+          active:  'var(--neon-green)',
+          waiting: 'var(--neon-orange)',
+          blocked: 'var(--neon-pink)',
+          someday: 'var(--neon-purple)',
+          done:    'var(--text-muted)',
+          dropped: 'var(--text-muted)',
         },
         provider: {
-          claude: '#7547d8',
-          codex: '#1269e8',
+          claude: 'var(--neon-purple)',
+          codex:  'var(--neon-cyan)',
         },
       },
       borderRadius: {
         none: '0',
-        sm: '4px',
-        DEFAULT: '6px',
-        md: '7px',
-        lg: '8px',
-        // intentionally no values above 8px — PRD §13 hard cap
+        sm: 'var(--radius-sm)',
+        DEFAULT: 'var(--radius-md)',
+        md: 'var(--radius-md)',
+        lg: 'var(--radius-lg)',
+        full: 'var(--radius-pill)',
       },
       fontFamily: {
-        sans: [
-          'ui-sans-serif',
-          '-apple-system',
-          'BlinkMacSystemFont',
-          '"Segoe UI"',
-          'sans-serif',
-        ],
-        mono: [
-          '"SFMono-Regular"',
-          '"Cascadia Code"',
-          '"Liberation Mono"',
-          'monospace',
-        ],
+        sans: ['var(--font-body)'],
+        mono: ['var(--font-mono)'],
+        display: ['var(--font-display)'],
       },
       boxShadow: {
-        panel: '0 18px 46px rgba(23, 25, 31, 0.14)',
+        neon:  'var(--shadow-neon)',
+        card:  'var(--shadow-card)',
+        deep:  'var(--shadow-deep)',
+        panel: 'var(--shadow-deep)',
       },
     },
   },

@@ -1,0 +1,30 @@
+import { test, expect } from '@playwright/test';
+
+/**
+ * ConceptE golden path:
+ * 1. Open `/` → Concept E loads with real backend data
+ * 2. Topbar wordmark "stash" visible
+ * 3. 4 board columns visible: inbox / today / doing / later
+ * 4. Capture an item via the capture row → it appears in the inbox column
+ */
+test('Concept E capture → item lands in inbox column', async ({ page }) => {
+  await page.goto('/');
+
+  // Topbar
+  await expect(page.locator('.topbar-title')).toContainText('stash');
+
+  // Four columns present
+  await expect(page.getByTestId('board-col-inbox')).toBeVisible();
+  await expect(page.getByTestId('board-col-today')).toBeVisible();
+  await expect(page.getByTestId('board-col-doing')).toBeVisible();
+  await expect(page.getByTestId('board-col-later')).toBeVisible();
+
+  // Capture an item
+  const unique = `e2e ${Date.now()}`;
+  await page.getByTestId('capture-input').fill(unique);
+  await page.getByTestId('capture-submit').click();
+
+  // Item appears in inbox column
+  const inbox = page.getByTestId('board-col-inbox');
+  await expect(inbox.getByText(unique)).toBeVisible();
+});
