@@ -42,7 +42,15 @@ Codex session source: `$CODEX_ROOT` (default `~/.codex`).
 
 | Slice | What | Status |
 |---|---|---|
-| 1 | Inbox + manual todo core (Overview, Inbox, Todo) | in progress |
-| 2 | Claude session scanner + link sessions to work items | pending |
-| 3 | Codex session adapter (provider-neutral) | pending |
-| 4 | Progress evidence + completion candidate flow | pending |
+| 1 | Inbox + manual todo core (Overview, Inbox, Todo) | shipped |
+| 2 | Claude session scanner + link sessions to work items | shipped |
+| 3 | Codex session adapter (provider-neutral) | shipped |
+| 4 | Progress evidence + completion candidate flow | shipped |
+
+## Verification (last run)
+
+- `bun run server:test` → **83/83 pass**, 227 assertions, ~95 ms
+- `bun run client:test` → **11/11 pass** (vitest + RTL)
+- `bun run client:e2e` → **4/4 pass** (Playwright: inbox-capture, link-session, codex-session, progress-evidence)
+- `bun run typecheck` → clean both sides
+- Manual smoke: `bun run server:start` boots in ~1 s, `bun run client:dev` boots in ~1 s, `/api/overview` returns 200 via Vite proxy `5173 → 4174`.
