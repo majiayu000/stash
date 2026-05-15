@@ -8,12 +8,22 @@ import { CodexSource } from '../adapters/codex/scanner.js';
 import type { AgentSource } from '../adapters/source.js';
 import { AreaService } from '../domain/area/service.js';
 import { EvidenceService } from '../domain/evidence/service.js';
+import { BurnService } from '../domain/analytics/burn.js';
+import { WeeklyReviewService } from '../domain/analytics/weekly.js';
+import { ProjectKnowledgeService } from '../domain/project-knowledge/service.js';
+import { SkillService } from '../domain/skill/service.js';
 import { WorkItemService } from '../domain/work-item/service.js';
 import { WorkItemSessionService } from '../domain/work-item-session/service.js';
 import { createAreasRouter } from './routes/areas.js';
 import { createAgentSessionsRouter } from './routes/agent-sessions.js';
+import { createAnalyticsRouter } from './routes/analytics.js';
 import { createEvidenceRouter } from './routes/evidence.js';
 import { createOverviewRouter } from './routes/overview.js';
+import {
+  createLessonsRouter,
+  createProjectKnowledgeRouter,
+} from './routes/project-knowledge.js';
+import { createProjectSkillsRouter, createSkillsRouter } from './routes/skills.js';
 import { createWorkItemsRouter } from './routes/work-items.js';
 import { createWorkboardRouter } from './routes/workboard.js';
 
@@ -32,6 +42,8 @@ export function createApp(ctx: AppContext): Hono {
   const workItemService = new WorkItemService({ db: ctx.db, clock });
   const sessionLinks = new WorkItemSessionService({ db: ctx.db, clock });
   const evidenceService = new EvidenceService({ db: ctx.db, clock });
+  const skillService = new SkillService({ db: ctx.db, clock });
+  const knowledgeService = new ProjectKnowledgeService({ db: ctx.db, clock });
 
   const sources =
     ctx.sourcesOverride ??
@@ -47,6 +59,14 @@ export function createApp(ctx: AppContext): Hono {
     })();
 
   const aggregator = new AgentSourceAggregator(sources);
+  const burnService = new BurnService({ aggregator, areaService, clock });
+  const weeklyService = new WeeklyReviewService({
+    workItemService,
+    areaService,
+    aggregator,
+    burnService,
+    clock,
+  });
 
   const app = new Hono();
   app.use('*', cors());
@@ -64,6 +84,11 @@ export function createApp(ctx: AppContext): Hono {
   app.route('/api/agent-sessions', createAgentSessionsRouter(aggregator, sessionLinks));
   app.route('/api/workboard', createWorkboardRouter(workItemService, sessionLinks, aggregator));
   app.route('/api/evidence', createEvidenceRouter(evidenceService, sessionLinks, aggregator));
+  app.route('/api/skills', createSkillsRouter(skillService));
+  app.route('/api/projects', createProjectSkillsRouter(skillService));
+  app.route('/api/projects', createProjectKnowledgeRouter(knowledgeService));
+  app.route('/api/lessons', createLessonsRouter(knowledgeService));
+  app.route('/api/analytics', createAnalyticsRouter(burnService, weeklyService));
 
   return app;
 }

@@ -9,6 +9,7 @@ import { systemClock } from '../../shared/src/index.js';
 import { loadConfig } from '../src/config.js';
 import { openDatabaseMigrated } from '../src/db/connection.js';
 import { AreaService } from '../src/domain/area/service.js';
+import { SkillService } from '../src/domain/skill/service.js';
 import { WorkItemService } from '../src/domain/work-item/service.js';
 
 function isoDate(daysFromToday = 0): string {
@@ -27,9 +28,9 @@ const { created } = areas.ensureDefaults();
 process.stderr.write(`[seed] created ${created.length} default areas\n`);
 
 const existing = items.list({ includeDropped: true });
-if (existing.length > 0) {
-  process.stderr.write(`[seed] ${existing.length} work items already exist — skipping seed.\n`);
-  process.exit(0);
+const skipWorkItems = existing.length > 0;
+if (skipWorkItems) {
+  process.stderr.write(`[seed] ${existing.length} work items already exist — skipping work-item seed.\n`);
 }
 
 const areaMap = new Map(areas.list().map((a) => [a.name, a.id]));
@@ -94,18 +95,47 @@ const samples = [
   },
 ];
 
-for (const s of samples) {
-  items.create({
-    title: s.title,
-    kind: s.kind,
-    status: s.status,
-    priority: s.priority,
-    areaId: areaMap.get(s.areaName),
-    scheduledFor: s.scheduledFor,
-    labels: s.labels,
-    waitingOn: s.waitingOn,
-    blockedBy: s.blockedBy,
-  });
+if (!skipWorkItems) {
+  for (const s of samples) {
+    items.create({
+      title: s.title,
+      kind: s.kind,
+      status: s.status,
+      priority: s.priority,
+      areaId: areaMap.get(s.areaName),
+      scheduledFor: s.scheduledFor,
+      labels: s.labels,
+      waitingOn: s.waitingOn,
+      blockedBy: s.blockedBy,
+    });
+  }
+  process.stderr.write(`[seed] inserted ${samples.length} work items at ${config.dbPath}\n`);
 }
 
-process.stderr.write(`[seed] inserted ${samples.length} work items at ${config.dbPath}\n`);
+// ─── Skills seed ──────────────────────────────────────────────────────────
+const skills = new SkillService({ db, clock: systemClock });
+const seedSkills = [
+  { id: 'rust-best-practices', name: 'Rust Best Practices', emoji: '🦀', source: 'official'  as const, stars: 412, installed: true,  description: 'Microsoft pragmatic Rust guidelines' },
+  { id: 'react-best-practices', name: 'React Best Practices', emoji: '⚛️', source: 'official'  as const, stars: 287, installed: true,  description: 'Modern React patterns + hooks' },
+  { id: 'security-review',     name: 'Security Review',       emoji: '🔒', source: 'official'  as const, stars: 156, installed: false, description: 'OWASP + threat modeling pass' },
+  { id: 'design-shotgun',      name: 'Design Shotgun',        emoji: '🎯', source: 'community' as const, stars: 89,  installed: true,  description: 'Generate UI variants in parallel' },
+  { id: 'codex-cli',           name: 'Codex CLI',             emoji: '$',  source: 'community' as const, stars: 64,  installed: false, description: 'OpenAI Codex CLI wrapper' },
+  { id: 'investigate',         name: 'Investigate',           emoji: '🔍', source: 'community' as const, stars: 51,  installed: true,  description: 'Root-cause analysis loop' },
+];
+
+let createdSkills = 0;
+for (const s of seedSkills) {
+  if (!skills.get(s.id)) {
+    skills.create(s);
+    createdSkills++;
+  }
+}
+process.stderr.write(`[seed] created ${createdSkills} skills (${seedSkills.length} total)\n`);
+
+// Bind a couple of installed skills to the first area so Concept M / K have content.
+const firstArea = areas.list()[0];
+if (firstArea && skills.listBindingsForProject(firstArea.id).length === 0) {
+  const installedIds = seedSkills.filter((s) => s.installed).map((s) => s.id).slice(0, 3);
+  skills.setProjectBindings(firstArea.id, installedIds);
+  process.stderr.write(`[seed] bound ${installedIds.length} skills to area "${firstArea.name}"\n`);
+}

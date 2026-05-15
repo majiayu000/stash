@@ -5,3 +5,6 @@ export * from './area.js';
 export * from './project.js';
 export * from './agent-session.js';
 export * from './progress-evidence.js';
+export * from './skill.js';
+export * from './project-knowledge.js';
+export * from './cost.js';

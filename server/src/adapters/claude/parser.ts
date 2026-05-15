@@ -1,5 +1,12 @@
 import { readFileSync } from 'fs';
-import type { AgentSession, AgentSessionEvent, AgentSessionStatus } from '@stash/shared';
+import type { AgentSession, AgentSessionEvent, AgentSessionStatus, UsageEvent } from '@stash/shared';
+
+interface RawUsage {
+  input_tokens?: number;
+  output_tokens?: number;
+  cache_read_input_tokens?: number;
+  cache_creation_input_tokens?: number;
+}
 
 interface RawRecord {
   type?: string;
@@ -9,6 +16,8 @@ interface RawRecord {
   message?: {
     role?: string;
     content?: unknown;
+    model?: string;
+    usage?: RawUsage;
   };
   aiTitle?: string;
   content?: string;
@@ -164,6 +173,36 @@ export function parseClaudeEvents(sourcePath: string, limit = 200): AgentSession
         });
       }
     }
+  }
+  return out;
+}
+
+export function parseClaudeUsage(sourcePath: string): UsageEvent[] {
+  const raw = readFileSync(sourcePath, 'utf8');
+  const lines = raw.split(/\n+/).filter(Boolean);
+  const out: UsageEvent[] = [];
+  for (const line of lines) {
+    let rec: RawRecord;
+    try {
+      rec = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (rec.type !== 'assistant' || rec.message?.role !== 'assistant') continue;
+    const usage = rec.message?.usage;
+    if (!usage) continue;
+    const inputTokens = usage.input_tokens ?? 0;
+    const outputTokens = usage.output_tokens ?? 0;
+    if (inputTokens === 0 && outputTokens === 0) continue;
+    out.push({
+      ts: rec.timestamp ?? new Date(0).toISOString(),
+      model: rec.message?.model ?? 'unknown',
+      inputTokens,
+      outputTokens,
+      cacheReadTokens: usage.cache_read_input_tokens,
+      cacheWriteTokens: usage.cache_creation_input_tokens,
+      sourcePath,
+    });
   }
   return out;
 }

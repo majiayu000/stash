@@ -1,4 +1,4 @@
-import type { AgentProvider, AgentSession, AgentSessionEvent } from '@stash/shared';
+import type { AgentProvider, AgentSession, AgentSessionEvent, UsageEvent } from '@stash/shared';
 import type { AgentSource, SourceParseError } from './source.js';
 
 export interface AggregateOptions {
@@ -43,6 +43,12 @@ export class AgentSourceAggregator {
     const entry = this.sources.get(provider);
     if (!entry) return [];
     return entry.source.getEvents(sourcePath);
+  }
+
+  getUsage(provider: AgentProvider, sourcePath: string): UsageEvent[] {
+    const entry = this.sources.get(provider);
+    if (!entry) return [];
+    return entry.source.getUsage(sourcePath);
   }
 
   has(provider: AgentProvider): boolean {

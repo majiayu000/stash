@@ -1,4 +1,4 @@
-import type { AgentProvider, AgentSession, AgentSessionEvent } from '@stash/shared';
+import type { AgentProvider, AgentSession, AgentSessionEvent, UsageEvent } from '@stash/shared';
 
 export interface ScanOptions {
   root: string;
@@ -21,4 +21,6 @@ export interface AgentSource {
   provider: AgentProvider;
   scan(options: ScanOptions): SourceScanResult;
   getEvents(sourcePath: string): AgentSessionEvent[];
+  /** Extract token usage events from a parsed session file. Empty when unsupported. */
+  getUsage(sourcePath: string): UsageEvent[];
 }

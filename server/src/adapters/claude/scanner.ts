@@ -1,8 +1,8 @@
 import { existsSync, readdirSync, statSync } from 'fs';
 import { join } from 'path';
-import type { AgentSession, AgentSessionEvent } from '@stash/shared';
+import type { AgentSession, AgentSessionEvent, UsageEvent } from '@stash/shared';
 import type { AgentSource, ScanOptions, SourceParseError, SourceScanResult } from '../source.js';
-import { parseClaudeEvents, parseClaudeSession } from './parser.js';
+import { parseClaudeEvents, parseClaudeSession, parseClaudeUsage } from './parser.js';
 
 function projectsDir(root: string): string {
   return join(root, 'projects');
@@ -42,6 +42,10 @@ export class ClaudeSource implements AgentSource {
 
   getEvents(sourcePath: string): AgentSessionEvent[] {
     return parseClaudeEvents(sourcePath);
+  }
+
+  getUsage(sourcePath: string): UsageEvent[] {
+    return parseClaudeUsage(sourcePath);
   }
 }
 

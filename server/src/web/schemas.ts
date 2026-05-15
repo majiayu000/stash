@@ -82,6 +82,11 @@ export const ListWorkItemsQuery = z.object({
     .transform((v) => (v === undefined ? undefined : Array.isArray(v) ? v : [v])),
   areaId: z.string().optional(),
   projectId: z.string().optional(),
+  parentId: z.string().optional(),
+  parentIsNull: z
+    .union([z.literal('true'), z.literal('false')])
+    .optional()
+    .transform((v) => (v === undefined ? undefined : v === 'true')),
   scheduledFrom: z.string().optional(),
   scheduledTo: z.string().optional(),
   scheduledIsNull: z
@@ -89,6 +94,80 @@ export const ListWorkItemsQuery = z.object({
     .optional()
     .transform((v) => (v === undefined ? undefined : v === 'true')),
   includeDropped: z
+    .union([z.literal('true'), z.literal('false')])
+    .optional()
+    .transform((v) => (v === undefined ? undefined : v === 'true')),
+});
+
+const SkillSource = z.enum(['official', 'community']);
+
+export const CreateSkillBody = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  emoji: z.string().optional(),
+  description: z.string().optional(),
+  source: SkillSource.optional(),
+  stars: z.number().int().nonnegative().optional(),
+  installed: z.boolean().optional(),
+  version: z.string().optional(),
+});
+
+export const UpdateSkillBody = z.object({
+  name: z.string().min(1).optional(),
+  emoji: z.string().optional(),
+  description: z.string().optional(),
+  source: SkillSource.optional(),
+  stars: z.number().int().nonnegative().optional(),
+  installed: z.boolean().optional(),
+  version: z.string().optional(),
+});
+
+export const SetProjectBindingsBody = z.object({
+  skillIds: z.array(z.string()),
+});
+
+export const ToggleBindingBody = z.object({
+  enabled: z.boolean(),
+});
+
+const MilestoneStatusZ = z.enum(['planned', 'wip', 'done']);
+
+export const SetIntentBody = z.object({ text: z.string() });
+
+export const CreateMilestoneBody = z.object({
+  name: z.string().min(1),
+  date: z.string().optional(),
+  status: MilestoneStatusZ.optional(),
+  progress: z.number().optional(),
+});
+
+export const UpdateMilestoneBody = CreateMilestoneBody.partial();
+
+export const CreateDecisionBody = z.object({
+  date: z.string().optional(),
+  title: z.string().min(1),
+  body: z.string().optional(),
+  tags: z.array(z.string()).optional(),
+  sessionId: z.string().optional(),
+});
+
+export const UpdateDecisionBody = CreateDecisionBody.partial();
+
+export const SetNotesBody = z.object({ markdown: z.string() });
+
+export const CreateLessonBody = z.object({
+  title: z.string().min(1),
+  body: z.string().optional(),
+  tags: z.array(z.string()).optional(),
+  cross: z.boolean().optional(),
+  projectId: z.string().optional(),
+});
+
+export const UpdateLessonBody = CreateLessonBody.partial();
+
+export const ListLessonsQuery = z.object({
+  projectId: z.string().optional(),
+  crossOnly: z
     .union([z.literal('true'), z.literal('false')])
     .optional()
     .transform((v) => (v === undefined ? undefined : v === 'true')),

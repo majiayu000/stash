@@ -90,6 +90,8 @@ export interface ListFilter {
   status?: WorkItemStatus | WorkItemStatus[];
   areaId?: string;
   projectId?: string;
+  parentId?: string;
+  parentIsNull?: boolean;
   scheduledFrom?: string;
   scheduledTo?: string;
   scheduledIsNull?: boolean;
@@ -169,6 +171,13 @@ export class WorkItemRepository {
     if (filter.projectId) {
       where.push('project_id = ?');
       params.push(filter.projectId);
+    }
+    if (filter.parentId) {
+      where.push('parent_id = ?');
+      params.push(filter.parentId);
+    }
+    if (filter.parentIsNull === true) {
+      where.push('parent_id is null');
     }
     if (filter.scheduledIsNull === true) {
       where.push('scheduled_for is null');

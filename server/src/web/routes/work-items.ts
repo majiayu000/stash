@@ -79,6 +79,17 @@ export function createWorkItemsRouter(
     }
   });
 
+  r.get('/:id/subtasks', (c) => {
+    try {
+      const parent = service.get(c.req.param('id'));
+      if (!parent) return c.json({ error: { code: 'NOT_FOUND', message: 'work item not found' } }, 404);
+      const items = service.list({ parentId: parent.id, includeDropped: true });
+      return c.json({ data: items, count: items.length });
+    } catch (e) {
+      return handleError(c, e);
+    }
+  });
+
   r.post('/:id/checklist', async (c) => {
     try {
       const body = ChecklistAppendBody.parse(await c.req.json());

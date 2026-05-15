@@ -1,8 +1,7 @@
 import { beforeEach, describe, expect, test } from 'bun:test';
 import type { Database } from 'bun:sqlite';
 import { fixedClock } from '@stash/shared';
-import { openDatabase } from '../../db/connection.js';
-import { migrate } from '../../db/migrate.js';
+import { freshDb } from '../../db/test-helpers.js';
 import {
   InvalidStatusTransitionError,
   ValidationError,
@@ -10,12 +9,6 @@ import {
   WorkItemService,
   isTransitionAllowed,
 } from './service.js';
-
-function freshDb(): Database {
-  const db = openDatabase({ path: ':memory:', inMemory: true });
-  migrate(db);
-  return db;
-}
 
 describe('WorkItemService.create', () => {
   let db: Database;
@@ -219,6 +212,30 @@ describe('WorkItemService.checklist', () => {
   test('rejects empty checklist text', () => {
     const item = service.create({ title: 'parent' });
     expect(() => service.appendChecklistItem(item.id, '  ')).toThrow(ValidationError);
+  });
+});
+
+describe('WorkItemService sub-task filtering', () => {
+  test('parentId filter returns only direct children', () => {
+    const db = freshDb();
+    const service = new WorkItemService({ db, clock: fixedClock('2026-05-14T10:00:00.000Z') });
+    const epic = service.create({ title: 'epic', kind: 'epic' });
+    const child1 = service.create({ title: 'child A', parentId: epic.id });
+    const child2 = service.create({ title: 'child B', parentId: epic.id });
+    service.create({ title: 'unrelated' });
+
+    const children = service.list({ parentId: epic.id });
+    expect(children.map((c) => c.id).sort()).toEqual([child1.id, child2.id].sort());
+  });
+
+  test('parentIsNull filter excludes children', () => {
+    const db = freshDb();
+    const service = new WorkItemService({ db, clock: fixedClock('2026-05-14T10:00:00.000Z') });
+    const top = service.create({ title: 'top' });
+    service.create({ title: 'child', parentId: top.id });
+
+    const roots = service.list({ parentIsNull: true });
+    expect(roots.map((r) => r.id)).toEqual([top.id]);
   });
 });
 

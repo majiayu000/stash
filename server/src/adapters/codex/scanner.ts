@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, statSync } from 'fs';
 import { join } from 'path';
-import type { AgentSession, AgentSessionEvent } from '@stash/shared';
+import type { AgentSession, AgentSessionEvent, UsageEvent } from '@stash/shared';
 import type { AgentSource, ScanOptions, SourceParseError, SourceScanResult } from '../source.js';
 import { parseCodexEvents, parseCodexSession } from './parser.js';
 
@@ -68,5 +68,11 @@ export class CodexSource implements AgentSource {
 
   getEvents(sourcePath: string): AgentSessionEvent[] {
     return parseCodexEvents(sourcePath);
+  }
+
+  getUsage(_sourcePath: string): UsageEvent[] {
+    // Codex JSONL rollouts do not currently include per-message token usage.
+    // When upstream starts emitting it, mirror parseClaudeUsage here.
+    return [];
   }
 }
