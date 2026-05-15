@@ -1,0 +1,732 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Todo Page Mock</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #eef1f4;
+      --panel: #ffffff;
+      --soft: #f6f8fa;
+      --ink: #181a1f;
+      --muted: #69707a;
+      --line: #d6dbe1;
+      --line-strong: #b7c0c9;
+      --active: #1f9d62;
+      --waiting: #c47a12;
+      --blocked: #c13f4a;
+      --planned: #146ef5;
+      --claude: #7547d8;
+      --codex: #146ef5;
+      --accent: #e8ff67;
+      --shadow: 0 18px 46px rgba(24, 26, 31, 0.13);
+      --mono: "SFMono-Regular", "Cascadia Code", "Liberation Mono", monospace;
+      --sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        linear-gradient(90deg, rgba(24, 26, 31, 0.045) 1px, transparent 1px),
+        linear-gradient(rgba(24, 26, 31, 0.045) 1px, transparent 1px),
+        var(--bg);
+      background-size: 40px 40px;
+      color: var(--ink);
+      font-family: var(--sans);
+    }
+
+    .page {
+      min-height: 100vh;
+      padding: 24px;
+      display: grid;
+      place-items: center;
+    }
+
+    .frame {
+      width: min(1440px, 100%);
+      min-height: min(900px, calc(100vh - 48px));
+      background: var(--panel);
+      border: 1px solid var(--line-strong);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      display: grid;
+      grid-template-rows: 64px 1fr;
+    }
+
+    .topbar {
+      display: grid;
+      grid-template-columns: 220px 1fr auto;
+      align-items: center;
+      gap: 16px;
+      padding: 0 18px;
+      border-bottom: 1px solid var(--line);
+      background: #ffffff;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .mark {
+      width: 32px;
+      height: 32px;
+      border: 2px solid var(--ink);
+      border-radius: 7px;
+      display: grid;
+      place-items: center;
+      font: 800 12px var(--mono);
+      background: var(--accent);
+    }
+
+    .brand strong {
+      display: block;
+      font-size: 15px;
+      line-height: 1.1;
+    }
+
+    .brand span {
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-weight: 800;
+    }
+
+    .nav-tabs {
+      display: flex;
+      gap: 6px;
+      overflow-x: auto;
+    }
+
+    .tab {
+      height: 30px;
+      padding: 0 10px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      display: inline-flex;
+      align-items: center;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .tab.current {
+      color: var(--ink);
+      border-color: var(--ink);
+      background: var(--accent);
+    }
+
+    .actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    button,
+    .button {
+      height: 34px;
+      border: 1px solid var(--line-strong);
+      border-radius: 7px;
+      background: #ffffff;
+      color: var(--ink);
+      padding: 0 12px;
+      font: 700 12px var(--sans);
+    }
+
+    .primary {
+      background: var(--ink);
+      border-color: var(--ink);
+      color: #ffffff;
+    }
+
+    .main {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: 220px minmax(0, 1fr) 340px;
+    }
+
+    .sidebar,
+    .editor {
+      min-width: 0;
+      background: #fbfcfd;
+      padding: 14px;
+    }
+
+    .sidebar {
+      border-right: 1px solid var(--line);
+    }
+
+    .editor {
+      border-left: 1px solid var(--line);
+    }
+
+    .content {
+      min-width: 0;
+      min-height: 0;
+      padding: 14px;
+      display: grid;
+      grid-template-rows: auto 1fr;
+      gap: 12px;
+      background: #f9fafb;
+    }
+
+    .section-title {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin: 0 0 10px;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 850;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .filter-list,
+    .suggestions,
+    .form {
+      display: grid;
+      gap: 8px;
+    }
+
+    .filter {
+      height: 34px;
+      padding: 0 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #ffffff;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: var(--ink);
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .filter.selected {
+      border-color: var(--ink);
+      box-shadow: inset 3px 0 0 var(--accent);
+    }
+
+    .filter span:last-child {
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 11px;
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .summary {
+      background: #ffffff;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 11px 12px;
+      display: grid;
+      gap: 6px;
+    }
+
+    .summary span {
+      color: var(--muted);
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      font-weight: 850;
+    }
+
+    .summary strong {
+      font: 850 23px/1 var(--mono);
+    }
+
+    .task-surface {
+      min-height: 0;
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #ffffff;
+    }
+
+    .group {
+      border-bottom: 1px solid var(--line);
+    }
+
+    .group:last-child {
+      border-bottom: 0;
+    }
+
+    .group-head {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      height: 38px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 12px;
+      background: #f0f3f5;
+      border-bottom: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 850;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+    }
+
+    .task-row {
+      min-height: 62px;
+      display: grid;
+      grid-template-columns: 26px minmax(210px, 1.5fr) 120px 104px 92px 120px 90px;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line);
+      animation: row-in 300ms ease both;
+    }
+
+    .task-row:last-child {
+      border-bottom: 0;
+    }
+
+    .check {
+      width: 18px;
+      height: 18px;
+      border: 2px solid var(--line-strong);
+      border-radius: 5px;
+    }
+
+    .task-title {
+      min-width: 0;
+      display: grid;
+      gap: 4px;
+    }
+
+    .task-title strong {
+      min-width: 0;
+      font-size: 13px;
+      line-height: 1.25;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .task-title span {
+      min-width: 0;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 10px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 24px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 0 8px;
+      background: #f7f8fa;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .pill.active { color: var(--active); border-color: rgba(31, 157, 98, 0.35); }
+    .pill.waiting { color: var(--waiting); border-color: rgba(196, 122, 18, 0.35); }
+    .pill.blocked { color: var(--blocked); border-color: rgba(193, 63, 74, 0.35); }
+    .pill.planned { color: var(--planned); border-color: rgba(20, 110, 245, 0.35); }
+
+    .cell {
+      min-width: 0;
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .date {
+      color: var(--ink);
+      font-family: var(--mono);
+      font-size: 11px;
+    }
+
+    .suggestion {
+      border: 1px dashed var(--line-strong);
+      border-radius: 8px;
+      background: #ffffff;
+      padding: 10px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .suggestion strong {
+      font-size: 12px;
+      line-height: 1.3;
+    }
+
+    .suggestion span {
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.35;
+    }
+
+    .field {
+      display: grid;
+      gap: 5px;
+    }
+
+    label {
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 850;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+    }
+
+    .input,
+    textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #ffffff;
+      color: var(--ink);
+      font: 12px var(--sans);
+      padding: 9px 10px;
+    }
+
+    textarea {
+      min-height: 82px;
+      resize: vertical;
+      line-height: 1.45;
+    }
+
+    .two-col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .editor-card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #ffffff;
+      padding: 12px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .divider {
+      height: 1px;
+      background: var(--line);
+      margin: 14px 0;
+    }
+
+    @keyframes row-in {
+      from {
+        opacity: 0;
+        transform: translateY(6px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *,
+      *::before,
+      *::after {
+        animation-duration: 1ms !important;
+        transition-duration: 1ms !important;
+      }
+    }
+
+    @media (max-width: 1180px) {
+      .frame {
+        grid-template-rows: auto 1fr;
+      }
+
+      .topbar,
+      .main {
+        grid-template-columns: 1fr;
+      }
+
+      .topbar {
+        padding: 14px;
+      }
+
+      .sidebar,
+      .editor {
+        border: 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .summary-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .task-surface {
+        overflow-x: auto;
+      }
+
+      .task-row {
+        min-width: 920px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="frame" aria-label="Todo page mockup">
+      <header class="topbar">
+        <div class="brand">
+          <div class="mark">TD</div>
+          <div>
+            <strong>Todo</strong>
+            <span>Dated task source</span>
+          </div>
+        </div>
+        <nav class="nav-tabs" aria-label="Primary navigation">
+          <span class="tab">Workboard</span>
+          <span class="tab current">Todo</span>
+          <span class="tab">Sessions</span>
+          <span class="tab">Projects</span>
+          <span class="tab">Plans</span>
+        </nav>
+        <div class="actions">
+          <button>Import suggestion</button>
+          <button class="primary">New task</button>
+        </div>
+      </header>
+
+      <section class="main">
+        <aside class="sidebar">
+          <div class="section-title">Views <span>42</span></div>
+          <div class="filter-list">
+            <div class="filter selected"><span>Today</span><span>8</span></div>
+            <div class="filter"><span>Tomorrow</span><span>5</span></div>
+            <div class="filter"><span>This week</span><span>17</span></div>
+            <div class="filter"><span>No date</span><span>6</span></div>
+            <div class="filter"><span>Waiting</span><span>3</span></div>
+            <div class="filter"><span>Blocked</span><span>1</span></div>
+            <div class="filter"><span>Done</span><span>18</span></div>
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="section-title">Projects</div>
+          <div class="filter-list">
+            <div class="filter"><span>mutil-om</span><span>13</span></div>
+            <div class="filter"><span>infra/aip</span><span>9</span></div>
+            <div class="filter"><span>Claude-Code-Monitor</span><span>6</span></div>
+            <div class="filter"><span>remem</span><span>4</span></div>
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="section-title">Suggestions <span>manual accept</span></div>
+          <div class="suggestions">
+            <article class="suggestion">
+              <strong>Codex found an untracked Workboard mock task</strong>
+              <span>Suggested from current session. It is not a real todo until accepted.</span>
+              <button>Accept</button>
+            </article>
+            <article class="suggestion">
+              <strong>Claude plan has pending PDF QA task</strong>
+              <span>Suggested from plan parser. Needs manual date and priority.</span>
+              <button>Accept</button>
+            </article>
+          </div>
+        </aside>
+
+        <section class="content">
+          <div class="summary-grid">
+            <div class="summary">
+              <span>Today</span>
+              <strong>8</strong>
+            </div>
+            <div class="summary">
+              <span>Planned</span>
+              <strong>21</strong>
+            </div>
+            <div class="summary">
+              <span>Waiting</span>
+              <strong>3</strong>
+            </div>
+            <div class="summary">
+              <span>Overdue</span>
+              <strong>1</strong>
+            </div>
+            <div class="summary">
+              <span>Done week</span>
+              <strong>18</strong>
+            </div>
+          </div>
+
+          <div class="task-surface">
+            <section class="group">
+              <div class="group-head">
+                <span>Today - 2026-05-14</span>
+                <span>8 tasks</span>
+              </div>
+              <article class="task-row">
+                <div class="check"></div>
+                <div class="task-title">
+                  <strong>Make Todo page and Workboard page relationship explicit</strong>
+                  <span>docs/mockups/todo_page_mock.html</span>
+                </div>
+                <span class="pill active">Active</span>
+                <span class="cell">Claude-Code-Monitor</span>
+                <span class="cell">P1</span>
+                <span class="date">05-14</span>
+                <span class="date">05-14</span>
+              </article>
+              <article class="task-row">
+                <div class="check"></div>
+                <div class="task-title">
+                  <strong>PDF citation highlight visual QA</strong>
+                  <span>linked Claude session, waiting for decision</span>
+                </div>
+                <span class="pill waiting">Waiting</span>
+                <span class="cell">mutil-om</span>
+                <span class="cell">P1</span>
+                <span class="date">05-14</span>
+                <span class="date">05-15</span>
+              </article>
+              <article class="task-row">
+                <div class="check"></div>
+                <div class="task-title">
+                  <strong>Collect SLS raw IDs for orphan billing proof</strong>
+                  <span>manual blocker, no agent should auto-close this</span>
+                </div>
+                <span class="pill blocked">Blocked</span>
+                <span class="cell">infra/aip</span>
+                <span class="cell">P0</span>
+                <span class="date">05-14</span>
+                <span class="date">05-14</span>
+              </article>
+            </section>
+
+            <section class="group">
+              <div class="group-head">
+                <span>This week</span>
+                <span>17 tasks</span>
+              </div>
+              <article class="task-row">
+                <div class="check"></div>
+                <div class="task-title">
+                  <strong>Add work item SQLite migration</strong>
+                  <span>first implementation slice after visual approval</span>
+                </div>
+                <span class="pill planned">Planned</span>
+                <span class="cell">Claude-Code-Monitor</span>
+                <span class="cell">P1</span>
+                <span class="date">05-15</span>
+                <span class="date">05-16</span>
+              </article>
+              <article class="task-row">
+                <div class="check"></div>
+                <div class="task-title">
+                  <strong>Missing-input checker for demo flow</strong>
+                  <span>user-created planned task, no linked session</span>
+                </div>
+                <span class="pill planned">Planned</span>
+                <span class="cell">mutil-om</span>
+                <span class="cell">P1</span>
+                <span class="date">05-16</span>
+                <span class="date">05-17</span>
+              </article>
+            </section>
+
+            <section class="group">
+              <div class="group-head">
+                <span>No date</span>
+                <span>6 tasks</span>
+              </div>
+              <article class="task-row">
+                <div class="check"></div>
+                <div class="task-title">
+                  <strong>Review whether Codex parser should import snapshots</strong>
+                  <span>needs decision before adapter implementation</span>
+                </div>
+                <span class="pill planned">Planned</span>
+                <span class="cell">Claude-Code-Monitor</span>
+                <span class="cell">P2</span>
+                <span class="date">none</span>
+                <span class="date">none</span>
+              </article>
+            </section>
+          </div>
+        </section>
+
+        <aside class="editor">
+          <div class="section-title">Task editor <span>manual</span></div>
+          <div class="editor-card">
+            <div class="field">
+              <label>Title</label>
+              <div class="input">Make Todo page and Workboard page relationship explicit</div>
+            </div>
+            <div class="two-col">
+              <div class="field">
+                <label>Project</label>
+                <div class="input">Claude-Code-Monitor</div>
+              </div>
+              <div class="field">
+                <label>Priority</label>
+                <div class="input">P1</div>
+              </div>
+            </div>
+            <div class="two-col">
+              <div class="field">
+                <label>Status</label>
+                <div class="input">Active</div>
+              </div>
+              <div class="field">
+                <label>Assignee</label>
+                <div class="input">mixed</div>
+              </div>
+            </div>
+            <div class="two-col">
+              <div class="field">
+                <label>Scheduled for</label>
+                <div class="input">2026-05-14</div>
+              </div>
+              <div class="field">
+                <label>Due date</label>
+                <div class="input">2026-05-14</div>
+              </div>
+            </div>
+            <div class="field">
+              <label>Notes</label>
+              <textarea>Todo is the editable source of truth. Workboard should only show the task in project context with agent evidence.</textarea>
+            </div>
+            <div class="field">
+              <label>Linked evidence</label>
+              <div class="input">Codex session: current rollout</div>
+            </div>
+            <button class="primary">Save task</button>
+          </div>
+        </aside>
+      </section>
+    </section>
+  </main>
+</body>
+</html>

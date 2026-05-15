@@ -1,0 +1,1133 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Claude Hub Workboard Mock</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #eef1f4;
+      --panel: #f9fafb;
+      --panel-2: #ffffff;
+      --ink: #181a1f;
+      --muted: #69707a;
+      --line: #d6dbe1;
+      --line-strong: #b7c0c9;
+      --active: #1f9d62;
+      --waiting: #c47a12;
+      --blocked: #c13f4a;
+      --codex: #146ef5;
+      --claude: #7547d8;
+      --done: #535d6b;
+      --shadow: 0 18px 46px rgba(24, 26, 31, 0.13);
+      --radius: 8px;
+      --mono: "SFMono-Regular", "Cascadia Code", "Liberation Mono", monospace;
+      --sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        linear-gradient(90deg, rgba(24, 26, 31, 0.045) 1px, transparent 1px),
+        linear-gradient(rgba(24, 26, 31, 0.045) 1px, transparent 1px),
+        var(--bg);
+      background-size: 40px 40px;
+      color: var(--ink);
+      font-family: var(--sans);
+      letter-spacing: 0;
+    }
+
+    .page {
+      min-height: 100vh;
+      padding: 24px;
+      display: grid;
+      place-items: center;
+    }
+
+    .mock-frame {
+      width: min(1440px, 100%);
+      min-height: min(900px, calc(100vh - 48px));
+      background: var(--panel);
+      border: 1px solid var(--line-strong);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      display: grid;
+      grid-template-rows: 64px 1fr 210px;
+    }
+
+    .topbar {
+      display: grid;
+      grid-template-columns: 220px 1fr auto;
+      align-items: center;
+      gap: 16px;
+      padding: 0 18px;
+      border-bottom: 1px solid var(--line);
+      background: #ffffff;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .mark {
+      width: 32px;
+      height: 32px;
+      border: 2px solid var(--ink);
+      border-radius: 7px;
+      display: grid;
+      place-items: center;
+      font-family: var(--mono);
+      font-size: 12px;
+      font-weight: 800;
+      background: #e8ff67;
+    }
+
+    .brand-title {
+      display: grid;
+      gap: 2px;
+      min-width: 0;
+    }
+
+    .brand-title strong {
+      font-size: 15px;
+      line-height: 1.1;
+    }
+
+    .brand-title span {
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .search {
+      height: 38px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #f4f6f8;
+      color: var(--muted);
+      font-size: 13px;
+      min-width: 240px;
+    }
+
+    .top-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .nav-tabs {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+    }
+
+    .nav-tab {
+      height: 30px;
+      padding: 0 10px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      display: inline-flex;
+      align-items: center;
+      color: var(--muted);
+      background: #ffffff;
+      font-size: 11px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .nav-tab.current {
+      color: var(--ink);
+      border-color: var(--ink);
+      background: #e8ff67;
+    }
+
+    .icon-button,
+    .primary-button,
+    .segmented button {
+      height: 34px;
+      border: 1px solid var(--line-strong);
+      border-radius: 7px;
+      background: #ffffff;
+      color: var(--ink);
+      font: 600 12px var(--sans);
+      cursor: default;
+    }
+
+    .icon-button {
+      width: 34px;
+      display: grid;
+      place-items: center;
+      font-family: var(--mono);
+    }
+
+    .primary-button {
+      padding: 0 14px;
+      background: var(--ink);
+      border-color: var(--ink);
+      color: #ffffff;
+    }
+
+    .segmented {
+      display: flex;
+      border: 1px solid var(--line-strong);
+      border-radius: 8px;
+      overflow: hidden;
+      background: #ffffff;
+    }
+
+    .segmented button {
+      border: 0;
+      border-right: 1px solid var(--line);
+      border-radius: 0;
+      padding: 0 12px;
+      color: var(--muted);
+    }
+
+    .segmented button:last-child {
+      border-right: 0;
+    }
+
+    .segmented .selected {
+      background: #e8ff67;
+      color: var(--ink);
+    }
+
+    .main {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: 236px minmax(0, 1fr) 312px;
+      background: var(--panel);
+    }
+
+    .rail,
+    .now-panel {
+      min-width: 0;
+      padding: 14px;
+      background: #fbfcfd;
+    }
+
+    .rail {
+      border-right: 1px solid var(--line);
+    }
+
+    .now-panel {
+      border-left: 1px solid var(--line);
+    }
+
+    .section-title {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin: 0 0 10px;
+      font-size: 11px;
+      font-weight: 800;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .count {
+      color: var(--ink);
+      font-family: var(--mono);
+      letter-spacing: 0;
+    }
+
+    .project-list,
+    .now-list,
+    .activity-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .project-item {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel-2);
+      padding: 10px;
+      display: grid;
+      gap: 8px;
+      animation: list-in 420ms ease both;
+    }
+
+    .project-item.selected {
+      border-color: var(--ink);
+      box-shadow: inset 3px 0 0 #e8ff67;
+    }
+
+    .project-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      align-items: start;
+    }
+
+    .project-name {
+      min-width: 0;
+      font-weight: 800;
+      font-size: 13px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .project-path {
+      min-width: 0;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 10px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .project-meta,
+    .chip-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      min-height: 22px;
+      padding: 0 7px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #f7f8fa;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 999px;
+      background: var(--done);
+    }
+
+    .dot.active { background: var(--active); }
+    .dot.waiting { background: var(--waiting); }
+    .dot.blocked { background: var(--blocked); }
+    .dot.codex { background: var(--codex); }
+    .dot.claude { background: var(--claude); }
+
+    .matrix {
+      min-width: 0;
+      min-height: 0;
+      padding: 14px;
+      overflow: hidden;
+      display: grid;
+      grid-template-rows: auto 1fr;
+      gap: 12px;
+    }
+
+    .metric-strip {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .metric {
+      background: var(--panel-2);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 11px 12px;
+      display: grid;
+      gap: 6px;
+    }
+
+    .metric span {
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      font-weight: 800;
+    }
+
+    .metric strong {
+      font: 800 24px/1 var(--mono);
+      letter-spacing: -0.02em;
+    }
+
+    .matrix-board {
+      min-height: 0;
+      background: var(--panel-2);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+      display: grid;
+      grid-template-rows: 42px 1fr;
+    }
+
+    .matrix-header,
+    .project-row {
+      display: grid;
+      grid-template-columns: 190px repeat(4, minmax(150px, 1fr));
+    }
+
+    .matrix-header {
+      background: #f0f3f5;
+      border-bottom: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+    }
+
+    .matrix-header div,
+    .project-cell,
+    .project-label {
+      min-width: 0;
+      padding: 10px;
+      border-right: 1px solid var(--line);
+    }
+
+    .matrix-header div:last-child,
+    .project-cell:last-child {
+      border-right: 0;
+    }
+
+    .matrix-body {
+      min-height: 0;
+      overflow: auto;
+    }
+
+    .project-row {
+      min-height: 126px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .project-row:last-child {
+      border-bottom: 0;
+    }
+
+    .project-label {
+      display: grid;
+      align-content: start;
+      gap: 8px;
+      background: #fbfcfd;
+    }
+
+    .row-name {
+      font-size: 14px;
+      font-weight: 850;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .row-sub {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .progress {
+      height: 7px;
+      border-radius: 999px;
+      overflow: hidden;
+      background: #e6e9ed;
+    }
+
+    .progress > i {
+      display: block;
+      height: 100%;
+      border-radius: 999px;
+      background: linear-gradient(90deg, var(--active), #e8ff67);
+    }
+
+    .project-cell {
+      display: grid;
+      align-content: start;
+      gap: 8px;
+      background: #ffffff;
+    }
+
+    .work-card {
+      position: relative;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbfcfd;
+      padding: 9px;
+      display: grid;
+      gap: 8px;
+      min-height: 86px;
+      transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
+      animation: list-in 360ms ease both;
+    }
+
+    .work-card:hover {
+      transform: translateY(-1px);
+      border-color: var(--line-strong);
+      box-shadow: 0 8px 22px rgba(24, 26, 31, 0.09);
+    }
+
+    .work-card.focus {
+      border-color: var(--ink);
+      background: #fffef7;
+      box-shadow: 0 8px 20px rgba(232, 255, 103, 0.25);
+    }
+
+    .task-title {
+      font-size: 12px;
+      font-weight: 800;
+      line-height: 1.25;
+      min-height: 30px;
+    }
+
+    .task-meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 10px;
+      font-family: var(--mono);
+    }
+
+    .provider {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-family: var(--sans);
+      font-weight: 800;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .evidence {
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.35;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    .empty-slot {
+      border: 1px dashed var(--line-strong);
+      border-radius: 8px;
+      color: #8a929c;
+      min-height: 86px;
+      display: grid;
+      place-items: center;
+      font-size: 11px;
+      background: #fbfcfd;
+    }
+
+    .now-card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel-2);
+      padding: 10px;
+      display: grid;
+      gap: 8px;
+      animation: list-in 380ms ease both;
+    }
+
+    .now-card.focus {
+      border-color: var(--ink);
+      background: #fffef7;
+    }
+
+    .now-title {
+      font-size: 12px;
+      font-weight: 850;
+      line-height: 1.3;
+    }
+
+    .now-foot {
+      display: flex;
+      justify-content: space-between;
+      color: var(--muted);
+      font-size: 10px;
+      font-family: var(--mono);
+    }
+
+    .divider {
+      height: 1px;
+      background: var(--line);
+      margin: 14px 0;
+    }
+
+    .drawer {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: 236px minmax(0, 1fr) 312px;
+      border-top: 1px solid var(--line);
+      background: #ffffff;
+    }
+
+    .drawer-left,
+    .drawer-mid,
+    .drawer-right {
+      min-width: 0;
+      padding: 14px;
+    }
+
+    .drawer-left,
+    .drawer-mid {
+      border-right: 1px solid var(--line);
+    }
+
+    .drawer-title {
+      margin: 0 0 8px;
+      font-size: 13px;
+      font-weight: 850;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 6px;
+      margin: 0 0 12px;
+      overflow-x: auto;
+    }
+
+    .tab {
+      height: 26px;
+      padding: 0 9px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      display: inline-flex;
+      align-items: center;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .tab.active {
+      color: var(--ink);
+      border-color: var(--ink);
+      background: #e8ff67;
+    }
+
+    .timeline {
+      display: grid;
+      gap: 8px;
+    }
+
+    .event {
+      display: grid;
+      grid-template-columns: 78px 1fr;
+      gap: 10px;
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .event time {
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 10px;
+    }
+
+    .chat-preview {
+      height: 114px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #111318;
+      color: #e9eef5;
+      padding: 10px;
+      font: 11px/1.55 var(--mono);
+      overflow: hidden;
+    }
+
+    .chat-preview span {
+      color: #e8ff67;
+    }
+
+    .health-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .health {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+      display: grid;
+      gap: 5px;
+      min-width: 0;
+    }
+
+    .health span {
+      color: var(--muted);
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      font-weight: 800;
+    }
+
+    .health strong {
+      font: 800 18px/1 var(--mono);
+    }
+
+    @keyframes list-in {
+      from {
+        opacity: 0;
+        transform: translateY(8px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *,
+      *::before,
+      *::after {
+        animation-duration: 1ms !important;
+        transition-duration: 1ms !important;
+      }
+    }
+
+    @media (max-width: 1180px) {
+      .mock-frame {
+        min-height: auto;
+        grid-template-rows: auto auto auto;
+      }
+
+      .topbar {
+        grid-template-columns: 1fr;
+        padding: 14px;
+      }
+
+      .main,
+      .drawer {
+        grid-template-columns: 1fr;
+      }
+
+      .rail,
+      .now-panel,
+      .drawer-left,
+      .drawer-mid {
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .matrix-header,
+      .project-row {
+        grid-template-columns: 160px repeat(4, minmax(170px, 1fr));
+      }
+
+      .matrix-board {
+        overflow-x: auto;
+      }
+
+      .metric-strip {
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="mock-frame" aria-label="Workboard mockup">
+      <header class="topbar">
+        <div class="brand">
+          <div class="mark">WB</div>
+          <div class="brand-title">
+            <strong>Workboard</strong>
+            <span>Todo + Agent Monitor</span>
+          </div>
+        </div>
+        <div class="nav-tabs" aria-label="Primary navigation">
+          <span class="nav-tab current">Workboard</span>
+          <span class="nav-tab">Todo</span>
+          <span class="nav-tab">Sessions</span>
+          <span class="nav-tab">Projects</span>
+          <span class="nav-tab">Plans</span>
+        </div>
+        <div class="top-actions">
+          <div class="segmented" aria-label="Provider filter">
+            <button class="selected">All</button>
+            <button>Claude</button>
+            <button>Codex</button>
+          </div>
+          <button class="icon-button" aria-label="Sync">R</button>
+          <button class="icon-button" aria-label="Filter">F</button>
+          <button class="primary-button">Open Todo</button>
+        </div>
+      </header>
+
+      <section class="main">
+        <aside class="rail">
+          <div class="section-title">Projects <span class="count">12</span></div>
+          <div class="project-list">
+            <article class="project-item selected">
+              <div class="project-head">
+                <div>
+                  <div class="project-name">mutil-om</div>
+                  <div class="project-path">work/mutil-om</div>
+                </div>
+                <span class="chip"><i class="dot active"></i>3</span>
+              </div>
+              <div class="project-meta">
+                <span class="chip"><i class="dot claude"></i>Claude</span>
+                <span class="chip"><i class="dot codex"></i>Codex</span>
+                <span class="chip"><i class="dot waiting"></i>1 waiting</span>
+              </div>
+            </article>
+
+            <article class="project-item">
+              <div class="project-head">
+                <div>
+                  <div class="project-name">infra/aip</div>
+                  <div class="project-path">work/infra/aip</div>
+                </div>
+                <span class="chip"><i class="dot active"></i>2</span>
+              </div>
+              <div class="project-meta">
+                <span class="chip"><i class="dot codex"></i>Codex</span>
+                <span class="chip"><i class="dot blocked"></i>P0</span>
+              </div>
+            </article>
+
+            <article class="project-item">
+              <div class="project-head">
+                <div>
+                  <div class="project-name">remem</div>
+                  <div class="project-path">AI/tool/remem</div>
+                </div>
+                <span class="chip"><i class="dot waiting"></i>1</span>
+              </div>
+              <div class="project-meta">
+                <span class="chip"><i class="dot claude"></i>Claude</span>
+                <span class="chip">stale 2h</span>
+              </div>
+            </article>
+
+            <article class="project-item">
+              <div class="project-head">
+                <div>
+                  <div class="project-name">Claude-Code-Monitor</div>
+                  <div class="project-path">AI/agent/Claude-Code-Monitor</div>
+                </div>
+                <span class="chip"><i class="dot active"></i>1</span>
+              </div>
+              <div class="project-meta">
+                <span class="chip"><i class="dot codex"></i>Codex</span>
+                <span class="chip">mock</span>
+              </div>
+            </article>
+          </div>
+        </aside>
+
+        <section class="matrix">
+          <div class="metric-strip">
+            <div class="metric">
+              <span>Active work</span>
+              <strong>7</strong>
+            </div>
+            <div class="metric">
+              <span>Waiting on me</span>
+              <strong>3</strong>
+            </div>
+            <div class="metric">
+              <span>Blocked P0</span>
+              <strong>1</strong>
+            </div>
+            <div class="metric">
+              <span>Done today</span>
+              <strong>9</strong>
+            </div>
+          </div>
+
+          <div class="matrix-board">
+            <div class="matrix-header">
+              <div>Project</div>
+              <div>Active</div>
+              <div>Waiting</div>
+              <div>Planned</div>
+              <div>Done</div>
+            </div>
+
+            <div class="matrix-body">
+              <article class="project-row">
+                <div class="project-label">
+                  <div class="row-name">mutil-om</div>
+                  <div class="row-sub">dev / ui</div>
+                  <div class="progress"><i style="width: 68%"></i></div>
+                  <div class="chip-row">
+                    <span class="chip">68%</span>
+                    <span class="chip"><i class="dot claude"></i>2</span>
+                    <span class="chip"><i class="dot codex"></i>1</span>
+                  </div>
+                </div>
+                <div class="project-cell">
+                  <div class="work-card focus">
+                    <div class="task-title">Office layout refinement and citation traceability</div>
+                    <div class="evidence">Last evidence: updated plan has 4 phases, current phase is UI polish.</div>
+                    <div class="task-meta">
+                      <span class="provider"><i class="dot active"></i>active</span>
+                      <span>4m ago</span>
+                    </div>
+                  </div>
+                </div>
+                <div class="project-cell">
+                  <div class="work-card">
+                    <div class="task-title">PDF highlight still needs visual QA</div>
+                    <div class="evidence">Claude session is waiting after screenshot comparison.</div>
+                    <div class="task-meta">
+                      <span class="provider"><i class="dot waiting"></i>waiting</span>
+                      <span>21m</span>
+                    </div>
+                  </div>
+                </div>
+                <div class="project-cell">
+                  <div class="work-card">
+                    <div class="task-title">Missing-input checker for demo flow</div>
+                    <div class="evidence">No linked session yet. Manual task is ready.</div>
+                    <div class="task-meta">
+                      <span>P1</span>
+                      <span>planned</span>
+                    </div>
+                  </div>
+                </div>
+                <div class="project-cell">
+                  <div class="work-card">
+                    <div class="task-title">DeepSearch query normalization</div>
+                    <div class="evidence">Verified by local route tests and merged branch note.</div>
+                    <div class="task-meta">
+                      <span class="provider"><i class="dot"></i>done</span>
+                      <span>today</span>
+                    </div>
+                  </div>
+                </div>
+              </article>
+
+              <article class="project-row">
+                <div class="project-label">
+                  <div class="row-name">infra/aip</div>
+                  <div class="row-sub">main / aiproxy</div>
+                  <div class="progress"><i style="width: 42%"></i></div>
+                  <div class="chip-row">
+                    <span class="chip">42%</span>
+                    <span class="chip"><i class="dot codex"></i>2</span>
+                  </div>
+                </div>
+                <div class="project-cell">
+                  <div class="work-card">
+                    <div class="task-title">Model list example manifest follow-up</div>
+                    <div class="evidence">Codex touched catalog route and manifest loading path.</div>
+                    <div class="task-meta">
+                      <span class="provider"><i class="dot codex"></i>codex</span>
+                      <span>12m</span>
+                    </div>
+                  </div>
+                </div>
+                <div class="project-cell">
+                  <div class="work-card">
+                    <div class="task-title">Orphan billing SLS proof needed</div>
+                    <div class="evidence">Blocked until logstore query IDs are collected.</div>
+                    <div class="task-meta">
+                      <span class="provider"><i class="dot blocked"></i>blocked</span>
+                      <span>P0</span>
+                    </div>
+                  </div>
+                </div>
+                <div class="project-cell">
+                  <div class="work-card">
+                    <div class="task-title">Non-workflow prompt enhancement design</div>
+                    <div class="evidence">Architecture doc exists; implementation task not started.</div>
+                    <div class="task-meta">
+                      <span>P2</span>
+                      <span>planned</span>
+                    </div>
+                  </div>
+                </div>
+                <div class="project-cell">
+                  <div class="empty-slot">No recent done</div>
+                </div>
+              </article>
+
+              <article class="project-row">
+                <div class="project-label">
+                  <div class="row-name">Claude-Code-Monitor</div>
+                  <div class="row-sub">feature / workboard</div>
+                  <div class="progress"><i style="width: 18%"></i></div>
+                  <div class="chip-row">
+                    <span class="chip">18%</span>
+                    <span class="chip"><i class="dot codex"></i>1</span>
+                  </div>
+                </div>
+                <div class="project-cell">
+                  <div class="work-card">
+                    <div class="task-title">Todo + agent workboard PRD and mock</div>
+                    <div class="evidence">PRD created; static mock is in progress.</div>
+                    <div class="task-meta">
+                      <span class="provider"><i class="dot codex"></i>codex</span>
+                      <span>now</span>
+                    </div>
+                  </div>
+                </div>
+                <div class="project-cell">
+                  <div class="empty-slot">No waiters</div>
+                </div>
+                <div class="project-cell">
+                  <div class="work-card">
+                    <div class="task-title">Add work item SQLite migration</div>
+                    <div class="evidence">First implementation slice after visual approval.</div>
+                    <div class="task-meta">
+                      <span>P1</span>
+                      <span>planned</span>
+                    </div>
+                  </div>
+                </div>
+                <div class="project-cell">
+                  <div class="empty-slot">No recent done</div>
+                </div>
+              </article>
+            </div>
+          </div>
+        </section>
+
+        <aside class="now-panel">
+          <div class="section-title">Now <span class="count">live</span></div>
+          <div class="now-list">
+            <article class="now-card focus">
+              <div class="chip-row">
+                <span class="chip"><i class="dot codex"></i>Codex</span>
+                <span class="chip">current</span>
+              </div>
+              <div class="now-title">Create static HTML mock for Todo + Agent Workboard</div>
+              <div class="now-foot">
+                <span>Claude-Code-Monitor</span>
+                <span>now</span>
+              </div>
+            </article>
+            <article class="now-card">
+              <div class="chip-row">
+                <span class="chip"><i class="dot claude"></i>Claude</span>
+                <span class="chip"><i class="dot waiting"></i>waiting</span>
+              </div>
+              <div class="now-title">PDF citation highlight QA needs decision</div>
+              <div class="now-foot">
+                <span>mutil-om</span>
+                <span>21m</span>
+              </div>
+            </article>
+            <article class="now-card">
+              <div class="chip-row">
+                <span class="chip"><i class="dot blocked"></i>P0</span>
+              </div>
+              <div class="now-title">SLS-only orphan billing investigation lacks raw IDs</div>
+              <div class="now-foot">
+                <span>infra/aip</span>
+                <span>47m</span>
+              </div>
+            </article>
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="section-title">Todo source <span class="count">manual</span></div>
+          <article class="now-card">
+            <div class="now-title">Add and schedule tasks on the Todo page</div>
+            <div class="chip-row">
+              <span class="chip">date required</span>
+              <span class="chip">manual planned</span>
+              <span class="chip">suggestions need accept</span>
+            </div>
+            <div class="now-foot">
+              <span>Todo is source of truth</span>
+              <span>Workboard projects it</span>
+            </div>
+          </article>
+        </aside>
+      </section>
+
+      <section class="drawer">
+        <aside class="drawer-left">
+          <div class="section-title">Selected task</div>
+          <h2 class="drawer-title">Office layout refinement and citation traceability</h2>
+          <div class="chip-row">
+            <span class="chip"><i class="dot active"></i>Active</span>
+            <span class="chip">P1</span>
+            <span class="chip">estimated 68%</span>
+          </div>
+          <div class="divider"></div>
+          <div class="health-grid">
+            <div class="health">
+              <span>Subtasks</span>
+              <strong>7/11</strong>
+            </div>
+            <div class="health">
+              <span>Evidence</span>
+              <strong>24</strong>
+            </div>
+          </div>
+        </aside>
+
+        <section class="drawer-mid">
+          <div class="tabs" aria-label="Task detail tabs">
+            <span class="tab active">Timeline</span>
+            <span class="tab">Chats</span>
+            <span class="tab">Tools</span>
+            <span class="tab">Memory</span>
+          </div>
+          <div class="timeline">
+            <div class="event">
+              <time>13:58</time>
+              <div>Codex created `docs/PRD_TODO_AGENT_WORKBOARD.md` and proposed Workboard as the default screen.</div>
+            </div>
+            <div class="event">
+              <time>13:42</time>
+              <div>Claude session parsed plan phases and found the current UI polish phase waiting for visual QA.</div>
+            </div>
+            <div class="event">
+              <time>12:21</time>
+              <div>Manual task linked to `mutil-om` project and promoted from Planned to Active.</div>
+            </div>
+          </div>
+        </section>
+
+        <aside class="drawer-right">
+          <div class="section-title">Chat preview</div>
+          <div class="chat-preview">
+            <span>codex</span> inspect Claude-Code-Monitor capabilities<br>
+            <span>tool</span> rg sessions plans memory projects<br>
+            <span>result</span> existing tabs can be reused<br>
+            <span>codex</span> add provider-neutral workboard layer
+          </div>
+          <div class="divider"></div>
+          <div class="section-title">Files touched</div>
+          <div class="activity-list">
+            <span class="chip">docs/PRD_TODO_AGENT_WORKBOARD.md</span>
+            <span class="chip">docs/mockups/workboard_mock.html</span>
+          </div>
+        </aside>
+      </section>
+    </section>
+  </main>
+</body>
+</html>

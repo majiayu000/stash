@@ -1,0 +1,21 @@
+node_modules/
+dist/
+build/
+.vite/
+.DS_Store
+*.log
+
+# udo runtime state
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+.udo-data/
+
+# playwright
+client/test-results/
+client/playwright-report/
+client/.playwright/
+
+# bun
+bun.lockb

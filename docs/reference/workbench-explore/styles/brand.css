@@ -1,0 +1,80 @@
+/* Flattened brand stylesheet for the UI kit. Inlines the grid +
+   orb ambient background, global resets, animations, and any
+   utilities that weren't worth extracting to components.
+   Tokens come from ../../colors_and_type.css — imported first. */
+
+@import url('./tokens.css');
+
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+
+body {
+    font-family: var(--font-body);
+    background: var(--bg-void);
+    color: var(--text-primary);
+    line-height: 1.6;
+    min-height: 100vh;
+    overflow-x: hidden;
+    position: relative;
+}
+
+/* Animated grid background */
+body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background:
+        linear-gradient(90deg, var(--grid-color) 1px, transparent 1px),
+        linear-gradient(var(--grid-color) 1px, transparent 1px);
+    background-size: 60px 60px;
+    mask-image: radial-gradient(ellipse 80% 50% at 50% 0%, black 70%, transparent 100%);
+    pointer-events: none;
+    z-index: 0;
+}
+
+/* Floating orb gradients */
+body::after {
+    content: '';
+    position: fixed;
+    top: -50%; left: -50%;
+    width: 200%; height: 200%;
+    background:
+        radial-gradient(circle at 20% 20%, rgba(0, 255, 242, 0.08) 0%, transparent 40%),
+        radial-gradient(circle at 80% 80%, rgba(191, 90, 242, 0.08) 0%, transparent 40%),
+        radial-gradient(circle at 50% 50%, rgba(255, 0, 255, 0.03) 0%, transparent 50%);
+    animation: orbFloat 20s ease-in-out infinite;
+    pointer-events: none;
+    z-index: 0;
+}
+@keyframes orbFloat {
+    0%, 100% { transform: translate(0, 0) rotate(0deg); }
+    33%      { transform: translate(30px, -30px) rotate(5deg); }
+    66%      { transform: translate(-20px, 20px) rotate(-5deg); }
+}
+
+.container {
+    position: relative;
+    z-index: 1;
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 3rem 2rem;
+}
+
+/* Signature entry anims */
+@keyframes fadeInDown { from { opacity: 0; transform: translateY(-30px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes fadeInUp   { from { opacity: 0; transform: translateY(30px); }  to { opacity: 1; transform: translateY(0); } }
+@keyframes cardFadeIn { from { opacity: 0; transform: translateY(20px) scale(0.95); } to { opacity: 1; transform: translateY(0) scale(1); } }
+@keyframes pulse      { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.05); } }
+@keyframes blink      { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+@keyframes borderFlow { 0% { background-position: 0% 50%; } 100% { background-position: 300% 50%; } }
+@keyframes shimmer    { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
+@keyframes spin       { to { transform: rotate(360deg); } }
+@keyframes heartBeat  { 0%, 100% { transform: scale(1); } 25% { transform: scale(1.3); } 50% { transform: scale(1); } 75% { transform: scale(1.2); } }
+@keyframes modalFadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes modalSlideIn { from { opacity: 0; transform: translateY(30px) scale(0.95); } to { opacity: 1; transform: translateY(0) scale(1); } }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: var(--bg-primary); }
+::-webkit-scrollbar-thumb { background: var(--bg-elevated); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--neon-cyan); }

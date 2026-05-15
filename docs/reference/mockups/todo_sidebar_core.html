@@ -1,0 +1,1027 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Todo Core Sidebar Prototype</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #eef1f4;
+      --sidebar: #15171c;
+      --sidebar-soft: #20232b;
+      --surface: #ffffff;
+      --surface-soft: #f6f7f9;
+      --ink: #17191f;
+      --muted: #69717d;
+      --line: #d9dee5;
+      --line-strong: #aeb7c2;
+      --accent: #e8ff67;
+      --blue: #1769e0;
+      --green: #178a53;
+      --orange: #b66700;
+      --red: #bd3d45;
+      --gray: #5e6774;
+      --shadow: 0 22px 54px rgba(23, 25, 31, 0.14);
+      --mono: "SFMono-Regular", "Cascadia Code", "Liberation Mono", monospace;
+      --sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        linear-gradient(90deg, rgba(23, 25, 31, 0.04) 1px, transparent 1px),
+        linear-gradient(rgba(23, 25, 31, 0.04) 1px, transparent 1px),
+        var(--bg);
+      background-size: 36px 36px;
+      color: var(--ink);
+      font-family: var(--sans);
+    }
+
+    button,
+    input,
+    select,
+    textarea {
+      font: inherit;
+    }
+
+    button {
+      cursor: pointer;
+    }
+
+    .page {
+      min-height: 100vh;
+      padding: 24px;
+      display: grid;
+      place-items: center;
+    }
+
+    .app {
+      width: min(1380px, 100%);
+      min-height: min(880px, calc(100vh - 48px));
+      display: grid;
+      grid-template-columns: 250px minmax(0, 1fr);
+      border: 1px solid var(--line-strong);
+      border-radius: 8px;
+      background: var(--surface);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .sidebar {
+      min-width: 0;
+      background: var(--sidebar);
+      color: #eef2f7;
+      padding: 16px;
+      display: grid;
+      grid-template-rows: auto auto minmax(0, 1fr) auto;
+      gap: 16px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .mark {
+      width: 34px;
+      height: 34px;
+      border: 2px solid #f5f7fb;
+      border-radius: 8px;
+      background: var(--accent);
+      color: var(--ink);
+      display: grid;
+      place-items: center;
+      font: 900 12px var(--mono);
+    }
+
+    .brand strong {
+      display: block;
+      font-size: 15px;
+      line-height: 1.1;
+    }
+
+    .brand span {
+      display: block;
+      margin-top: 2px;
+      color: #9ea6b3;
+      font-size: 10px;
+      font-weight: 850;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .capture {
+      display: grid;
+      gap: 8px;
+    }
+
+    .capture textarea {
+      min-height: 86px;
+      border: 1px solid #353a45;
+      border-radius: 8px;
+      background: #101217;
+      color: #f5f7fb;
+      padding: 10px;
+      resize: vertical;
+      line-height: 1.45;
+      font-size: 12px;
+    }
+
+    .button {
+      height: 34px;
+      border: 1px solid var(--line-strong);
+      border-radius: 7px;
+      background: #fff;
+      color: var(--ink);
+      padding: 0 12px;
+      font-size: 12px;
+      font-weight: 850;
+    }
+
+    .button.primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: var(--ink);
+    }
+
+    .button.dark {
+      border-color: #3a404c;
+      background: var(--sidebar-soft);
+      color: #f5f7fb;
+    }
+
+    .nav-group {
+      display: grid;
+      gap: 7px;
+      align-content: start;
+      overflow: auto;
+    }
+
+    .nav-title {
+      margin: 0 0 2px;
+      color: #8992a0;
+      font-size: 10px;
+      font-weight: 850;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .nav-item {
+      width: 100%;
+      min-height: 36px;
+      border: 1px solid transparent;
+      border-radius: 8px;
+      background: transparent;
+      color: #dfe5ee;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      padding: 0 10px;
+      text-align: left;
+      font-size: 12px;
+      font-weight: 850;
+    }
+
+    .nav-item.active {
+      border-color: #424956;
+      background: #252934;
+      box-shadow: inset 3px 0 0 var(--accent);
+      color: #fff;
+    }
+
+    .nav-item span:last-child {
+      color: #9ea6b3;
+      font-family: var(--mono);
+      font-size: 11px;
+    }
+
+    .sidebar-foot {
+      border: 1px solid #353a45;
+      border-radius: 8px;
+      padding: 10px;
+      color: #aeb7c2;
+      font-size: 11px;
+      line-height: 1.45;
+      background: #101217;
+    }
+
+    .workspace {
+      min-width: 0;
+      display: grid;
+      grid-template-rows: 76px minmax(0, 1fr);
+      background: var(--surface-soft);
+    }
+
+    .head {
+      border-bottom: 1px solid var(--line);
+      background: #fff;
+      padding: 14px 18px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(220px, 340px) auto;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .title h1 {
+      margin: 0;
+      font-size: 21px;
+      line-height: 1.1;
+      letter-spacing: 0;
+    }
+
+    .title p {
+      margin: 5px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .search {
+      width: 100%;
+      height: 36px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface-soft);
+      padding: 0 10px;
+      color: var(--ink);
+      font-size: 12px;
+    }
+
+    .content {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 360px;
+      gap: 12px;
+      padding: 14px;
+      overflow: hidden;
+    }
+
+    .panel {
+      min-height: 0;
+      min-width: 0;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      overflow: hidden;
+    }
+
+    .panel-pad {
+      padding: 12px;
+      overflow: auto;
+    }
+
+    .toolbar {
+      min-height: 46px;
+      border-bottom: 1px solid var(--line);
+      background: #fff;
+      padding: 8px 10px;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .toolbar-left,
+    .toolbar-right {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .select {
+      height: 32px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--surface-soft);
+      color: var(--ink);
+      padding: 0 9px;
+      font-size: 12px;
+      font-weight: 760;
+    }
+
+    .task-list {
+      min-height: 0;
+      overflow: auto;
+    }
+
+    .task-row {
+      display: grid;
+      grid-template-columns: 32px minmax(260px, 1fr) 94px 106px 100px 104px;
+      gap: 10px;
+      align-items: center;
+      min-height: 64px;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line);
+      background: #fff;
+    }
+
+    .task-row:hover,
+    .task-row.selected {
+      background: #fbfcf4;
+    }
+
+    .task-row.header {
+      min-height: 38px;
+      background: #eef2f5;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 850;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+
+    .checkbox {
+      width: 18px;
+      height: 18px;
+      border: 2px solid var(--line-strong);
+      border-radius: 5px;
+      background: #fff;
+    }
+
+    .checkbox.done {
+      border-color: var(--green);
+      background: var(--green);
+      box-shadow: inset 0 0 0 4px #fff;
+    }
+
+    .task-main {
+      min-width: 0;
+      display: grid;
+      gap: 4px;
+    }
+
+    .task-title {
+      border: 0;
+      background: transparent;
+      padding: 0;
+      text-align: left;
+      color: var(--ink);
+      font-size: 13px;
+      font-weight: 850;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .task-note,
+    .cell-muted {
+      color: var(--muted);
+      font: 10px var(--mono);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 24px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: var(--surface-soft);
+      color: var(--muted);
+      padding: 0 8px;
+      font-size: 11px;
+      font-weight: 850;
+      white-space: nowrap;
+    }
+
+    .pill.inbox,
+    .pill.planned { color: var(--blue); border-color: rgba(23, 105, 224, 0.32); }
+    .pill.active { color: var(--green); border-color: rgba(23, 138, 83, 0.32); }
+    .pill.waiting { color: var(--orange); border-color: rgba(182, 103, 0, 0.34); }
+    .pill.blocked { color: var(--red); border-color: rgba(189, 61, 69, 0.34); }
+    .pill.someday { color: var(--orange); border-color: rgba(182, 103, 0, 0.28); }
+    .pill.done,
+    .pill.dropped { color: var(--gray); }
+
+    .editor {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+    }
+
+    .editor-head {
+      min-height: 46px;
+      border-bottom: 1px solid var(--line);
+      padding: 10px 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .section-title {
+      margin: 0;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 850;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .form {
+      display: grid;
+      gap: 10px;
+    }
+
+    .form-section {
+      display: grid;
+      gap: 10px;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+    }
+
+    .field {
+      display: grid;
+      gap: 5px;
+    }
+
+    .two-col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    label {
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 850;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+    }
+
+    input,
+    select,
+    textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      color: var(--ink);
+      padding: 9px 10px;
+      font-size: 12px;
+    }
+
+    textarea {
+      min-height: 92px;
+      resize: vertical;
+      line-height: 1.45;
+    }
+
+    .empty {
+      margin: 12px;
+      border: 1px dashed var(--line-strong);
+      border-radius: 8px;
+      padding: 14px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+      background: #fff;
+    }
+
+    @media (max-width: 1120px) {
+      .app,
+      .content,
+      .head {
+        grid-template-columns: 1fr;
+      }
+
+      .sidebar {
+        grid-template-rows: auto auto auto auto;
+      }
+
+      .task-row {
+        min-width: 860px;
+      }
+
+      .task-list,
+      .panel {
+        overflow-x: auto;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="app">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="mark">TD</div>
+          <div>
+            <strong>Todo Core</strong>
+            <span>Capture then plan</span>
+          </div>
+        </div>
+
+        <div class="capture">
+          <textarea id="quickText" placeholder="Capture an idea, reminder, or task. Project is optional."></textarea>
+          <button class="button primary" id="quickAddBtn">Save to Inbox</button>
+        </div>
+
+        <nav class="nav-group" aria-label="Todo views">
+          <p class="nav-title">Views</p>
+          <button class="nav-item active" data-view="inbox"><span>Inbox</span><span id="countInbox">0</span></button>
+          <button class="nav-item" data-view="today"><span>Today</span><span id="countToday">0</span></button>
+          <button class="nav-item" data-view="upcoming"><span>Upcoming</span><span id="countUpcoming">0</span></button>
+          <button class="nav-item" data-view="someday"><span>Someday</span><span id="countSomeday">0</span></button>
+          <button class="nav-item" data-view="waiting"><span>Waiting</span><span id="countWaiting">0</span></button>
+          <button class="nav-item" data-view="all"><span>All active</span><span id="countAll">0</span></button>
+          <p class="nav-title">Areas</p>
+          <button class="nav-item area-filter" data-area="AI tooling"><span>AI tooling</span><span id="countAreaAi">0</span></button>
+          <button class="nav-item area-filter" data-area="OM demo"><span>OM demo</span><span id="countAreaOm">0</span></button>
+          <button class="nav-item area-filter" data-area="Personal admin"><span>Personal admin</span><span id="countAreaPersonal">0</span></button>
+        </nav>
+
+        <div class="sidebar-foot">
+          Basic rule: write it down first. During review, decide date, area, optional project, and whether it is a task or someday idea.
+        </div>
+      </aside>
+
+      <section class="workspace">
+        <header class="head">
+          <div class="title">
+            <h1 id="viewTitle">Inbox</h1>
+            <p id="viewDesc">Untriaged thoughts and tasks. No project required.</p>
+          </div>
+          <input class="search" id="searchInput" placeholder="Search title, notes, area, project">
+          <button class="button" id="newTaskBtn">New task</button>
+        </header>
+
+        <section class="content">
+          <div class="panel">
+            <div class="toolbar">
+              <div class="toolbar-left">
+                <select class="select" id="kindFilter">
+                  <option value="all">All kinds</option>
+                  <option value="task">Task</option>
+                  <option value="idea">Idea</option>
+                  <option value="research">Research</option>
+                  <option value="reminder">Reminder</option>
+                </select>
+                <select class="select" id="priorityFilter">
+                  <option value="all">All priority</option>
+                  <option>P0</option>
+                  <option>P1</option>
+                  <option>P2</option>
+                  <option>P3</option>
+                </select>
+              </div>
+              <div class="toolbar-right">
+                <button class="button" id="planTodayBtn">Plan today</button>
+                <button class="button" id="moveSomedayBtn">Someday</button>
+                <button class="button" id="doneBtn">Done</button>
+              </div>
+            </div>
+
+            <div class="task-list">
+              <div class="task-row header">
+                <div></div>
+                <div>Task</div>
+                <div>Status</div>
+                <div>Area</div>
+                <div>Priority</div>
+                <div>Date</div>
+              </div>
+              <div id="taskRows"></div>
+            </div>
+          </div>
+
+          <aside class="panel editor">
+            <div class="editor-head">
+              <p class="section-title">Task detail</p>
+              <span class="pill" id="editorMode">manual</span>
+            </div>
+            <div class="panel-pad">
+              <div class="form">
+                <div class="form-section">
+                  <div class="field">
+                    <label>Title</label>
+                    <input id="titleInput">
+                  </div>
+                  <div class="two-col">
+                    <div class="field">
+                      <label>Kind</label>
+                      <select id="kindInput">
+                        <option>task</option>
+                        <option>idea</option>
+                        <option>research</option>
+                        <option>reminder</option>
+                        <option>decision</option>
+                      </select>
+                    </div>
+                    <div class="field">
+                      <label>Status</label>
+                      <select id="statusInput">
+                        <option>inbox</option>
+                        <option>planned</option>
+                        <option>active</option>
+                        <option>waiting</option>
+                        <option>blocked</option>
+                        <option>someday</option>
+                        <option>done</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class="two-col">
+                    <div class="field">
+                      <label>Priority</label>
+                      <select id="priorityInput">
+                        <option>P0</option>
+                        <option>P1</option>
+                        <option>P2</option>
+                        <option>P3</option>
+                      </select>
+                    </div>
+                    <div class="field">
+                      <label>Scheduled</label>
+                      <input id="scheduledInput" type="date">
+                    </div>
+                  </div>
+                </div>
+
+                <div class="form-section">
+                  <div class="two-col">
+                    <div class="field">
+                      <label>Area</label>
+                      <select id="areaInput">
+                        <option>AI tooling</option>
+                        <option>OM demo</option>
+                        <option>AtlasCloud infra</option>
+                        <option>Writing/social</option>
+                        <option>Learning</option>
+                        <option>Personal admin</option>
+                      </select>
+                    </div>
+                    <div class="field">
+                      <label>Project optional</label>
+                      <select id="projectInput">
+                        <option>none</option>
+                        <option>Claude-Code-Monitor</option>
+                        <option>mutil-om</option>
+                        <option>infra/aip</option>
+                        <option>remem</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class="field">
+                    <label>Labels</label>
+                    <input id="labelsInput" placeholder="design, p0, personal">
+                  </div>
+                </div>
+
+                <div class="form-section">
+                  <div class="field">
+                    <label>Outcome / done-when</label>
+                    <textarea id="outcomeInput"></textarea>
+                  </div>
+                  <div class="field">
+                    <label>Notes</label>
+                    <textarea id="notesInput"></textarea>
+                  </div>
+                </div>
+
+                <button class="button primary" id="saveTaskBtn">Save task</button>
+              </div>
+            </div>
+          </aside>
+        </section>
+      </section>
+    </section>
+  </main>
+
+  <script>
+    const today = '2026-05-14';
+    let currentView = 'inbox';
+    let selectedId = 't1';
+    let areaFilter = '';
+
+    const viewMeta = {
+      inbox: ['Inbox', 'Untriaged thoughts and tasks. No project required.'],
+      today: ['Today', 'The realistic list for today, not every possible project.'],
+      upcoming: ['Upcoming', 'Dated future work and reminders.'],
+      someday: ['Someday', 'Useful ideas kept without schedule pressure.'],
+      waiting: ['Waiting', 'Items paused by review, logs, CI, people, or decisions.'],
+      all: ['All active', 'Everything except done items.']
+    };
+
+    const tasks = [
+      {
+        id: 't1',
+        title: 'Design the basic Todo sidebar flow',
+        kind: 'task',
+        status: 'active',
+        priority: 'P1',
+        area: 'AI tooling',
+        project: 'Claude-Code-Monitor',
+        scheduled: today,
+        labels: 'design, mock',
+        outcome: 'Sidebar navigation, inbox capture, task list, and editor are understandable without agent panels.',
+        notes: 'Keep agent monitoring secondary. Todo is the main product.'
+      },
+      {
+        id: 't2',
+        title: 'Capture random idea: project does not need to be chosen',
+        kind: 'idea',
+        status: 'inbox',
+        priority: 'P2',
+        area: 'Personal admin',
+        project: 'none',
+        scheduled: '',
+        labels: 'capture',
+        outcome: '',
+        notes: 'This is the core behavior: write first, organize later.'
+      },
+      {
+        id: 't3',
+        title: 'PDF citation highlight visual QA',
+        kind: 'task',
+        status: 'waiting',
+        priority: 'P1',
+        area: 'OM demo',
+        project: 'mutil-om',
+        scheduled: today,
+        labels: 'qa, demo',
+        outcome: 'PDF citation highlight is visually verified.',
+        notes: 'Waiting for visual decision.'
+      },
+      {
+        id: 't4',
+        title: 'Compare Things inbox and deadline behavior',
+        kind: 'research',
+        status: 'someday',
+        priority: 'P3',
+        area: 'Learning',
+        project: 'none',
+        scheduled: '',
+        labels: 'research',
+        outcome: 'Decide whether When and Deadline should stay separate.',
+        notes: 'Useful later, not today.'
+      },
+      {
+        id: 't5',
+        title: 'Collect SLS raw IDs for orphan billing proof',
+        kind: 'task',
+        status: 'blocked',
+        priority: 'P0',
+        area: 'AtlasCloud infra',
+        project: 'infra/aip',
+        scheduled: today,
+        labels: 'billing, p0',
+        outcome: 'Raw IDs prove or disprove orphan billing.',
+        notes: 'Blocked until log IDs are collected.'
+      }
+    ];
+
+    function escapeHTML(value) {
+      return String(value ?? '').replace(/[&<>"']/g, (char) => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;'
+      })[char]);
+    }
+
+    function statusClass(status) {
+      return ['inbox', 'planned', 'active', 'waiting', 'blocked', 'someday', 'done'].includes(status) ? status : 'planned';
+    }
+
+    function taskMatches(task) {
+      const query = document.getElementById('searchInput').value.trim().toLowerCase();
+      const kind = document.getElementById('kindFilter').value;
+      const priority = document.getElementById('priorityFilter').value;
+      const haystack = [task.title, task.notes, task.area, task.project, task.labels].join(' ').toLowerCase();
+      if (query && !haystack.includes(query)) return false;
+      if (kind !== 'all' && task.kind !== kind) return false;
+      if (priority !== 'all' && task.priority !== priority) return false;
+      if (areaFilter && task.area !== areaFilter) return false;
+      if (currentView === 'inbox') return task.status === 'inbox';
+      if (currentView === 'today') return task.scheduled === today && task.status !== 'done';
+      if (currentView === 'upcoming') return task.scheduled > today && task.status !== 'done';
+      if (currentView === 'someday') return task.status === 'someday';
+      if (currentView === 'waiting') return ['waiting', 'blocked'].includes(task.status);
+      if (currentView === 'all') return task.status !== 'done';
+      return true;
+    }
+
+    function counts() {
+      return {
+        inbox: tasks.filter((task) => task.status === 'inbox').length,
+        today: tasks.filter((task) => task.scheduled === today && task.status !== 'done').length,
+        upcoming: tasks.filter((task) => task.scheduled > today && task.status !== 'done').length,
+        someday: tasks.filter((task) => task.status === 'someday').length,
+        waiting: tasks.filter((task) => ['waiting', 'blocked'].includes(task.status)).length,
+        all: tasks.filter((task) => task.status !== 'done').length,
+        ai: tasks.filter((task) => task.area === 'AI tooling' && task.status !== 'done').length,
+        om: tasks.filter((task) => task.area === 'OM demo' && task.status !== 'done').length,
+        personal: tasks.filter((task) => task.area === 'Personal admin' && task.status !== 'done').length
+      };
+    }
+
+    function renderCounts() {
+      const c = counts();
+      document.getElementById('countInbox').textContent = c.inbox;
+      document.getElementById('countToday').textContent = c.today;
+      document.getElementById('countUpcoming').textContent = c.upcoming;
+      document.getElementById('countSomeday').textContent = c.someday;
+      document.getElementById('countWaiting').textContent = c.waiting;
+      document.getElementById('countAll').textContent = c.all;
+      document.getElementById('countAreaAi').textContent = c.ai;
+      document.getElementById('countAreaOm').textContent = c.om;
+      document.getElementById('countAreaPersonal').textContent = c.personal;
+    }
+
+    function renderRows() {
+      const rows = tasks.filter(taskMatches);
+      document.getElementById('taskRows').innerHTML = rows.map((task) => `
+        <div class="task-row ${task.id === selectedId ? 'selected' : ''}">
+          <button class="checkbox ${task.status === 'done' ? 'done' : ''}" data-complete-id="${task.id}" aria-label="toggle done"></button>
+          <div class="task-main">
+            <button class="task-title" data-task-id="${task.id}">${escapeHTML(task.title)}</button>
+            <span class="task-note">${escapeHTML(task.project === 'none' ? 'no project' : task.project)} / ${escapeHTML(task.notes)}</span>
+          </div>
+          <div><span class="pill ${statusClass(task.status)}">${escapeHTML(task.status)}</span></div>
+          <div class="cell-muted">${escapeHTML(task.area)}</div>
+          <div class="cell-muted">${escapeHTML(task.priority)}</div>
+          <div class="cell-muted">${escapeHTML(task.scheduled || 'no date')}</div>
+        </div>
+      `).join('') || '<div class="empty">No tasks in this view.</div>';
+
+      document.querySelectorAll('[data-task-id]').forEach((button) => {
+        button.addEventListener('click', () => {
+          selectedId = button.dataset.taskId;
+          fillEditor();
+          renderRows();
+        });
+      });
+
+      document.querySelectorAll('[data-complete-id]').forEach((button) => {
+        button.addEventListener('click', () => {
+          const task = tasks.find((item) => item.id === button.dataset.completeId);
+          if (!task) return;
+          task.status = task.status === 'done' ? 'planned' : 'done';
+          selectedId = task.id;
+          fillEditor();
+          renderAll();
+        });
+      });
+    }
+
+    function fillEditor() {
+      const task = tasks.find((item) => item.id === selectedId) || tasks[0];
+      if (!task) return;
+      document.getElementById('titleInput').value = task.title;
+      document.getElementById('kindInput').value = task.kind;
+      document.getElementById('statusInput').value = task.status;
+      document.getElementById('priorityInput').value = task.priority;
+      document.getElementById('scheduledInput').value = task.scheduled;
+      document.getElementById('areaInput').value = task.area;
+      document.getElementById('projectInput').value = task.project;
+      document.getElementById('labelsInput').value = task.labels;
+      document.getElementById('outcomeInput').value = task.outcome;
+      document.getElementById('notesInput').value = task.notes;
+      document.getElementById('editorMode').textContent = task.status;
+    }
+
+    function readEditor() {
+      const task = tasks.find((item) => item.id === selectedId);
+      if (!task) return;
+      task.title = document.getElementById('titleInput').value.trim() || task.title;
+      task.kind = document.getElementById('kindInput').value;
+      task.status = document.getElementById('statusInput').value;
+      task.priority = document.getElementById('priorityInput').value;
+      task.scheduled = document.getElementById('scheduledInput').value;
+      task.area = document.getElementById('areaInput').value;
+      task.project = document.getElementById('projectInput').value;
+      task.labels = document.getElementById('labelsInput').value;
+      task.outcome = document.getElementById('outcomeInput').value;
+      task.notes = document.getElementById('notesInput').value;
+    }
+
+    function setView(view) {
+      currentView = view;
+      areaFilter = '';
+      document.querySelectorAll('.nav-item').forEach((item) => {
+        item.classList.toggle('active', item.dataset.view === view);
+      });
+      document.getElementById('viewTitle').textContent = viewMeta[view][0];
+      document.getElementById('viewDesc').textContent = viewMeta[view][1];
+      renderRows();
+    }
+
+    function addTask(partial) {
+      const task = {
+        id: 't' + Date.now(),
+        title: partial.title || 'Untitled task',
+        kind: partial.kind || 'task',
+        status: partial.status || 'inbox',
+        priority: partial.priority || 'P2',
+        area: partial.area || 'AI tooling',
+        project: partial.project || 'none',
+        scheduled: partial.scheduled || '',
+        labels: partial.labels || '',
+        outcome: '',
+        notes: partial.notes || ''
+      };
+      tasks.unshift(task);
+      selectedId = task.id;
+      fillEditor();
+      renderAll();
+    }
+
+    function renderAll() {
+      renderCounts();
+      renderRows();
+    }
+
+    document.querySelectorAll('[data-view]').forEach((button) => {
+      button.addEventListener('click', () => setView(button.dataset.view));
+    });
+
+    document.querySelectorAll('[data-area]').forEach((button) => {
+      button.addEventListener('click', () => {
+        areaFilter = button.dataset.area;
+        document.querySelectorAll('.nav-item').forEach((item) => item.classList.remove('active'));
+        button.classList.add('active');
+        document.getElementById('viewTitle').textContent = areaFilter;
+        document.getElementById('viewDesc').textContent = 'Area view. Items can still have no project.';
+        renderRows();
+      });
+    });
+
+    document.getElementById('quickAddBtn').addEventListener('click', () => {
+      const title = document.getElementById('quickText').value.trim();
+      if (!title) {
+        document.getElementById('quickText').focus();
+        return;
+      }
+      addTask({ title, kind: 'idea', status: 'inbox', notes: 'Captured quickly; review later.' });
+      document.getElementById('quickText').value = '';
+      setView('inbox');
+    });
+
+    document.getElementById('newTaskBtn').addEventListener('click', () => {
+      addTask({ title: 'New task', kind: 'task', status: 'planned', scheduled: today });
+      setView('all');
+      document.getElementById('titleInput').focus();
+      document.getElementById('titleInput').select();
+    });
+
+    document.getElementById('saveTaskBtn').addEventListener('click', () => {
+      readEditor();
+      renderAll();
+    });
+
+    document.getElementById('planTodayBtn').addEventListener('click', () => {
+      const task = tasks.find((item) => item.id === selectedId);
+      if (!task) return;
+      task.status = 'planned';
+      task.scheduled = today;
+      fillEditor();
+      setView('today');
+    });
+
+    document.getElementById('moveSomedayBtn').addEventListener('click', () => {
+      const task = tasks.find((item) => item.id === selectedId);
+      if (!task) return;
+      task.status = 'someday';
+      task.scheduled = '';
+      fillEditor();
+      setView('someday');
+    });
+
+    document.getElementById('doneBtn').addEventListener('click', () => {
+      const task = tasks.find((item) => item.id === selectedId);
+      if (!task) return;
+      task.status = 'done';
+      fillEditor();
+      renderAll();
+    });
+
+    ['searchInput', 'kindFilter', 'priorityFilter'].forEach((id) => {
+      document.getElementById(id).addEventListener('input', renderRows);
+      document.getElementById(id).addEventListener('change', renderRows);
+    });
+
+    fillEditor();
+    renderAll();
+  </script>
+</body>
+</html>

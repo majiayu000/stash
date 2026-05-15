@@ -1,0 +1,21 @@
+{
+  "name": "stash",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Todo + Agent Workboard — Inbox-first task capture with Claude/Codex session evidence",
+  "type": "module",
+  "scripts": {
+    "server:dev": "bun --watch run server/src/index.ts",
+    "server:test": "bun test --cwd server",
+    "client:dev": "bun --cwd client run dev",
+    "client:build": "bun --cwd client run build",
+    "client:test": "bun --cwd client run test",
+    "client:e2e": "bun --cwd client run e2e",
+    "typecheck": "bun --cwd server run typecheck && bun --cwd client run typecheck",
+    "test:all": "bun run server:test && bun run client:test",
+    "seed": "bun run server/fixtures/seed.ts"
+  },
+  "engines": {
+    "bun": ">=1.1.0"
+  }
+}

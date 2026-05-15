@@ -1,0 +1,13 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "types": ["vite/client", "node"],
+    "paths": {
+      "@stash/shared": ["../shared/src/index.ts"],
+      "@stash/shared/*": ["../shared/src/*"]
+    }
+  },
+  "include": ["src/**/*", "e2e/**/*", "vite.config.ts", "vitest.config.ts", "playwright.config.ts"]
+}

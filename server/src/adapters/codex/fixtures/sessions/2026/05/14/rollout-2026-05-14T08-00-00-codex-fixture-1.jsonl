@@ -1,0 +1,8 @@
+{"timestamp":"2026-05-14T08:00:00.000Z","type":"session_meta","payload":{"id":"codex-fixture-1","timestamp":"2026-05-14T08:00:00.000Z","cwd":"/Users/test/demo-codex","originator":"Codex CLI","cli_version":"0.128.0","source":"cli","model_provider":"openai"}}
+{"timestamp":"2026-05-14T08:00:01.000Z","type":"turn_context","payload":{"turn_id":"t1","cwd":"/Users/test/demo-codex","model":"gpt-5"}}
+{"timestamp":"2026-05-14T08:00:02.000Z","type":"event_msg","payload":{"type":"task_started","turn_id":"t1"}}
+{"timestamp":"2026-05-14T08:00:03.000Z","type":"response_item","payload":{"type":"message","role":"developer","content":[{"type":"text","text":"system instructions"}]}}
+{"timestamp":"2026-05-14T08:00:04.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"text","text":"Inline a fix for the demo-codex memory leak in cache.ts"}]}}
+{"timestamp":"2026-05-14T08:00:10.000Z","type":"response_item","payload":{"type":"function_call","name":"apply_patch","arguments":{"path":"/Users/test/demo-codex/src/cache.ts","patch":"..."}}}
+{"timestamp":"2026-05-14T08:00:20.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"text","text":"Applied the patch and verified cache no longer leaks."}]}}
+{"timestamp":"2026-05-14T08:00:30.000Z","type":"event_msg","payload":{"type":"task_completed","turn_id":"t1"}}
