@@ -2,7 +2,7 @@
 // Concept components consume `{ projects, todos, sessions, stats }` exactly like
 // the original workbench (window.AppData), but the values come from real hooks.
 
-import type { AgentSession, WorkItem } from '@stash/shared';
+import type { AgentSession, Area, WorkItem } from '@stash/shared';
 
 export interface WBProject {
   id: string;
@@ -125,10 +125,12 @@ export interface AdaptInput {
   items: WorkItem[];
   sessions: AgentSession[];
   workboardProjects: { projectId: string; itemCount: number; activeCount: number; blockedCount: number; items: WorkItem[]; sessions: AgentSession[] }[];
+  areas: Area[];
 }
 
 export function adaptToWorkbenchData(input: AdaptInput): WBData {
   const today = todayIso();
+  const areasById = new Map(input.areas.map((a) => [a.id, a]));
 
   // Projects derived from workboard groups.
   const projects: WBProject[] = input.workboardProjects.map((wb, idx) => {
@@ -142,7 +144,7 @@ export function adaptToWorkbenchData(input: AdaptInput): WBData {
       wb.items.some((i) => i.status === 'inbox') ? 'fresh' : 'paused';
     return {
       id: wb.projectId,
-      name: basename(wb.projectId),
+      name: areasById.get(wb.projectId)?.name ?? basename(wb.projectId),
       emoji: emojiFor(wb.projectId, idx),
       branch: 'main',
       progress,

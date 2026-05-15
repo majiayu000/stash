@@ -1,15 +1,8 @@
 import { beforeEach, describe, expect, test } from 'bun:test';
 import type { Database } from 'bun:sqlite';
 import { fixedClock } from '@stash/shared';
-import { openDatabase } from '../../db/connection.js';
-import { migrate } from '../../db/migrate.js';
+import { freshDb } from '../../db/test-helpers.js';
 import { AreaNameConflictError, AreaNotFoundError, AreaService } from './service.js';
-
-function freshDb(): Database {
-  const db = openDatabase({ path: ':memory:', inMemory: true });
-  migrate(db);
-  return db;
-}
 
 describe('AreaService', () => {
   let db: Database;
