@@ -5,6 +5,8 @@ export function App() {
   return (
     <Routes>
       <Route path="/" element={<Workbench />} />
+      <Route path="/c/:id" element={<Workbench />} />
+      <Route path="/c/:id/:projectId" element={<Workbench />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

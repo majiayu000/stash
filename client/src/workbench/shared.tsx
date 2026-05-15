@@ -2,6 +2,97 @@ import type { ReactNode } from 'react';
 import { CountUp, LiveDot, Typewriter } from '../components/effects';
 import { fmt, type WBData, type WBProject, type WBSession, type WBTodo } from './data';
 
+export interface Feature {
+  name: string;
+  progress: number;
+  status: 'done' | 'almost' | 'wip' | 'todo';
+}
+
+export function FeatureRow({ f }: { f: Feature }) {
+  return (
+    <div className="feat-row">
+      <div className="feat-name"><span className={`feat-dot ${f.status}`} /> {f.name}</div>
+      <div className="feat-pct">{f.progress}%</div>
+    </div>
+  );
+}
+
+export function ProjectCardFull({ p, onClick }: { p: WBProject; onClick?: () => void }) {
+  return (
+    <div className="pcard" onClick={onClick} role={onClick ? 'button' : undefined} tabIndex={onClick ? 0 : undefined}>
+      <div className="pcard-head">
+        <div className="pcard-emoji">{p.emoji}</div>
+        <div className="pcard-titles">
+          <div className="pcard-name">{p.name}</div>
+          {p.branch && <div className="pcard-branch">{p.branch}</div>}
+        </div>
+        <StatusPill status={p.status} />
+      </div>
+
+      <div className="pcard-doing">{p.doing}</div>
+
+      <div style={{ marginBottom: '0.8rem' }}>
+        <div className="pbar-row">
+          <div className="pbar-label">overall</div>
+          <div className="pbar-pct">{p.progress}%</div>
+        </div>
+        <ProgressBar value={p.progress} />
+      </div>
+
+      {p.features.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          {p.features.map((f) => <FeatureRow key={f.name} f={f} />)}
+        </div>
+      )}
+
+      <div className="pcard-foot">
+        <span className="pcard-chip"><span className="chip-em">💬</span> <strong>{p.sessions}</strong> sessions</span>
+        <span className="pcard-chip"><span className="chip-em">✓</span> <strong>{p.todoDone}</strong>/{p.todoCount + p.todoDone}</span>
+        <span className="pcard-chip" style={{ marginLeft: 'auto' }}><ModelBadge model={p.lastModel} /></span>
+      </div>
+    </div>
+  );
+}
+
+export function StatTile({ label, value, foot, tone, format }: { label: string; value: number | ReactNode; foot?: ReactNode; tone?: 'purple' | 'green' | 'orange'; format?: (n: number) => string }) {
+  return (
+    <div className={`stat-tile ${tone ?? ''}`}>
+      <div className="stat-tile-label">{label}</div>
+      <div className="stat-tile-value">
+        {typeof value === 'number'
+          ? <CountUp to={value} duration={1200} format={format ?? ((n: number) => Math.round(n).toLocaleString())} />
+          : value}
+      </div>
+      {foot && <div className="stat-tile-foot">{foot}</div>}
+    </div>
+  );
+}
+
+/** Compact key-value tile used in Concept K hero + Concept H KPIs. */
+export function Tile({ k, v, c }: { k: string; v: string; c?: string }) {
+  return (
+    <div style={{ padding: '0.75rem 0.9rem', background: 'var(--bg-glass)', border: '1px solid var(--border-hair)', borderRadius: 'var(--radius-md)' }}>
+      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.65rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>{k}</div>
+      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.4rem', fontWeight: 700, color: c ?? 'var(--text-primary)', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{v}</div>
+    </div>
+  );
+}
+
+export function Sparkline({ data }: { data: number[] }) {
+  const max = Math.max(...data, 1);
+  return (
+    <div className="spark">
+      {data.map((v, i) => (
+        <div
+          key={i}
+          className={`spark-bar ${i === data.length - 1 ? 'last' : ''}`}
+          style={{ height: ((v / max) * 100) + '%' }}
+        />
+      ))}
+    </div>
+  );
+}
+
 export function Topbar({ data, right }: { data: WBData; right?: ReactNode }) {
   const { stats } = data;
   return (
@@ -63,6 +154,25 @@ export function ProgressBar({ value, thin, fat }: { value: number; thin?: boolea
     <div className={cls}>
       <div className="pbar-fill" style={{ width: value + '%' }} />
     </div>
+  );
+}
+
+export function ToolBadge({ tool }: { tool: WBSession['tool'] }) {
+  const isCodex = tool === 'codex';
+  return (
+    <span style={{
+      fontFamily: 'var(--font-mono)',
+      fontSize: '0.65rem',
+      letterSpacing: '0.06em',
+      textTransform: 'uppercase',
+      padding: '2px 7px',
+      borderRadius: 'var(--radius-pill)',
+      color: isCodex ? 'var(--neon-purple)' : 'var(--neon-cyan)',
+      border: `1px solid ${isCodex ? 'rgba(191,90,242,0.35)' : 'rgba(0,255,242,0.35)'}`,
+      background: isCodex ? 'rgba(191,90,242,0.06)' : 'rgba(0,255,242,0.06)',
+    }}>
+      {isCodex ? 'codex' : 'claude-code'}
+    </span>
   );
 }
 

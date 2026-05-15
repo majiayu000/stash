@@ -1,17 +1,24 @@
-/* themes.css — cyber-default + 6 theme overrides ported from workbench.
-   All values are exposed as CSS variables so Tailwind reads them via colors. */
+/* themes.css — full cyber default + 6 theme overrides ported verbatim from
+   the workbench design template. Variable tokens live in :root (cyber) and
+   each .theme-* block remaps them. The .theme-X selector is applied to <body>
+   by lib/theme.ts, so descendant selectors `.theme-X .pcard` etc. all match.
+
+   Sections:
+     1) :root — cyber default tokens
+     2) Theme variants — matrix, synthwave, amber, glacier, paper, mono
+     3) Paper override rules — flat Primer/GitHub look
+     4) Mono override rules — brutalist B&W with hard offset shadows */
 
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Outfit:wght@300;400;500;600;700&display=swap');
 
+/* ─── 1) Cyber default (root) ─────────────────────────────────────────── */
 :root {
-  /* ─── Backgrounds (deep space) ─── */
   --bg-void:      #050508;
   --bg-primary:   #0a0a0f;
   --bg-secondary: #12121a;
   --bg-elevated:  #1a1a25;
   --bg-glass:     rgba(20, 20, 35, 0.7);
 
-  /* ─── Neon spectrum ─── */
   --neon-cyan:    #00fff2;
   --neon-magenta: #ff00ff;
   --neon-purple:  #bf5af2;
@@ -20,127 +27,695 @@
   --neon-orange:  #ff9f0a;
   --neon-pink:    #ff375f;
 
-  /* ─── Text ─── */
+  --accent-primary:   var(--neon-cyan);
+  --accent-secondary: var(--neon-purple);
+  --accent-success:   var(--neon-green);
+  --accent-warning:   var(--neon-orange);
+  --accent-danger:    var(--neon-pink);
+
   --text-primary:   #ffffff;
   --text-secondary: #a0a0b0;
   --text-muted:     #606070;
   --text-glow:      #00fff2;
 
-  /* ─── Borders, shadows, grids ─── */
   --border-glow:   rgba(0, 255, 242, 0.30);
   --border-subtle: rgba(255, 255, 255, 0.08);
   --border-hair:   rgba(255, 255, 255, 0.06);
-  --shadow-neon:   0 0 20px rgba(0, 255, 242, 0.30);
-  --shadow-card:   0 20px 40px rgba(0, 0, 0, 0.40),
-                   0 0 30px rgba(0, 255, 242, 0.15),
-                   inset 0 1px 0 rgba(255, 255, 255, 0.10);
-  --shadow-deep:   0 25px 50px -12px rgba(0, 0, 0, 0.80);
-  --grid-color:    rgba(0, 255, 242, 0.03);
 
-  /* ─── Radii ─── */
+  --shadow-neon: 0 0 20px rgba(0, 255, 242, 0.30);
+  --shadow-card-hover:
+      0 20px 40px rgba(0, 0, 0, 0.40),
+      0 0 30px rgba(0, 255, 242, 0.15),
+      inset 0 1px 0 rgba(255, 255, 255, 0.10);
+  --shadow-deep: 0 25px 50px -12px rgba(0, 0, 0, 0.80);
+
+  --grid-color: rgba(0, 255, 242, 0.03);
+
   --radius-sm: 4px;
   --radius-md: 8px;
-  --radius-lg: 12px;
-  --radius-pill: 999px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+  --radius-pill: 50px;
 
-  /* ─── Fonts ─── */
   --font-mono:    'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
   --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
   --font-body:    'Outfit', -apple-system, sans-serif;
 
-  /* ─── Gradients ─── */
+  --ease-smooth: cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-fast: 0.2s var(--ease-smooth);
+  --transition-base: 0.3s var(--ease-smooth);
+  --transition-slow: 0.4s var(--ease-smooth);
+
   --gradient-logo:    linear-gradient(135deg, var(--neon-cyan) 0%, var(--neon-purple) 50%, var(--neon-magenta) 100%);
   --gradient-primary: linear-gradient(135deg, var(--neon-cyan), var(--neon-purple));
+  --gradient-badge:   linear-gradient(135deg, var(--neon-purple), var(--neon-magenta));
   --gradient-success: linear-gradient(135deg, var(--neon-green), var(--neon-cyan));
 }
 
-/* ─── Matrix (CRT green) ─── */
+/* ─── 2) Theme variants ───────────────────────────────────────────────── */
+
+/* Matrix — deep black, monochromatic green CRT */
 .theme-matrix {
-  --bg-void: #000404;  --bg-primary: #001008;  --bg-secondary: #001a10;  --bg-elevated: #00261a;
-  --bg-glass: rgba(0, 30, 18, 0.75);
-  --neon-cyan: #00ff66;  --neon-purple: #00b347;  --neon-magenta: #aaff00;
-  --neon-blue: #00cc88;  --neon-green: #00ff7f;  --neon-orange: #ddff00;  --neon-pink: #ff4466;
-  --text-primary: #d4ffd4;  --text-secondary: #7fbf7f;  --text-muted: #4d804d;  --text-glow: #00ff66;
-  --border-glow: rgba(0, 255, 102, 0.35);  --border-subtle: rgba(0, 255, 102, 0.10);  --border-hair: rgba(0, 255, 102, 0.06);
+  --bg-void:      #000404;
+  --bg-primary:   #001008;
+  --bg-secondary: #001a10;
+  --bg-elevated:  #00261a;
+  --bg-glass:     rgba(0, 30, 18, 0.75);
+
+  --neon-cyan:    #00ff66;
+  --neon-purple:  #00b347;
+  --neon-magenta: #aaff00;
+  --neon-blue:    #00cc88;
+  --neon-green:   #00ff7f;
+  --neon-orange:  #ddff00;
+  --neon-pink:    #ff4466;
+
+  --text-primary:   #d4ffd4;
+  --text-secondary: #7fbf7f;
+  --text-muted:     #4d804d;
+  --text-glow:      #00ff66;
+
+  --border-glow:   rgba(0, 255, 102, 0.35);
+  --border-subtle: rgba(0, 255, 102, 0.10);
+  --border-hair:   rgba(0, 255, 102, 0.06);
+
   --grid-color: rgba(0, 255, 102, 0.05);
-  --shadow-neon: 0 0 22px rgba(0, 255, 102, 0.35);
-  --gradient-logo: linear-gradient(135deg, #00ff66 0%, #aaff00 50%, #00cc88 100%);
+
+  --gradient-logo:    linear-gradient(135deg, #00ff66 0%, #aaff00 50%, #00cc88 100%);
   --gradient-primary: linear-gradient(135deg, #00ff66, #00b347);
+  --gradient-badge:   linear-gradient(135deg, #00b347, #aaff00);
+  --gradient-success: linear-gradient(135deg, #00ff7f, #00ff66);
+
+  --shadow-neon: 0 0 22px rgba(0, 255, 102, 0.35);
 }
 
-/* ─── Synthwave (hot pink + violet) ─── */
+/* Synthwave — purple-navy base, hot pink + violet 80s outrun */
 .theme-synthwave {
-  --bg-void: #11062a;  --bg-primary: #1a0a3a;  --bg-secondary: #200c44;  --bg-elevated: #2a124d;
-  --bg-glass: rgba(40, 18, 75, 0.72);
-  --neon-cyan: #ff006f;  --neon-purple: #a020f0;  --neon-magenta: #ff5500;
-  --neon-blue: #00d4ff;  --neon-green: #ffd700;  --neon-orange: #ff8800;  --neon-pink: #ff0080;
-  --text-primary: #ffe4f1;  --text-secondary: #c8a0d8;  --text-muted: #7e5a96;  --text-glow: #ff006f;
-  --border-glow: rgba(255, 0, 111, 0.40);
+  --bg-void:      #11062a;
+  --bg-primary:   #1a0a3a;
+  --bg-secondary: #200c44;
+  --bg-elevated:  #2a124d;
+  --bg-glass:     rgba(40, 18, 75, 0.72);
+
+  --neon-cyan:    #ff006f;
+  --neon-purple:  #a020f0;
+  --neon-magenta: #ff5500;
+  --neon-blue:    #00d4ff;
+  --neon-green:   #ffd700;
+  --neon-orange:  #ff8800;
+  --neon-pink:    #ff0080;
+
+  --text-primary:   #ffe4f1;
+  --text-secondary: #c8a0d8;
+  --text-muted:     #7e5a96;
+  --text-glow:      #ff006f;
+
+  --border-glow:   rgba(255, 0, 111, 0.40);
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  --border-hair:   rgba(255, 255, 255, 0.06);
+
   --grid-color: rgba(255, 0, 111, 0.05);
-  --shadow-neon: 0 0 22px rgba(255, 0, 111, 0.40);
-  --gradient-logo: linear-gradient(135deg, #ff006f 0%, #a020f0 50%, #ff5500 100%);
+
+  --gradient-logo:    linear-gradient(135deg, #ff006f 0%, #a020f0 50%, #ff5500 100%);
   --gradient-primary: linear-gradient(135deg, #ff006f, #a020f0);
+  --gradient-badge:   linear-gradient(135deg, #a020f0, #ff5500);
+  --gradient-success: linear-gradient(135deg, #ffd700, #ff8800);
+
+  --shadow-neon: 0 0 22px rgba(255, 0, 111, 0.40);
 }
 
-/* ─── Amber (vintage CRT) ─── */
+/* Amber — vintage CRT, single-hue warm orange on near-black */
 .theme-amber {
-  --bg-void: #0d0703;  --bg-primary: #150d05;  --bg-secondary: #1f140a;  --bg-elevated: #2a1c10;
-  --bg-glass: rgba(40, 24, 12, 0.72);
-  --neon-cyan: #ffaa00;  --neon-purple: #cc6600;  --neon-magenta: #ffd07a;
-  --neon-blue: #ff8800;  --neon-green: #ffcc44;  --neon-orange: #ff7700;  --neon-pink: #ff4400;
-  --text-primary: #fff0d0;  --text-secondary: #d4a878;  --text-muted: #826340;  --text-glow: #ffaa00;
-  --border-glow: rgba(255, 170, 0, 0.35);
+  --bg-void:      #0d0703;
+  --bg-primary:   #150d05;
+  --bg-secondary: #1f140a;
+  --bg-elevated:  #2a1c10;
+  --bg-glass:     rgba(40, 24, 12, 0.72);
+
+  --neon-cyan:    #ffaa00;
+  --neon-purple:  #cc6600;
+  --neon-magenta: #ffd07a;
+  --neon-blue:    #ff8800;
+  --neon-green:   #ffcc44;
+  --neon-orange:  #ff7700;
+  --neon-pink:    #ff4400;
+
+  --text-primary:   #fff0d0;
+  --text-secondary: #d4a878;
+  --text-muted:     #826340;
+  --text-glow:      #ffaa00;
+
+  --border-glow:   rgba(255, 170, 0, 0.35);
+  --border-subtle: rgba(255, 170, 0, 0.10);
+  --border-hair:   rgba(255, 170, 0, 0.06);
+
   --grid-color: rgba(255, 170, 0, 0.05);
-  --shadow-neon: 0 0 22px rgba(255, 170, 0, 0.40);
-  --gradient-logo: linear-gradient(135deg, #ffaa00 0%, #ff7700 50%, #ffd07a 100%);
+
+  --gradient-logo:    linear-gradient(135deg, #ffaa00 0%, #ff7700 50%, #ffd07a 100%);
   --gradient-primary: linear-gradient(135deg, #ffaa00, #cc6600);
+  --gradient-badge:   linear-gradient(135deg, #cc6600, #ff7700);
+  --gradient-success: linear-gradient(135deg, #ffcc44, #ffaa00);
+
+  --shadow-neon: 0 0 22px rgba(255, 170, 0, 0.40);
 }
 
-/* ─── Glacier (light blue) ─── */
+/* Glacier — crisp light blue + violet on white */
 .theme-glacier {
-  --bg-void: #f0f4f8;  --bg-primary: #ffffff;  --bg-secondary: #e8eef5;  --bg-elevated: #dde6ef;
-  --bg-glass: rgba(255, 255, 255, 0.85);
-  --neon-cyan: #0072ce;  --neon-purple: #6633cc;  --neon-magenta: #c026d3;
-  --neon-blue: #1d4ed8;  --neon-green: #059669;  --neon-orange: #d97706;  --neon-pink: #db2777;
-  --text-primary: #0a1f3d;  --text-secondary: #3d5878;  --text-muted: #7a8ca6;  --text-glow: #0072ce;
-  --border-glow: rgba(0, 114, 206, 0.35);  --border-subtle: rgba(10, 31, 61, 0.10);  --border-hair: rgba(10, 31, 61, 0.06);
+  --bg-void:      #f0f4f8;
+  --bg-primary:   #ffffff;
+  --bg-secondary: #e8eef5;
+  --bg-elevated:  #dde6ef;
+  --bg-glass:     rgba(255, 255, 255, 0.85);
+
+  --neon-cyan:    #0072ce;
+  --neon-purple:  #6633cc;
+  --neon-magenta: #c026d3;
+  --neon-blue:    #1d4ed8;
+  --neon-green:   #059669;
+  --neon-orange:  #d97706;
+  --neon-pink:    #db2777;
+
+  --text-primary:   #0a1f3d;
+  --text-secondary: #3d5878;
+  --text-muted:     #7a8ca6;
+  --text-glow:      #0072ce;
+
+  --border-glow:   rgba(0, 114, 206, 0.35);
+  --border-subtle: rgba(10, 31, 61, 0.10);
+  --border-hair:   rgba(10, 31, 61, 0.06);
+
   --grid-color: rgba(0, 114, 206, 0.05);
-  --shadow-neon: 0 4px 22px rgba(0, 114, 206, 0.18);
-  --gradient-logo: linear-gradient(135deg, #0072ce 0%, #6633cc 50%, #c026d3 100%);
+
+  --gradient-logo:    linear-gradient(135deg, #0072ce 0%, #6633cc 50%, #c026d3 100%);
   --gradient-primary: linear-gradient(135deg, #0072ce, #6633cc);
+  --gradient-badge:   linear-gradient(135deg, #6633cc, #c026d3);
+  --gradient-success: linear-gradient(135deg, #059669, #0072ce);
+
+  --shadow-neon: 0 4px 22px rgba(0, 114, 206, 0.18);
+  --shadow-card-hover:
+    0 20px 40px rgba(10, 31, 61, 0.12),
+    0 0 24px rgba(0, 114, 206, 0.10),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+.theme-glacier .dashboard-canvas::after {
+  background:
+    radial-gradient(circle at 20% 20%, rgba(0,114,206,0.05) 0%, transparent 40%),
+    radial-gradient(circle at 80% 80%, rgba(102,51,204,0.05) 0%, transparent 40%);
+}
+.theme-glacier .surface,
+.theme-glacier .pcard,
+.theme-glacier .stat-tile {
+  box-shadow: 0 4px 20px rgba(10, 31, 61, 0.05);
 }
 
-/* ─── Paper (GitHub flat) ─── */
+/* Paper — GitHub Primer flat, square corners, no neon */
 .theme-paper {
-  --bg-void: #ffffff;  --bg-primary: #ffffff;  --bg-secondary: #f6f8fa;  --bg-elevated: #eaeef2;
-  --bg-glass: #ffffff;
-  --neon-cyan: #0969da;  --neon-purple: #8250df;  --neon-magenta: #bf3989;
-  --neon-blue: #0550ae;  --neon-green: #1a7f37;  --neon-orange: #9a6700;  --neon-pink: #cf222e;
-  --text-primary: #1f2328;  --text-secondary: #59636e;  --text-muted: #818b98;  --text-glow: #0969da;
-  --border-glow: rgba(9, 105, 218, 0.4);  --border-subtle: #d0d7de;  --border-hair: #d8dee4;
+  --bg-void:      #ffffff;
+  --bg-primary:   #ffffff;
+  --bg-secondary: #f6f8fa;
+  --bg-elevated:  #eaeef2;
+  --bg-glass:     #ffffff;
+
+  --neon-cyan:    #0969da;
+  --neon-purple:  #8250df;
+  --neon-magenta: #bf3989;
+  --neon-blue:    #0550ae;
+  --neon-green:   #1a7f37;
+  --neon-orange:  #9a6700;
+  --neon-pink:    #cf222e;
+
+  --text-primary:   #1f2328;
+  --text-secondary: #59636e;
+  --text-muted:     #818b98;
+  --text-glow:      #0969da;
+
+  --border-glow:   #0969da;
+  --border-subtle: #d0d7de;
+  --border-hair:   #d8dee4;
+
   --grid-color: rgba(31, 35, 40, 0.04);
   --shadow-neon: 0 0 0 1px rgba(9, 105, 218, 0.25);
-  --radius-sm: 0;  --radius-md: 0;  --radius-lg: 0;  --radius-pill: 0;
-  --gradient-logo: linear-gradient(135deg, #0969da 0%, #8250df 50%, #bf3989 100%);
+  --shadow-card-hover:
+    0 3px 6px rgba(31, 35, 40, 0.08),
+    0 0 0 1px #0969da;
+  --shadow-deep: 0 8px 24px rgba(31, 35, 40, 0.12);
+
+  --radius-sm: 0;
+  --radius-md: 0;
+  --radius-lg: 0;
+  --radius-xl: 0;
+  --radius-pill: 0;
+
+  --gradient-logo:    linear-gradient(135deg, #0969da 0%, #8250df 50%, #bf3989 100%);
   --gradient-primary: #0969da;
-  --font-display: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --font-body:    -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --font-mono:    ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  --gradient-badge:   #8250df;
+  --gradient-success: #1a7f37;
+
+  --font-display: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-body:    -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-mono:    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
 }
 
-/* ─── Mono (B&W brutalist) ─── */
+/* ─── 3) Paper override rules — flat Primer/GitHub look ───────────────── */
+
+/* Strip ambient grid + orbs + glow in paper mode */
+.theme-paper .dashboard-canvas::before,
+.theme-paper .dashboard-canvas::after { display: none; }
+.theme-paper .dashboard-canvas { background: var(--bg-primary); }
+
+.theme-paper .surface,
+.theme-paper .pcard,
+.theme-paper .stat-tile,
+.theme-paper .topbar,
+.theme-paper .board-col,
+.theme-paper .sess,
+.theme-paper .todo,
+.theme-paper .pcard-status,
+.theme-paper .model-badge,
+.theme-paper .modal,
+.theme-paper .ms-terminal,
+.theme-paper .ep-budget,
+.theme-paper .qs-row,
+.theme-paper .int-card,
+.theme-paper .proj-chip,
+.theme-paper .ss-prompt,
+.theme-paper .ss-budget,
+.theme-paper .td-modal,
+.theme-paper .cp-modal,
+.theme-paper .np-modal {
+  backdrop-filter: none !important;
+  background: var(--bg-primary);
+  border-color: var(--border-subtle);
+  box-shadow: none;
+}
+.theme-paper .surface,
+.theme-paper .pcard,
+.theme-paper .stat-tile,
+.theme-paper .topbar,
+.theme-paper .board-col {
+  box-shadow: 0 1px 0 var(--border-hair);
+}
+.theme-paper .pcard:hover,
+.theme-paper .stat-tile:hover {
+  border-color: #0969da;
+  box-shadow: 0 3px 8px rgba(31, 35, 40, 0.08);
+  transform: none;
+}
+
+.theme-paper * { text-shadow: none !important; }
+
+.theme-paper .topbar-title,
+.theme-paper .pcard-name,
+.theme-paper .skill-name,
+.theme-paper .leaderboard-name,
+.theme-paper .modal-name {
+  -webkit-text-fill-color: initial;
+  color: #1f2328 !important;
+  background: none !important;
+}
+
+.theme-paper .pbar-fill { background: #0969da; box-shadow: none; }
+.theme-paper .pbar-fill::after { display: none; }
+.theme-paper .pbar { background: #eaeef2; border: 1px solid var(--border-hair); }
+
+.theme-paper .np-btn.primary,
+.theme-paper .new-proj-btn,
+.theme-paper .tp-btn {
+  background: #1f883d;
+  color: #ffffff;
+  box-shadow: 0 1px 0 rgba(31, 35, 40, 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.10);
+  border: 1px solid rgba(31, 35, 40, 0.15);
+  text-shadow: none;
+}
+.theme-paper .np-btn.primary:hover,
+.theme-paper .new-proj-btn:hover {
+  background: #1a7f37;
+  transform: none;
+  box-shadow: 0 1px 0 rgba(31, 35, 40, 0.10);
+}
+.theme-paper .np-btn.ghost {
+  background: #f6f8fa;
+  color: #1f2328;
+  border: 1px solid #d0d7de;
+  box-shadow: 0 1px 0 rgba(31, 35, 40, 0.04);
+}
+.theme-paper .np-btn.ghost:hover {
+  background: #eaeef2;
+  border-color: #afb8c1;
+  color: #1f2328;
+}
+
+.theme-paper .live-dot { box-shadow: 0 0 0 0 #1a7f37; }
+.theme-paper .feat-dot { box-shadow: none; }
+.theme-paper .feat-dot.done   { background: #1a7f37; }
+.theme-paper .feat-dot.almost { background: #0969da; }
+.theme-paper .feat-dot.wip    { background: #9a6700; }
+.theme-paper .feat-dot.todo   { background: #afb8c1; }
+
+.theme-paper .pcard-status,
+.theme-paper .model-badge,
+.theme-paper .skill-category,
+.theme-paper .todo-tag,
+.theme-paper .skill-tag,
+.theme-paper .quick-tag {
+  border-radius: 12px;
+  font-weight: 500;
+  text-shadow: none;
+  box-shadow: none;
+}
+
+.theme-paper .capture-row,
+.theme-paper .ss-prompt,
+.theme-paper .cp-input-row,
+.theme-paper .np-input,
+.theme-paper .ms-terminal {
+  background: #f6f8fa;
+  border: 1px solid #d0d7de;
+  box-shadow: inset 0 1px 0 rgba(208, 215, 222, 0.2);
+}
+.theme-paper .ms-terminal { background: #f6f8fa; }
+.theme-paper .ms-terminal .terminal-text { color: #1f2328; }
+.theme-paper .ms-terminal .terminal-text .cmd { color: #0969da; }
+
+.theme-paper code, .theme-paper .t-code, .theme-paper kbd {
+  background: rgba(175, 184, 193, 0.2);
+  color: #1f2328;
+  border: 0;
+  padding: 0.15em 0.4em;
+}
+
+.theme-paper ::-webkit-scrollbar-thumb { background: #d0d7de; }
+.theme-paper ::-webkit-scrollbar-thumb:hover { background: #afb8c1; }
+.theme-paper ::-webkit-scrollbar-track { background: transparent; }
+
+.theme-paper .pcard-status.active   { background: #dafbe1; color: #1a7f37; border-color: rgba(26, 127, 55, 0.30); }
+.theme-paper .pcard-status.shipping { background: #fff8c5; color: #7d4e00; border-color: rgba(154, 103, 0, 0.30); }
+.theme-paper .pcard-status.paused   { background: #eaeef2; color: #59636e; border-color: #d0d7de; }
+.theme-paper .pcard-status.fresh    { background: #fbefff; color: #8250df; border-color: rgba(130, 80, 223, 0.30); }
+
+.theme-paper ::selection { background: #b6e3ff; color: #0a3069; }
+
+/* Mono — pure grayscale brutalist with hard offset shadows + square corners */
 .theme-mono {
-  --bg-void: #ffffff;  --bg-primary: #ffffff;  --bg-secondary: #fafafa;  --bg-elevated: #ededed;
-  --neon-cyan: #000000;  --neon-purple: #404040;  --neon-magenta: #000000;
-  --neon-blue: #000000;  --neon-green: #000000;  --neon-orange: #555555;  --neon-pink: #000000;
-  --text-primary: #000000;  --text-secondary: #404040;  --text-muted: #909090;  --text-glow: #000000;
-  --border-glow: #000000;  --border-subtle: #cccccc;  --border-hair: #e0e0e0;
+  --bg-void:      #ffffff;
+  --bg-primary:   #ffffff;
+  --bg-secondary: #fafafa;
+  --bg-elevated:  #ededed;
+  --bg-glass:     #ffffff;
+
+  --neon-cyan:    #000000;
+  --neon-purple:  #404040;
+  --neon-magenta: #000000;
+  --neon-blue:    #000000;
+  --neon-green:   #000000;
+  --neon-orange:  #555555;
+  --neon-pink:    #000000;
+
+  --text-primary:   #000000;
+  --text-secondary: #404040;
+  --text-muted:     #909090;
+  --text-glow:      #000000;
+
+  --border-glow:   #000000;
+  --border-subtle: #cccccc;
+  --border-hair:   #e0e0e0;
+
   --grid-color: rgba(0, 0, 0, 0.04);
   --shadow-neon: 0 0 0 1px #000000;
-  --radius-sm: 0;  --radius-md: 0;  --radius-lg: 0;  --radius-pill: 0;
-  --gradient-logo: #000000;
+  --shadow-card-hover: 0 0 0 1px #000000;
+  --shadow-deep: 0 4px 12px rgba(0, 0, 0, 0.06);
+
+  --radius-sm: 0;
+  --radius-md: 0;
+  --radius-lg: 0;
+  --radius-xl: 0;
+  --radius-pill: 0;
+
+  --gradient-logo:    #000000;
   --gradient-primary: #000000;
-  --font-display: 'JetBrains Mono', ui-monospace, monospace;
-  --font-body:    'JetBrains Mono', ui-monospace, monospace;
-  --font-mono:    'JetBrains Mono', ui-monospace, monospace;
+  --gradient-badge:   #000000;
+  --gradient-success: #000000;
+
+  --font-display: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-body:    'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-mono:    'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
 }
+
+/* ─── 4) Mono override rules — brutalist B&W ──────────────────────────── */
+
+.theme-mono .dashboard-canvas::before,
+.theme-mono .dashboard-canvas::after { display: none; }
+.theme-mono .dashboard-canvas { background: #ffffff; }
+
+.theme-mono .surface,
+.theme-mono .pcard,
+.theme-mono .stat-tile,
+.theme-mono .topbar,
+.theme-mono .board-col,
+.theme-mono .sess,
+.theme-mono .todo,
+.theme-mono .modal,
+.theme-mono .ms-terminal,
+.theme-mono .ep-budget,
+.theme-mono .qs-row,
+.theme-mono .int-card,
+.theme-mono .proj-chip,
+.theme-mono .ss-prompt,
+.theme-mono .ss-budget,
+.theme-mono .td-modal,
+.theme-mono .cp-modal,
+.theme-mono .np-modal,
+.theme-mono .ss-modal,
+.theme-mono .capture-row,
+.theme-mono .np-input {
+  backdrop-filter: none !important;
+  background: #ffffff !important;
+  border-color: #000000;
+  box-shadow: none;
+}
+
+.theme-mono .board-col,
+.theme-mono .ms-terminal,
+.theme-mono .capture-row,
+.theme-mono .ss-prompt {
+  background: #fafafa !important;
+}
+
+.theme-mono .pcard,
+.theme-mono .stat-tile,
+.theme-mono .surface,
+.theme-mono .topbar { border: 1px solid #000000; }
+
+.theme-mono .pcard:hover,
+.theme-mono .stat-tile:hover {
+  border-color: #000000;
+  box-shadow: 4px 4px 0 0 #000000;
+  transform: translate(-2px, -2px);
+}
+
+.theme-mono * { text-shadow: none !important; }
+
+.theme-mono .topbar-title,
+.theme-mono .pcard-name,
+.theme-mono .skill-name,
+.theme-mono .leaderboard-name,
+.theme-mono .modal-name,
+.theme-mono .t-logo,
+.theme-mono .stat-tile-value,
+.theme-mono .stat-number,
+.theme-mono .tb-stat-val.gradient,
+.theme-mono .wr-kpi-value {
+  -webkit-text-fill-color: initial;
+  color: #000000 !important;
+  background: none !important;
+  font-weight: 700;
+}
+
+.theme-mono .pbar { background: #ededed; border: 1px solid #000000; }
+.theme-mono .pbar-fill { background: #000000 !important; box-shadow: none !important; }
+.theme-mono .pbar-fill::after { display: none !important; }
+
+.theme-mono .stat-tile::before,
+.theme-mono .stat-card.stat-a::before,
+.theme-mono .stat-card.stat-b::before,
+.theme-mono .stat-card.stat-c::before,
+.theme-mono .board-col.tone-orange::before,
+.theme-mono .board-col.tone-cyan::before,
+.theme-mono .board-col.tone-green::before,
+.theme-mono .board-col.tone-purple::before {
+  background: #000000 !important;
+  height: 2px;
+}
+
+.theme-mono .live-dot {
+  background: #000000;
+  border-radius: 0;
+  box-shadow: none;
+  animation: monoBlink 1.4s steps(2) infinite;
+}
+@keyframes monoBlink {
+  50% { opacity: 0.25; }
+}
+
+.theme-mono .feat-dot {
+  border-radius: 0;
+  width: 8px; height: 8px;
+  border: 1.5px solid #000000;
+  box-shadow: none;
+}
+.theme-mono .feat-dot.done   { background: #000000; }
+.theme-mono .feat-dot.almost { background: #555555; }
+.theme-mono .feat-dot.wip    { background: #ffffff; }
+.theme-mono .feat-dot.todo   { background: #ffffff; border-color: #909090; }
+
+.theme-mono .np-btn.primary,
+.theme-mono .new-proj-btn,
+.theme-mono .tp-btn {
+  background: #000000;
+  color: #ffffff;
+  box-shadow: none;
+  border: 1px solid #000000;
+  text-shadow: none;
+  text-transform: lowercase;
+  letter-spacing: 0.02em;
+  font-weight: 600;
+}
+.theme-mono .np-btn.primary:hover,
+.theme-mono .new-proj-btn:hover {
+  background: #ffffff;
+  color: #000000;
+  transform: translate(-2px, -2px);
+  box-shadow: 4px 4px 0 0 #000000;
+}
+.theme-mono .np-btn.ghost,
+.theme-mono .tp-btn.ghost {
+  background: #ffffff;
+  color: #000000;
+  border: 1px solid #000000;
+  box-shadow: none;
+}
+.theme-mono .np-btn.ghost:hover {
+  background: #000000;
+  color: #ffffff;
+  border-color: #000000;
+}
+
+.theme-mono .pcard-status,
+.theme-mono .model-badge,
+.theme-mono .skill-category,
+.theme-mono .todo-tag,
+.theme-mono .skill-tag,
+.theme-mono .quick-tag,
+.theme-mono .sess-state,
+.theme-mono .todo-prio {
+  border-radius: 0 !important;
+  background: #ffffff !important;
+  color: #000000 !important;
+  border: 1px solid #000000 !important;
+  font-weight: 600;
+  box-shadow: none;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.theme-mono .pcard-status.active { background: #000000 !important; color: #ffffff !important; }
+.theme-mono .pcard-status > span:first-child { display: none; }
+.theme-mono .sess-state.live { background: #000000 !important; color: #ffffff !important; }
+.theme-mono .todo-prio.high { background: #000000 !important; color: #ffffff !important; }
+.theme-mono .todo-prio.med  { background: #ffffff !important; color: #000000 !important; border: 1px solid #000000 !important; }
+.theme-mono .todo-prio.low  { background: #ffffff !important; color: #909090 !important; border: 1px solid #909090 !important; }
+.theme-mono .todo-tag.proj  { background: #fafafa !important; color: #000000 !important; }
+.theme-mono .todo-tag.inbox { background: #000000 !important; color: #ffffff !important; }
+
+.theme-mono code, .theme-mono .t-code, .theme-mono kbd {
+  background: #ededed !important;
+  color: #000000 !important;
+  border: 0;
+  border-radius: 0 !important;
+  padding: 0.15em 0.4em;
+}
+
+.theme-mono .capture-row,
+.theme-mono .ss-prompt,
+.theme-mono .np-input,
+.theme-mono .ms-terminal {
+  border: 1px solid #000000 !important;
+}
+
+.theme-mono .ms-terminal .terminal-text { color: #000000; }
+.theme-mono .ms-terminal .terminal-text .cmd { color: #000000; font-weight: 700; }
+.theme-mono .terminal-text.muted { color: #909090; }
+
+.theme-mono .sess-icon { background: #000000 !important; color: #ffffff !important; border-radius: 0; }
+
+.theme-mono ::selection { background: #000000; color: #ffffff; }
+
+.theme-mono ::-webkit-scrollbar-thumb { background: #cccccc; }
+.theme-mono ::-webkit-scrollbar-thumb:hover { background: #000000; }
+.theme-mono ::-webkit-scrollbar-track { background: transparent; }
+
+.theme-mono .sec-head .prompt { color: #000000; }
+.theme-mono .sec-head .count  { color: #909090; }
+
+.theme-mono .hero-card::before { display: none; }
+.theme-mono .hero-card {
+  background: #ffffff !important;
+  border: 2px solid #000000 !important;
+  box-shadow: 8px 8px 0 0 #000000 !important;
+}
+
+.theme-mono .capture-hero::before,
+.theme-mono .search-container::before { display: none !important; }
+.theme-mono .capture-hero {
+  background: #ffffff !important;
+  border: 2px solid #000000 !important;
+  box-shadow: 8px 8px 0 0 #000000 !important;
+}
+.theme-mono .np-modal,
+.theme-mono .ss-modal,
+.theme-mono .td-modal,
+.theme-mono .cp-modal {
+  background: #ffffff !important;
+  border: 2px solid #000000 !important;
+  box-shadow: 12px 12px 0 0 #000000 !important;
+}
+
+.theme-mono .pcard-doing {
+  background: #fafafa !important;
+  border-left: 3px solid #000000 !important;
+  border-radius: 0;
+}
+.theme-mono .pcard-doing::before { color: #000000; }
+
+.theme-mono .particle-field,
+.theme-mono .magnet-lines { display: none !important; }
+.theme-mono .cursor-glow-host::before { display: none; }
+
+.theme-mono .shiny-text {
+  -webkit-text-fill-color: #000000 !important;
+  background: none !important;
+  animation: none;
+  color: #000000;
+}
+
+.theme-mono .wr-narr-pill,
+.theme-mono .wr-summary-tag {
+  background: #ffffff !important;
+  color: #000000 !important;
+  border: 1px solid #000000 !important;
+  border-radius: 0 !important;
+}
+.theme-mono .wr-kpi::before { background: #000000 !important; }
+
+.theme-mono .kw-skill-toggle {
+  background: #ffffff;
+  border: 1.5px solid #000000;
+  border-radius: 0;
+}
+.theme-mono .kw-skill-toggle.on { background: #000000; }
+.theme-mono .kw-skill-toggle-knob {
+  background: #000000;
+  border-radius: 0;
+}
+.theme-mono .kw-skill-toggle.on .kw-skill-toggle-knob { background: #ffffff; }
+
+.theme-mono .tilt-card { transform: none !important; }

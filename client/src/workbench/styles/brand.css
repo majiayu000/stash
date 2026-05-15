@@ -18,34 +18,10 @@ body {
     position: relative;
 }
 
-/* Animated grid background */
-body::before {
-    content: '';
-    position: fixed;
-    inset: 0;
-    background:
-        linear-gradient(90deg, var(--grid-color) 1px, transparent 1px),
-        linear-gradient(var(--grid-color) 1px, transparent 1px);
-    background-size: 60px 60px;
-    mask-image: radial-gradient(ellipse 80% 50% at 50% 0%, black 70%, transparent 100%);
-    pointer-events: none;
-    z-index: 0;
-}
-
-/* Floating orb gradients */
-body::after {
-    content: '';
-    position: fixed;
-    top: -50%; left: -50%;
-    width: 200%; height: 200%;
-    background:
-        radial-gradient(circle at 20% 20%, rgba(0, 255, 242, 0.08) 0%, transparent 40%),
-        radial-gradient(circle at 80% 80%, rgba(191, 90, 242, 0.08) 0%, transparent 40%),
-        radial-gradient(circle at 50% 50%, rgba(255, 0, 255, 0.03) 0%, transparent 50%);
-    animation: orbFloat 20s ease-in-out infinite;
-    pointer-events: none;
-    z-index: 0;
-}
+/* Body grid + orb are intentionally omitted; .dashboard-canvas owns the
+   ambient layer (see dashboard.css), so each artboard gets its own grid +
+   orbs tied to its theme's --grid-color. Doubling them on body produced a
+   double-grid and prevented paper/mono themes from going clean. */
 @keyframes orbFloat {
     0%, 100% { transform: translate(0, 0) rotate(0deg); }
     33%      { transform: translate(30px, -30px) rotate(5deg); }

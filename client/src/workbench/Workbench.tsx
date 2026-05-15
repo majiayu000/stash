@@ -1,11 +1,17 @@
+import { useParams } from 'react-router-dom';
 import './styles/brand.css';
 import './styles/dashboard.css';
 import { ThemeSwitcher } from '../components/ThemeSwitcher';
 import { useWorkbenchData } from './useWorkbenchData';
-import { ConceptE } from './concepts/ConceptE';
+import { findConcept, type ConceptId } from './concepts/registry';
+import { renderConcept } from './concepts/render';
+import { ConceptSwitcher } from './ConceptSwitcher';
 
 export function Workbench() {
   const { data, loading, error, reload } = useWorkbenchData();
+  const params = useParams<{ id?: ConceptId }>();
+  const conceptId: ConceptId = (params.id as ConceptId) ?? 'e';
+  const entry = findConcept(conceptId);
 
   if (loading && !data) {
     return (
@@ -21,14 +27,17 @@ export function Workbench() {
       </div>
     );
   }
-  if (!data) return null;
+  if (!data || !entry) return null;
+
+  const content = renderConcept(entry.id, data, reload);
 
   return (
     <div className="workbench-shell">
-      <div className="workbench-theme-floating">
+      <div className="workbench-floating">
+        <ConceptSwitcher />
         <ThemeSwitcher />
       </div>
-      <ConceptE data={data} reload={reload} />
+      {content}
 
       <style>{`
         .workbench-shell {
@@ -36,11 +45,15 @@ export function Workbench() {
           padding: 1.5rem;
           position: relative;
         }
-        .workbench-theme-floating {
+        .workbench-floating {
           position: fixed;
           top: 16px;
           right: 24px;
           z-index: 50;
+          display: flex;
+          flex-direction: column;
+          align-items: flex-end;
+          gap: 8px;
         }
         .dashboard-canvas {
           min-height: calc(100vh - 3rem);
