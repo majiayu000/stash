@@ -144,6 +144,27 @@ export class ProjectKnowledgeService {
     return this.repo.listLessons(filter);
   }
 
+  /**
+   * SPEC v0.3 §3h — surface lessons relevant to a task's context.
+   * Match by: (a) same project, (b) any tag overlap with provided labels.
+   * Scores by overlap count; returns top N.
+   */
+  findRelevantLessons(opts: { projectId?: string; labels: string[]; limit?: number }): Lesson[] {
+    const limit = opts.limit ?? 3;
+    const labelSet = new Set(opts.labels.map((l) => l.toLowerCase()));
+    const candidates = this.repo.listLessons({});
+    const scored = candidates
+      .map((lesson) => {
+        const tagOverlap = lesson.tags.filter((t) => labelSet.has(t.toLowerCase())).length;
+        const projectMatch = opts.projectId && lesson.projectId === opts.projectId ? 1 : 0;
+        const crossBonus = lesson.cross ? 0.5 : 0;
+        return { lesson, score: tagOverlap * 2 + projectMatch * 2 + crossBonus };
+      })
+      .filter((x) => x.score > 0);
+    scored.sort((a, b) => b.score - a.score || b.lesson.createdAt.localeCompare(a.lesson.createdAt));
+    return scored.slice(0, limit).map((x) => x.lesson);
+  }
+
   createLesson(input: CreateLessonInput): Lesson {
     const title = input.title.trim();
     if (!title) throw new Error('lesson title is required');

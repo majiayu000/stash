@@ -78,7 +78,7 @@ export function createApp(ctx: AppContext): Hono {
   app.route('/api/areas', createAreasRouter(areaService));
   app.route(
     '/api/work-items',
-    createWorkItemsRouter(workItemService, sessionLinks, evidenceService),
+    createWorkItemsRouter(workItemService, sessionLinks, evidenceService, { areaService, clock }),
   );
   app.route('/api/overview', createOverviewRouter(workItemService, clock));
   app.route('/api/agent-sessions', createAgentSessionsRouter(aggregator, sessionLinks));

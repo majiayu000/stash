@@ -10,6 +10,7 @@ import {
   type WorkItem,
   type WorkItemStatus,
 } from '@stash/shared';
+import { nextInstanceFromCompleted } from './recurrence.js';
 import { WorkItemRepository, type ListFilter } from './repository.js';
 
 export class WorkItemNotFoundError extends Error {
@@ -85,6 +86,10 @@ export class WorkItemService {
       startAt: input.startAt,
       dueAt: input.dueAt,
       scheduledFor: input.scheduledFor,
+      todayPinned: input.todayPinned ?? false,
+      sortOrder: input.sortOrder,
+      recurrence: input.recurrence,
+      rawInput: input.rawInput,
       createdAt: now,
       updatedAt: now,
       completedAt: status === 'done' ? now : undefined,
@@ -106,6 +111,51 @@ export class WorkItemService {
 
   list(filter: ListFilter = {}): WorkItem[] {
     return this.repo.list(filter);
+  }
+
+  /**
+   * SPEC v0.3 §3h — items in inbox/planned not touched for ≥ N days.
+   * "Touched" = `updatedAt`. Sorted oldest-first.
+   */
+  staleItems(opts: { days?: number } = {}): WorkItem[] {
+    const days = Math.max(1, opts.days ?? 30);
+    const cutoffMs = this.clock.now() - days * 86_400_000;
+    const cutoffIso = new Date(cutoffMs).toISOString();
+    const all = this.repo.list({});
+    return all
+      .filter((it) => (it.status === 'inbox' || it.status === 'planned') && it.updatedAt < cutoffIso)
+      .sort((a, b) => a.updatedAt.localeCompare(b.updatedAt));
+  }
+
+  /**
+   * SPEC v0.3 §3d — Today list. Returns items that:
+   *   - are pinned via today_pinned, OR
+   *   - have start_at <= now (visibility gate elapsed), OR
+   *   - are overdue (due_at < now and not done), OR
+   *   - are scheduled for today's date
+   * Excludes done/dropped. Pinned items sort first.
+   */
+  today(): WorkItem[] {
+    const nowIso = this.clock.nowIso();
+    const today = nowIso.slice(0, 10);
+    const all = this.repo.list({});
+    const matched = all.filter((it) => {
+      if (it.status === 'done' || it.status === 'dropped') return false;
+      if (it.todayPinned) return true;
+      if (it.startAt && it.startAt <= nowIso) return true;
+      if (it.dueAt && it.dueAt < nowIso) return true;
+      if (it.scheduledFor === today) return true;
+      return false;
+    });
+    matched.sort((a, b) => {
+      if (a.todayPinned !== b.todayPinned) return a.todayPinned ? -1 : 1;
+      const so = (a.sortOrder ?? Number.POSITIVE_INFINITY) - (b.sortOrder ?? Number.POSITIVE_INFINITY);
+      if (so !== 0) return so;
+      const pri = a.priority.localeCompare(b.priority);
+      if (pri !== 0) return pri;
+      return a.createdAt.localeCompare(b.createdAt);
+    });
+    return matched;
   }
 
   update(id: string, input: UpdateWorkItemInput): WorkItem {
@@ -145,7 +195,39 @@ export class WorkItemService {
       updatedAt: this.clock.nowIso(),
       completedAt,
     };
-    return this.repo.replace(merged);
+    const saved = this.repo.replace(merged);
+
+    // SPEC v0.3 §3c — on completion of a recurring item, auto-create next instance.
+    if (nextStatus === 'done' && existing.status !== 'done' && saved.recurrence) {
+      const next = nextInstanceFromCompleted(saved, this.clock.nowIso());
+      if (next) {
+        this.create({
+          title: saved.title,
+          description: saved.description,
+          outcome: saved.outcome,
+          context: saved.context,
+          projectId: saved.projectId,
+          areaId: saved.areaId,
+          parentId: saved.parentId,
+          kind: saved.kind,
+          priority: saved.priority,
+          source: saved.source,
+          confidence: saved.confidence,
+          assignee: saved.assignee,
+          labels: [...saved.labels],
+          estimateMinutes: saved.estimateMinutes,
+          reminderAt: saved.reminderAt,
+          links: [...saved.links],
+          startAt: next.startAt,
+          dueAt: next.dueAt,
+          scheduledFor: next.scheduledFor,
+          recurrence: saved.recurrence,
+          status: 'planned',
+        });
+      }
+    }
+
+    return saved;
   }
 
   /**

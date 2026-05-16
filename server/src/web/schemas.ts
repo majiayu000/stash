@@ -33,6 +33,18 @@ const ChecklistItem = z.object({
   completed: z.boolean(),
 });
 
+const RecurrenceFreq = z.enum(['DAILY', 'WEEKLY', 'MONTHLY']);
+const RecurrenceWeekday = z.enum(['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU']);
+const Recurrence = z.object({
+  type: z.enum(['rrule', 'after_completion']),
+  freq: RecurrenceFreq.optional(),
+  interval: z.number().int().positive().optional(),
+  byDay: z.array(RecurrenceWeekday).optional(),
+  until: z.string().optional(),
+  count: z.number().int().positive().optional(),
+  offsetDays: z.number().int().positive().optional(),
+});
+
 export const CreateAreaBody = z.object({
   name: z.string().min(1),
   description: z.string().optional(),
@@ -71,6 +83,10 @@ export const CreateWorkItemBody = z.object({
   startAt: z.string().optional(),
   dueAt: z.string().optional(),
   scheduledFor: z.string().optional(),
+  todayPinned: z.boolean().optional(),
+  sortOrder: z.number().optional(),
+  recurrence: Recurrence.optional(),
+  rawInput: z.string().optional(),
 });
 
 export const UpdateWorkItemBody = CreateWorkItemBody.partial();

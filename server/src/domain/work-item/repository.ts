@@ -4,6 +4,7 @@ import type {
   ChecklistItem,
   Confidence,
   Priority,
+  RecurrenceRule,
   WorkItem,
   WorkItemKind,
   WorkItemSource,
@@ -37,9 +38,26 @@ interface WorkItemRow {
   start_at: string | null;
   due_at: string | null;
   scheduled_for: string | null;
+  today_pinned: number;
+  sort_order: number | null;
+  recurrence_json: string | null;
+  raw_input: string | null;
   created_at: string;
   updated_at: string;
   completed_at: string | null;
+}
+
+function parseRecurrence(raw: string | null): RecurrenceRule | undefined {
+  if (!raw) return undefined;
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && (parsed.type === 'rrule' || parsed.type === 'after_completion')) {
+      return parsed as RecurrenceRule;
+    }
+  } catch {
+    /* fall through */
+  }
+  return undefined;
 }
 
 function parseJsonArray<T>(raw: string, fallback: T[]): T[] {
@@ -80,6 +98,10 @@ function rowToWorkItem(row: WorkItemRow): WorkItem {
     startAt: row.start_at ?? undefined,
     dueAt: row.due_at ?? undefined,
     scheduledFor: row.scheduled_for ?? undefined,
+    todayPinned: row.today_pinned === 1,
+    sortOrder: row.sort_order ?? undefined,
+    recurrence: parseRecurrence(row.recurrence_json),
+    rawInput: row.raw_input ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     completedAt: row.completed_at ?? undefined,
@@ -108,8 +130,10 @@ export class WorkItemRepository {
           id, project_id, area_id, parent_id, title, description, kind, status, priority,
           source, confidence, assignee, labels_json, checklist_json, outcome, context,
           estimate_minutes, reminder_at, repeat_rule, blocked_by, waiting_on, links_json,
-          review_at, start_at, due_at, scheduled_for, created_at, updated_at, completed_at
-        ) values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          review_at, start_at, due_at, scheduled_for,
+          today_pinned, sort_order, recurrence_json, raw_input,
+          created_at, updated_at, completed_at
+        ) values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       )
       .run(
         item.id,
@@ -138,6 +162,10 @@ export class WorkItemRepository {
         item.startAt ?? null,
         item.dueAt ?? null,
         item.scheduledFor ?? null,
+        item.todayPinned ? 1 : 0,
+        item.sortOrder ?? null,
+        item.recurrence ? JSON.stringify(item.recurrence) : null,
+        item.rawInput ?? null,
         item.createdAt,
         item.updatedAt,
         item.completedAt ?? null,
@@ -212,7 +240,8 @@ export class WorkItemRepository {
           labels_json = ?, checklist_json = ?, outcome = ?, context = ?,
           estimate_minutes = ?, reminder_at = ?, repeat_rule = ?, blocked_by = ?,
           waiting_on = ?, links_json = ?, review_at = ?, start_at = ?, due_at = ?,
-          scheduled_for = ?, updated_at = ?, completed_at = ?
+          scheduled_for = ?, today_pinned = ?, sort_order = ?, recurrence_json = ?,
+          raw_input = ?, updated_at = ?, completed_at = ?
          where id = ?`,
       )
       .run(
@@ -241,6 +270,10 @@ export class WorkItemRepository {
         item.startAt ?? null,
         item.dueAt ?? null,
         item.scheduledFor ?? null,
+        item.todayPinned ? 1 : 0,
+        item.sortOrder ?? null,
+        item.recurrence ? JSON.stringify(item.recurrence) : null,
+        item.rawInput ?? null,
         item.updatedAt,
         item.completedAt ?? null,
         item.id,

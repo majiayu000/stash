@@ -37,6 +37,24 @@ export interface ChecklistItem {
   completed: boolean;
 }
 
+/**
+ * Recurrence rule. SPEC v0.3 §3c — minimal viable subset.
+ * `rrule` mode covers calendar recurrence; `after_completion` shifts the next
+ * instance from `completed_at` (Things-style), which RFC 5545 can't model.
+ */
+export type RecurrenceFreq = 'DAILY' | 'WEEKLY' | 'MONTHLY';
+export type RecurrenceWeekday = 'MO' | 'TU' | 'WE' | 'TH' | 'FR' | 'SA' | 'SU';
+
+export interface RecurrenceRule {
+  type: 'rrule' | 'after_completion';
+  freq?: RecurrenceFreq;
+  interval?: number;
+  byDay?: RecurrenceWeekday[];
+  until?: string;
+  count?: number;
+  offsetDays?: number;
+}
+
 export interface WorkItem {
   id: string;
   projectId?: string;
@@ -64,6 +82,14 @@ export interface WorkItem {
   startAt?: string;
   dueAt?: string;
   scheduledFor?: string;
+  /** v0.3 — manual "Today" pin, orthogonal to date columns. */
+  todayPinned: boolean;
+  /** v0.3 — fractional drag-order; null = use default sort. */
+  sortOrder?: number;
+  /** v0.3 — recurrence definition. */
+  recurrence?: RecurrenceRule;
+  /** v0.3 — original capture string before token parsing. */
+  rawInput?: string;
   createdAt: string;
   updatedAt: string;
   completedAt?: string;
@@ -96,6 +122,10 @@ export interface CreateWorkItemInput {
   startAt?: string;
   dueAt?: string;
   scheduledFor?: string;
+  todayPinned?: boolean;
+  sortOrder?: number;
+  recurrence?: RecurrenceRule;
+  rawInput?: string;
 }
 
 export type UpdateWorkItemInput = Partial<

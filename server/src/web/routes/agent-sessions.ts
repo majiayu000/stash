@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import type { AgentSourceAggregator } from '../../adapters/aggregator.js';
+import { extractDecisions } from '../../domain/capture/decision-extract.js';
 import type { WorkItemSessionService } from '../../domain/work-item-session/service.js';
 import { handleError } from '../errors.js';
 
@@ -55,6 +56,22 @@ export function createAgentSessionsRouter(
       if (!found) return c.json({ error: { code: 'NOT_FOUND', message: 'session not found' } }, 404);
       const events = aggregator.getEvents(provider, found.sourcePath);
       return c.json({ data: events, count: events.length });
+    } catch (e) {
+      return handleError(c, e);
+    }
+  });
+
+  /** SPEC v0.3 §3h — decision candidates extracted from session events. */
+  r.get('/:provider/:id/decision-candidates', (c) => {
+    try {
+      const provider = c.req.param('provider') as 'claude' | 'codex';
+      const id = c.req.param('id');
+      const { sessions } = aggregator.scan({ provider, limitPerSource: 500 });
+      const found = sessions.find((s) => s.id === id);
+      if (!found) return c.json({ error: { code: 'NOT_FOUND', message: 'session not found' } }, 404);
+      const events = aggregator.getEvents(provider, found.sourcePath);
+      const candidates = extractDecisions(events);
+      return c.json({ data: candidates, count: candidates.length });
     } catch (e) {
       return handleError(c, e);
     }

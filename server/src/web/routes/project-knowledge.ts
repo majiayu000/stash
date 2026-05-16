@@ -158,6 +158,24 @@ export function createLessonsRouter(service: ProjectKnowledgeService): Hono {
     }
   });
 
+  /** SPEC v0.3 §3h — relevant lessons for a work-item-shaped context. */
+  r.get('/relevant', (c) => {
+    try {
+      const url = new URL(c.req.url);
+      const projectId = url.searchParams.get('projectId') ?? undefined;
+      const labels = url.searchParams.getAll('label');
+      const limit = url.searchParams.get('limit');
+      const items = service.findRelevantLessons({
+        projectId,
+        labels,
+        limit: limit ? Number(limit) : undefined,
+      });
+      return c.json({ data: items });
+    } catch (e) {
+      return handleError(c, e);
+    }
+  });
+
   r.post('/', async (c) => {
     try {
       const body = CreateLessonBody.parse(await c.req.json());

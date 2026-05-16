@@ -1,5 +1,8 @@
 import { Hono } from 'hono';
+import { systemClock, type Clock } from '@stash/shared';
 import { z } from 'zod';
+import type { AreaService } from '../../domain/area/service.js';
+import { parseCaptureInput } from '../../domain/capture/parser.js';
 import type { EvidenceService } from '../../domain/evidence/service.js';
 import type { WorkItemService } from '../../domain/work-item/service.js';
 import type { WorkItemSessionService } from '../../domain/work-item-session/service.js';
@@ -12,17 +15,26 @@ import {
   UpdateWorkItemBody,
 } from '../schemas.js';
 
+const CaptureBody = z.object({ raw: z.string().min(1) });
+
 const LinkSessionBody = z.object({
   provider: z.enum(['claude', 'codex']),
   sessionId: z.string().min(1),
 });
 
+export interface WorkItemsRouterDeps {
+  areaService?: AreaService;
+  clock?: Clock;
+}
+
 export function createWorkItemsRouter(
   service: WorkItemService,
   links?: WorkItemSessionService,
   evidence?: EvidenceService,
+  deps: WorkItemsRouterDeps = {},
 ): Hono {
   const r = new Hono();
+  const clock = deps.clock ?? systemClock;
 
   r.get('/', (c) => {
     try {
@@ -40,11 +52,58 @@ export function createWorkItemsRouter(
     }
   });
 
+  /** SPEC v0.3 §3d — canonical Today list. */
+  r.get('/today', (c) => {
+    try {
+      const items = service.today();
+      return c.json({ data: items, count: items.length });
+    } catch (e) {
+      return handleError(c, e);
+    }
+  });
+
+  /** SPEC v0.3 §3h — stale items digest. */
+  r.get('/stale', (c) => {
+    try {
+      const url = new URL(c.req.url);
+      const days = url.searchParams.get('days');
+      const items = service.staleItems({ days: days ? Number(days) : undefined });
+      return c.json({ data: items, count: items.length });
+    } catch (e) {
+      return handleError(c, e);
+    }
+  });
+
   r.post('/', async (c) => {
     try {
       const body = CreateWorkItemBody.parse(await c.req.json());
       const item = service.create(body);
       return c.json({ data: item }, 201);
+    } catch (e) {
+      return handleError(c, e);
+    }
+  });
+
+  /** SPEC v0.3 §3b — quick capture with inline token parsing. */
+  r.post('/capture', async (c) => {
+    try {
+      const { raw } = CaptureBody.parse(await c.req.json());
+      const areas = deps.areaService?.list() ?? [];
+      const parsed = parseCaptureInput(raw, { areas, nowIso: clock.nowIso() });
+      const item = service.create({
+        title: parsed.title || raw.trim(),
+        projectId: parsed.projectId,
+        areaId: parsed.areaId,
+        labels: parsed.labels,
+        priority: parsed.priority,
+        scheduledFor: parsed.scheduledFor,
+        dueAt: parsed.dueAt,
+        estimateMinutes: parsed.estimateMinutes,
+        rawInput: raw,
+        kind: 'idea',
+        status: 'inbox',
+      });
+      return c.json({ data: item, parsed }, 201);
     } catch (e) {
       return handleError(c, e);
     }
@@ -85,6 +144,28 @@ export function createWorkItemsRouter(
       if (!parent) return c.json({ error: { code: 'NOT_FOUND', message: 'work item not found' } }, 404);
       const items = service.list({ parentId: parent.id, includeDropped: true });
       return c.json({ data: items, count: items.length });
+    } catch (e) {
+      return handleError(c, e);
+    }
+  });
+
+  /** SPEC v0.3 §3e — triage shortcuts: today_pinned toggle. */
+  r.post('/:id/today-pin', async (c) => {
+    try {
+      const body = z.object({ pinned: z.boolean() }).parse(await c.req.json());
+      const item = service.update(c.req.param('id'), { todayPinned: body.pinned });
+      return c.json({ data: item });
+    } catch (e) {
+      return handleError(c, e);
+    }
+  });
+
+  /** SPEC v0.3 §3e — priority shortcut. */
+  r.post('/:id/priority', async (c) => {
+    try {
+      const body = z.object({ priority: z.enum(['p0', 'p1', 'p2', 'p3']) }).parse(await c.req.json());
+      const item = service.update(c.req.param('id'), { priority: body.priority });
+      return c.json({ data: item });
     } catch (e) {
       return handleError(c, e);
     }
