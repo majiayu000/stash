@@ -1,7 +1,8 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import type { Lesson, WorkItem } from '@stash/shared';
+import type { Lesson, Priority, WorkItem, WorkItemStatus } from '@stash/shared';
 import { apiGet } from '../../api/client';
+import { getWorkItem, updateWorkItem } from '../../api/work-items';
 import { fmt, type WBData, type WBTodo } from '../data';
 import { Topbar } from '../shared';
 
@@ -17,7 +18,7 @@ import { Topbar } from '../shared';
  *   - journal:       STUB — Phase 3b project notes will cover this
  *   - linked sessions: existing /api/work-items/:id/sessions — wired in Phase 4
  */
-export function ConceptL({ data }: { data: WBData; reload: () => void }) {
+export function ConceptL({ data, reload }: { data: WBData; reload: () => void }) {
   const { projects, todos } = data;
   const { projectId: workItemId } = useParams<{ projectId?: string }>();
   const navigate = useNavigate();
@@ -45,9 +46,17 @@ export function ConceptL({ data }: { data: WBData; reload: () => void }) {
   const [realSubs, setRealSubs] = useState<WorkItem[] | null>(null);
   // SPEC v0.3 §3h — relevant lessons surfaced by tag/project overlap.
   const [lessons, setLessons] = useState<Lesson[]>([]);
+  // v0.4 — full work item loaded for editing.
+  const [item, setItem] = useState<WorkItem | null>(null);
+  const [savedFlash, setSavedFlash] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
+
+    getWorkItem(todo.id)
+      .then((w) => { if (!cancelled) setItem(w); })
+      .catch(() => {});
+
     apiGet<{ data: WorkItem[] }>(`/work-items/${todo.id}/subtasks`)
       .then((res) => { if (!cancelled) setRealSubs(res.data); })
       .catch(() => { if (!cancelled) setRealSubs([]); });
@@ -62,6 +71,27 @@ export function ConceptL({ data }: { data: WBData; reload: () => void }) {
 
     return () => { cancelled = true; };
   }, [todo.id]);
+
+  async function save<K extends 'title' | 'description' | 'priority' | 'status' | 'dueAt' | 'projectId' | 'areaId' | 'labels'>(field: K, value: WorkItem[K]) {
+    if (!item) return;
+    if (item[field] === value) return;
+    const optimistic = { ...item, [field]: value };
+    setItem(optimistic);
+    try {
+      const updated = await updateWorkItem(item.id, { [field]: value } as Record<string, unknown>);
+      setItem(updated);
+      flashSaved('saved');
+      reload();
+    } catch (e) {
+      setItem(item); // revert
+      flashSaved(`✕ ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  function flashSaved(msg: string) {
+    setSavedFlash(msg);
+    setTimeout(() => setSavedFlash(null), 1400);
+  }
 
   // Stub fallback only when real subtasks aren't loaded yet, for visual continuity.
   const stubSubs = stubSubTasks(todo);
@@ -97,17 +127,44 @@ export function ConceptL({ data }: { data: WBData; reload: () => void }) {
               <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.65rem', color: 'var(--neon-purple)', background: 'rgba(191,90,242,0.1)', padding: '2px 7px', borderRadius: 'var(--radius-pill)', border: '1px solid rgba(191,90,242,0.25)', fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
                 {todo.kind === 'idea' ? '💡 idea' : '✓ task'} {proj ? `· #${proj.name}` : '· from inbox'}
               </span>
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.66rem', color: 'var(--text-muted)' }}>
-                {todo.done ? 'completed' : `priority: ${todo.priority}`}
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.66rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                {item?.status === 'done' ? 'completed · ' : ''}priority:
+                {(['p0', 'p1', 'p2', 'p3'] as Priority[]).map((p) => (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => save('priority', p)}
+                    disabled={!item}
+                    style={{
+                      fontFamily: 'var(--font-mono)', fontSize: '0.66rem', padding: '1px 6px', borderRadius: 4,
+                      cursor: item ? 'pointer' : 'default',
+                      background: item?.priority === p ? 'rgba(0,255,242,0.15)' : 'transparent',
+                      border: `1px solid ${item?.priority === p ? 'var(--neon-cyan)' : 'var(--border-hair)'}`,
+                      color: item?.priority === p ? 'var(--neon-cyan)' : 'var(--text-muted)',
+                    }}
+                  >{p}</button>
+                ))}
               </span>
               <button className="td-close" style={{ marginLeft: 'auto' }} type="button" onClick={() => navigate(-1)}>✕</button>
             </div>
-            <input className="td-modal-title" defaultValue={todo.text} readOnly />
-            <textarea
-              className="td-modal-desc"
-              defaultValue={`Captured via the workbench. ${proj ? `Lives under #${proj.name}.` : 'No project yet — promote into one below.'} \n\nPhase 4 will wire this textarea to PATCH /api/work-items/:id so edits persist.`}
-              readOnly
+            <EditableTitle
+              key={`title-${todo.id}`}
+              value={item?.title ?? todo.text}
+              disabled={!item}
+              onCommit={(v) => save('title', v)}
             />
+            <EditableDescription
+              key={`desc-${todo.id}`}
+              value={item?.description ?? ''}
+              disabled={!item}
+              placeholder={proj ? `notes for #${proj.name} — markdown, autosaves on blur` : 'add notes — markdown, autosaves on blur'}
+              onCommit={(v) => save('description', v || undefined)}
+            />
+            {savedFlash && (
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.65rem', color: 'var(--neon-green)', marginTop: 4 }}>
+                {savedFlash}
+              </div>
+            )}
           </div>
 
           {/* Body */}
@@ -223,17 +280,62 @@ export function ConceptL({ data }: { data: WBData; reload: () => void }) {
 
           {/* Footer */}
           <div className="td-modal-foot">
-            <button className="np-btn ghost" type="button">archive</button>
-            <button className="np-btn ghost danger" type="button">delete</button>
+            <button
+              className="np-btn ghost"
+              type="button"
+              disabled={!item || item.status === 'dropped'}
+              onClick={() => { void save('status', 'dropped' as WorkItemStatus); }}
+              data-testid="td-drop"
+            >drop</button>
             <span style={{ flex: 1 }} />
-            <button className="np-btn ghost" type="button">split into 3 todos</button>
-            <button className="np-btn primary" type="button">✓ mark done</button>
+            <button
+              className="np-btn primary"
+              type="button"
+              disabled={!item}
+              onClick={() => { void save('status', item?.status === 'done' ? ('planned' as WorkItemStatus) : ('done' as WorkItemStatus)); }}
+              data-testid="td-done"
+            >{item?.status === 'done' ? '↶ reopen' : '✓ mark done'}</button>
           </div>
         </div>
       </div>
 
       <style>{conceptLStyles}</style>
     </div>
+  );
+}
+
+function EditableTitle({ value, disabled, onCommit }: { value: string; disabled?: boolean; onCommit: (next: string) => void | Promise<void> }) {
+  const [text, setText] = useState(value);
+  useEffect(() => { setText(value); }, [value]);
+  return (
+    <input
+      className="td-modal-title"
+      value={text}
+      disabled={disabled}
+      onChange={(e) => setText(e.target.value)}
+      onBlur={() => { const t = text.trim(); if (t && t !== value) onCommit(t); else setText(value); }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') { e.preventDefault(); (e.target as HTMLInputElement).blur(); }
+        if (e.key === 'Escape') { setText(value); (e.target as HTMLInputElement).blur(); }
+      }}
+      data-testid="td-title"
+    />
+  );
+}
+
+function EditableDescription({ value, disabled, placeholder, onCommit }: { value: string; disabled?: boolean; placeholder?: string; onCommit: (next: string) => void | Promise<void> }) {
+  const [text, setText] = useState(value);
+  useEffect(() => { setText(value); }, [value]);
+  return (
+    <textarea
+      className="td-modal-desc"
+      value={text}
+      disabled={disabled}
+      placeholder={placeholder}
+      onChange={(e) => setText(e.target.value)}
+      onBlur={() => { if (text !== value) onCommit(text); }}
+      data-testid="td-desc"
+    />
   );
 }
 

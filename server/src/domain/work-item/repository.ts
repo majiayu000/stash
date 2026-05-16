@@ -118,6 +118,8 @@ export interface ListFilter {
   scheduledTo?: string;
   scheduledIsNull?: boolean;
   includeDropped?: boolean;
+  /** v0.4 — case-insensitive LIKE against title + description + labels JSON. */
+  q?: string;
 }
 
 export class WorkItemRepository {
@@ -217,6 +219,11 @@ export class WorkItemRepository {
     if (filter.scheduledTo) {
       where.push('scheduled_for <= ?');
       params.push(filter.scheduledTo);
+    }
+    if (filter.q && filter.q.trim()) {
+      const needle = `%${filter.q.trim().toLowerCase()}%`;
+      where.push('(lower(title) like ? or lower(coalesce(description, "")) like ? or lower(labels_json) like ?)');
+      params.push(needle, needle, needle);
     }
 
     const whereSql = where.length ? `where ${where.join(' and ')}` : '';

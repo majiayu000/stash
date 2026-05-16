@@ -9,6 +9,7 @@ import { renderConcept } from './concepts/render';
 import { ConceptSwitcher } from './ConceptSwitcher';
 import { InboxTriage } from './InboxTriage';
 import { QuickCapture } from './QuickCapture';
+import { SearchPalette } from './SearchPalette';
 
 export function Workbench() {
   const { data, loading, error, reload } = useWorkbenchData();
@@ -49,6 +50,7 @@ export function Workbench() {
       </div>
       <QuickCapture />
       <InboxTriage />
+      <SearchPalette />
       {content}
 
       <style>{`

@@ -103,6 +103,7 @@ export const ListWorkItemsQuery = z.object({
     .union([z.literal('true'), z.literal('false')])
     .optional()
     .transform((v) => (v === undefined ? undefined : v === 'true')),
+  q: z.string().optional(),
   scheduledFrom: z.string().optional(),
   scheduledTo: z.string().optional(),
   scheduledIsNull: z

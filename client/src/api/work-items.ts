@@ -24,6 +24,7 @@ export interface WorkItemFilter {
   scheduledTo?: string;
   scheduledIsNull?: boolean;
   includeDropped?: boolean;
+  q?: string;
 }
 
 interface ListResponse {
@@ -50,12 +51,18 @@ export async function listWorkItems(filter: WorkItemFilter = {}): Promise<WorkIt
   if (filter.includeDropped !== undefined) {
     query.includeDropped = String(filter.includeDropped);
   }
+  if (filter.q) query.q = filter.q;
   const res = await apiGet<ListResponse>('/work-items', query);
   return res.data;
 }
 
 export async function createWorkItem(input: CreateWorkItemInput): Promise<WorkItem> {
   const res = await apiPost<ItemResponse>('/work-items', input);
+  return res.data;
+}
+
+export async function getWorkItem(id: string): Promise<WorkItem> {
+  const res = await apiGet<ItemResponse>(`/work-items/${id}`);
   return res.data;
 }
 

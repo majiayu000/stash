@@ -1,4 +1,6 @@
 import type { ReactNode } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { updateWorkItem } from '../api/work-items';
 import { CountUp, LiveDot, Typewriter } from '../components/effects';
 import { fmt, type WBData, type WBProject, type WBSession, type WBTodo } from './data';
 
@@ -248,14 +250,48 @@ export function SessionRow({ s, projects, compact }: { s: WBSession; projects: W
 export function TodoItem({ t, projects, showProject = true }: { t: WBTodo; projects: WBProject[]; showProject?: boolean }) {
   const proj = projects.find((p) => p.id === t.project);
   const isIdea = t.kind === 'idea';
+  const navigate = useNavigate();
   // SPEC v0.3 §3e — inbox rows participate in the triage cursor; gated on real
   // work-item status, not on absence of project (planned items can also lack a project).
   const inboxAttr = t.status === 'inbox' ? { 'data-inbox-item': t.id } : {};
+
+  async function toggleDone(e: React.MouseEvent | React.KeyboardEvent) {
+    e.stopPropagation();
+    e.preventDefault();
+    try {
+      await updateWorkItem(t.id, { status: t.done ? 'planned' : 'done' });
+      window.dispatchEvent(new CustomEvent('stash:captured'));
+    } catch { /* swallow; would surface via Topbar errors */ }
+  }
+
+  function openDetail(e: React.MouseEvent | React.KeyboardEvent) {
+    e.stopPropagation();
+    navigate(`/c/l/${t.id}`);
+  }
+
   return (
-    <div className={`todo ${t.done ? 'done' : ''} ${isIdea ? 'idea' : ''}`} {...inboxAttr}>
-      <div className="todo-check">
-        {isIdea && !t.done && <span style={{ fontSize: 9, color: 'var(--neon-purple)' }}>💡</span>}
-      </div>
+    <div
+      className={`todo ${t.done ? 'done' : ''} ${isIdea ? 'idea' : ''}`}
+      {...inboxAttr}
+      tabIndex={0}
+      role="button"
+      onClick={openDetail}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') openDetail(e);
+        else if (e.key === ' ' || e.key === 'x') toggleDone(e);
+      }}
+    >
+      <button
+        type="button"
+        className="todo-check"
+        aria-label={t.done ? 'mark not done' : 'mark done'}
+        title={t.done ? 'mark not done (Space)' : 'mark done (Space)'}
+        onClick={toggleDone}
+        data-testid={`todo-check-${t.id}`}
+        style={{ background: 'transparent', padding: 0, font: 'inherit' }}
+      >
+        {!t.done && isIdea && <span style={{ fontSize: 9, color: 'var(--neon-purple)' }}>💡</span>}
+      </button>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div className="todo-text">{t.text}</div>
         <div className="todo-tags">

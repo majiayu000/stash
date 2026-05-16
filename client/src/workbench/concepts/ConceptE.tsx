@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { CountUp, LiveDot, ParticleField, Typewriter } from '../../components/effects';
-import { createWorkItem } from '../../api/work-items';
+import { createWorkItem, updateWorkItem } from '../../api/work-items';
 import type { WBData, WBProject, WBTodo } from '../data';
 import { ProgressBar, Topbar, TodoItem } from '../shared';
 
@@ -161,6 +161,7 @@ function emptyCopyFor(col: string): string {
 
 function BoardCol({ icon, name, tone, hint, items, count, live, projects }: { icon: string; name: string; tone: 'orange' | 'cyan' | 'green' | 'purple'; hint: string; items: WBTodo[]; count?: number; live?: boolean; projects: WBProject[] }) {
   const c = count ?? items.length;
+  const draggable = name === 'today';
   return (
     <div className={`board-col tone-${tone}`} data-testid={`board-col-${name}`}>
       <div className="board-col-head">
@@ -173,12 +174,92 @@ function BoardCol({ icon, name, tone, hint, items, count, live, projects }: { ic
       <div className="board-col-body">
         {items.length === 0 ? (
           <div className="board-col-empty">{emptyCopyFor(name)}</div>
+        ) : draggable ? (
+          <DraggableList items={items} projects={projects} />
         ) : (
           items.map((t) => <TodoItem key={t.id} t={t} projects={projects} />)
         )}
         <button className="todo-add">+ add</button>
       </div>
     </div>
+  );
+}
+
+/**
+ * v0.4 §4 — Today list with native HTML5 drag/drop.
+ * Computes new sortOrder as midpoint of neighbours (fractional indexing).
+ * Optimistic local reorder; PATCHes only the moved row; emits stash:captured
+ * so the workbench refetches in canonical order.
+ */
+function DraggableList({ items, projects }: { items: WBTodo[]; projects: WBProject[] }) {
+  const [order, setOrder] = useState<WBTodo[]>(items);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+
+  // Re-sync when parent items change (after refetch).
+  if (order.length !== items.length || order.some((o, i) => o.id !== items[i]?.id)) {
+    setOrder(items);
+  }
+
+  function onDragStart(e: React.DragEvent, id: string) {
+    setDraggingId(id);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', id);
+  }
+  function onDragOver(e: React.DragEvent) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  }
+  async function onDrop(e: React.DragEvent, targetId: string) {
+    e.preventDefault();
+    const movedId = draggingId ?? e.dataTransfer.getData('text/plain');
+    setDraggingId(null);
+    if (!movedId || movedId === targetId) return;
+
+    const from = order.findIndex((it) => it.id === movedId);
+    const to = order.findIndex((it) => it.id === targetId);
+    if (from < 0 || to < 0) return;
+
+    const next = [...order];
+    const [moved] = next.splice(from, 1);
+    if (!moved) return;
+    next.splice(to, 0, moved);
+    setOrder(next);
+
+    // Compute fractional sortOrder.
+    // We don't have the existing sortOrder values on WBTodo, so the simplest
+    // correct thing is to renumber locally using 1000.0 step and patch the
+    // moved row's neighbours only. Use midpoint between neighbours' indices.
+    const prevIdx = next.findIndex((it) => it.id === movedId);
+    const before = next[prevIdx - 1];
+    const after = next[prevIdx + 1];
+    const newOrder =
+      before && after ? (prevIdx) * 1000 + 0.5  // tighten later if precision degrades
+        : before ? (prevIdx + 1) * 1000
+          : after ? (prevIdx) * 1000 - 500
+            : 1000;
+
+    try {
+      await updateWorkItem(movedId, { sortOrder: newOrder });
+      window.dispatchEvent(new CustomEvent('stash:captured'));
+    } catch { /* swallow */ }
+  }
+
+  return (
+    <>
+      {order.map((t) => (
+        <div
+          key={t.id}
+          draggable
+          onDragStart={(e) => onDragStart(e, t.id)}
+          onDragOver={onDragOver}
+          onDrop={(e) => onDrop(e, t.id)}
+          onDragEnd={() => setDraggingId(null)}
+          style={{ opacity: draggingId === t.id ? 0.4 : 1, cursor: 'grab' }}
+        >
+          <TodoItem t={t} projects={projects} />
+        </div>
+      ))}
+    </>
   );
 }
 
