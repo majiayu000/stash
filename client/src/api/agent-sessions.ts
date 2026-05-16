@@ -34,6 +34,23 @@ export async function getAgentSessionEvents(
   return res.data;
 }
 
+/** SPEC v0.3 §3h — regex-extracted decision candidates from a session's JSONL. */
+export interface DecisionCandidate {
+  raw: string;
+  title: string;
+  timestamp: string;
+}
+
+export async function getDecisionCandidates(
+  provider: AgentProvider,
+  id: string,
+): Promise<DecisionCandidate[]> {
+  const res = await apiGet<{ data: DecisionCandidate[] }>(
+    `/agent-sessions/${provider}/${encodeURIComponent(id)}/decision-candidates`,
+  );
+  return res.data;
+}
+
 export interface LinkedSessionEdge {
   workItemId: string;
   provider: AgentProvider;

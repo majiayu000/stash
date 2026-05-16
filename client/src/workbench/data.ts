@@ -24,6 +24,8 @@ export interface WBProject {
 
 export interface WBSession {
   id: string;
+  /** Raw agent provider — needed to hit /api/agent-sessions/:provider/:id endpoints. */
+  provider: 'claude' | 'codex';
   project: string;
   model: string;
   tool: 'claude-code' | 'codex';
@@ -170,6 +172,7 @@ export function adaptToWorkbenchData(input: AdaptInput): WBData {
   // Sessions, ordered by most recent.
   const sessions: WBSession[] = input.sessions.slice(0, 30).map((s) => ({
     id: s.id,
+    provider: s.provider,
     project: s.projectId ?? s.cwd,
     model: s.provider === 'codex' ? 'codex-1' : 'sonnet-4.5',
     tool: s.provider === 'codex' ? 'codex' : 'claude-code',

@@ -1,7 +1,9 @@
 import { Fragment, useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import type { Decision, Lesson, Milestone, Skill } from '@stash/shared';
+import { getDecisionCandidates, type DecisionCandidate } from '../../api/agent-sessions';
 import {
+  createDecision,
   getProjectIntent,
   getProjectNotes,
   listDecisions,
@@ -38,6 +40,9 @@ export function ConceptK({ data }: { data: WBData; reload: () => void }) {
   const [kb, setKb] = useState<ProjectKnowledgeView | null>(null);
   const [mySkills, setMySkills] = useState<Skill[]>([]);
   const [loading, setLoading] = useState(true);
+  // SPEC v0.3 §3h — regex'd decision candidates from this project's recent sessions.
+  const [candidates, setCandidates] = useState<Array<DecisionCandidate & { sessionId: string; provider: 'claude' | 'codex' }>>([]);
+  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (!p) return;
@@ -68,6 +73,53 @@ export function ConceptK({ data }: { data: WBData; reload: () => void }) {
       .catch(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [p?.id]);
+
+  // Pull decision candidates from this project's most recent 3 sessions.
+  useEffect(() => {
+    if (!p) return;
+    let cancelled = false;
+    const projectSessions = sessions.filter((s) => s.project === p.id).slice(0, 3);
+    if (projectSessions.length === 0) { setCandidates([]); return; }
+    Promise.all(
+      projectSessions.map((s) =>
+        getDecisionCandidates(s.provider, s.id)
+          .then((cs) => cs.map((c) => ({ ...c, sessionId: s.id, provider: s.provider })))
+          .catch(() => [] as Array<DecisionCandidate & { sessionId: string; provider: 'claude' | 'codex' }>),
+      ),
+    ).then((all) => {
+      if (cancelled) return;
+      // Dedupe candidates by normalized title across sessions.
+      const seen = new Set<string>();
+      const flat = all.flat().filter((c) => {
+        const key = c.title.toLowerCase();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+      setCandidates(flat.slice(0, 5));
+    });
+    return () => { cancelled = true; };
+  }, [p?.id, sessions]);
+
+  async function acceptCandidate(c: DecisionCandidate & { sessionId: string }) {
+    if (!p) return;
+    try {
+      await createDecision(p.id, {
+        title: c.title,
+        body: c.raw,
+        sessionId: c.sessionId,
+        date: c.timestamp.slice(0, 10),
+      });
+      setDismissed((s) => new Set(s).add(c.title));
+      // Reload decisions so the new one appears in the log.
+      const fresh = await listDecisions(p.id);
+      setKb((cur) => (cur ? { ...cur, decisions: fresh } : cur));
+    } catch { /* swallow */ }
+  }
+
+  function rejectCandidate(c: DecisionCandidate) {
+    setDismissed((s) => new Set(s).add(c.title));
+  }
 
   if (!p) {
     return (
@@ -165,6 +217,54 @@ export function ConceptK({ data }: { data: WBData; reload: () => void }) {
                 <span style={{ color: 'var(--neon-cyan)' }}>ⓘ</span> when starting a session on this project, these skills auto-load.
               </div>
             </div>
+
+            {/* SPEC v0.3 §3h — proposed decisions from recent sessions, accept/reject inline. */}
+            {candidates.filter((c) => !dismissed.has(c.title)).length > 0 && (
+              <div className="surface">
+                <div className="sec-head" style={{ marginBottom: '0.65rem' }}>
+                  <span className="prompt">&gt;</span> 📜 proposed decisions
+                  <span className="count">— from recent sessions</span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                  {candidates.filter((c) => !dismissed.has(c.title)).slice(0, 4).map((c) => (
+                    <div key={c.title} style={{
+                      padding: '0.55rem 0.7rem',
+                      background: 'rgba(48,209,88,0.04)',
+                      border: '1px solid rgba(48,209,88,0.18)',
+                      borderRadius: 'var(--radius-md)',
+                      display: 'flex', flexDirection: 'column', gap: 4,
+                    }}>
+                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', color: 'var(--text-primary)', lineHeight: 1.4 }}>
+                        {c.title}
+                      </div>
+                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.64rem', color: 'var(--text-muted)' }}>
+                        {c.timestamp.slice(0, 10)} · session {c.sessionId.slice(-6)}
+                      </div>
+                      <div style={{ display: 'flex', gap: 6, marginTop: 2 }}>
+                        <button
+                          type="button"
+                          onClick={() => acceptCandidate(c)}
+                          style={{
+                            fontFamily: 'var(--font-mono)', fontSize: '0.68rem', padding: '2px 8px',
+                            background: 'rgba(48,209,88,0.12)', border: '1px solid rgba(48,209,88,0.4)',
+                            color: 'var(--neon-green)', borderRadius: 4, cursor: 'pointer',
+                          }}
+                        >✓ accept</button>
+                        <button
+                          type="button"
+                          onClick={() => rejectCandidate(c)}
+                          style={{
+                            fontFamily: 'var(--font-mono)', fontSize: '0.68rem', padding: '2px 8px',
+                            background: 'transparent', border: '1px solid var(--border-hair)',
+                            color: 'var(--text-muted)', borderRadius: 4, cursor: 'pointer',
+                          }}
+                        >✕ ignore</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <FeaturesSidebar p={p} />
             <TodosSidebar p={p} myTodos={myTodos} projects={projects} />
