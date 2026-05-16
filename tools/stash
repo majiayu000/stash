@@ -1,0 +1,52 @@
+#!/usr/bin/env bun
+/**
+ * stash add — CLI capture binary. SPEC v0.3 §3g.
+ *
+ * Usage:
+ *   stash "buy milk"
+ *   stash "fix login #aurora ^p1 !tomorrow @auth *45m"
+ *
+ * Reads STASH_BASE_URL (default http://localhost:4174). POSTs the raw string
+ * to /api/work-items/capture so the server handles token parsing.
+ */
+const BASE = process.env.STASH_BASE_URL ?? 'http://localhost:4174';
+const args = process.argv.slice(2);
+
+if (args.length === 0 || args[0] === '-h' || args[0] === '--help') {
+  process.stdout.write(
+    `usage: stash "<text with optional tokens>"\n` +
+      `tokens: #project @tag ^p1 !today !!due-fri *45m\n` +
+      `env:    STASH_BASE_URL=${BASE}\n`,
+  );
+  process.exit(args.length === 0 ? 1 : 0);
+}
+
+const raw = args.join(' ');
+
+try {
+  const res = await fetch(`${BASE}/api/work-items/capture`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ raw }),
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    process.stderr.write(`stash: server returned ${res.status}\n${body}\n`);
+    process.exit(1);
+  }
+  const json = await res.json() as { data: { id: string; title: string }; parsed: Record<string, unknown> };
+  const item = json.data;
+  const p = json.parsed;
+  const bits: string[] = [`✓ ${item.title}`];
+  if (p.projectId) bits.push(`#${p.projectId}`);
+  if (Array.isArray(p.labels) && p.labels.length) bits.push(p.labels.map((l) => `@${l}`).join(' '));
+  if (p.priority) bits.push(`^${p.priority}`);
+  if (p.scheduledFor) bits.push(`!${p.scheduledFor}`);
+  if (p.dueAt) bits.push(`!!${p.dueAt}`);
+  if (p.estimateMinutes) bits.push(`*${p.estimateMinutes}m`);
+  process.stdout.write(bits.join(' ') + ` [${item.id.slice(-8)}]\n`);
+} catch (e) {
+  const msg = e instanceof Error ? e.message : String(e);
+  process.stderr.write(`stash: failed to reach ${BASE} — is the server running?\n${msg}\n`);
+  process.exit(1);
+}
