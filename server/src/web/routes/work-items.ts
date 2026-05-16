@@ -103,7 +103,11 @@ export function createWorkItemsRouter(
         kind: 'idea',
         status: 'inbox',
       });
-      return c.json({ data: item, parsed }, 201);
+      // Decorate parsed with human-readable project name for CLI / UI display.
+      const projectName = parsed.projectId
+        ? areas.find((a) => a.id === parsed.projectId)?.name
+        : undefined;
+      return c.json({ data: item, parsed: { ...parsed, projectName } }, 201);
     } catch (e) {
       return handleError(c, e);
     }

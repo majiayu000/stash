@@ -94,6 +94,13 @@ export async function listToday(): Promise<WorkItem[]> {
   return res.data;
 }
 
+/** SPEC v0.3 §3h — inbox/planned items untouched ≥ N days (default 30). */
+export async function listStale(days?: number): Promise<WorkItem[]> {
+  const qs = days !== undefined ? `?days=${days}` : '';
+  const res = await apiGet<ListResponse>(`/work-items/stale${qs}`);
+  return res.data;
+}
+
 /** SPEC v0.3 §3e — single-keystroke triage helpers. */
 export async function togglePin(id: string, pinned: boolean): Promise<WorkItem> {
   const res = await apiPost<ItemResponse>(`/work-items/${id}/today-pin`, { pinned });

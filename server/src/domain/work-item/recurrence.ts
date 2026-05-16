@@ -54,11 +54,14 @@ function shiftIsoDate(iso: string, days: number): string {
 }
 
 function shiftIsoMonths(iso: string, months: number): string {
+  // Clamp day to target month's last day so Jan 31 + 1mo lands on Feb 28/29,
+  // not March 3 (which is what raw `new Date(UTC(y, m+1, 31))` does).
   const d = new Date(parseDate(iso));
   const y = d.getUTCFullYear();
   const m = d.getUTCMonth();
   const day = d.getUTCDate();
-  const target = new Date(Date.UTC(y, m + months, day));
+  const lastDayOfTarget = new Date(Date.UTC(y, m + months + 1, 0)).getUTCDate();
+  const target = new Date(Date.UTC(y, m + months, Math.min(day, lastDayOfTarget)));
   return isoDate(target.getTime());
 }
 

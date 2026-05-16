@@ -1,5 +1,7 @@
-import type { ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import type { Lesson, WorkItem } from '@stash/shared';
+import { apiGet } from '../../api/client';
 import { fmt, type WBData, type WBTodo } from '../data';
 import { Topbar } from '../shared';
 
@@ -39,8 +41,32 @@ export function ConceptL({ data }: { data: WBData; reload: () => void }) {
 
   const proj = projects.find((p) => p.id === todo.project);
 
-  // Deterministic stub sub-tasks based on todo id hash for stable rendering.
-  const subs = stubSubTasks(todo);
+  // SPEC v0.3 §3e — real sub-tasks from /api/work-items/:id/subtasks.
+  const [realSubs, setRealSubs] = useState<WorkItem[] | null>(null);
+  // SPEC v0.3 §3h — relevant lessons surfaced by tag/project overlap.
+  const [lessons, setLessons] = useState<Lesson[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    apiGet<{ data: WorkItem[] }>(`/work-items/${todo.id}/subtasks`)
+      .then((res) => { if (!cancelled) setRealSubs(res.data); })
+      .catch(() => { if (!cancelled) setRealSubs([]); });
+
+    const params = new URLSearchParams();
+    if (todo.project) params.set('projectId', todo.project);
+    todo.tags.forEach((t) => params.append('label', t.replace(/^#/, '')));
+    params.set('limit', '3');
+    apiGet<{ data: Lesson[] }>(`/lessons/relevant?${params.toString()}`)
+      .then((res) => { if (!cancelled) setLessons(res.data); })
+      .catch(() => { if (!cancelled) setLessons([]); });
+
+    return () => { cancelled = true; };
+  }, [todo.id]);
+
+  // Stub fallback only when real subtasks aren't loaded yet, for visual continuity.
+  const stubSubs = stubSubTasks(todo);
+  const showStub = realSubs === null;
+  const subs = showStub ? stubSubs : [];
   const doneSubs = subs.filter((s) => s.done).length;
 
   // Stub linked sessions — Phase 4 swaps with /api/work-items/:id/sessions
@@ -89,14 +115,41 @@ export function ConceptL({ data }: { data: WBData; reload: () => void }) {
             <div className="td-modal-main">
               <div className="td-section">
                 <div className="td-section-label">
-                  <span>sub-tasks {' '}<span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(stub · Phase 3e)</span></span>
-                  <span style={{ color: 'var(--neon-green)' }}>{doneSubs}/{subs.length}</span>
+                  <span>sub-tasks{showStub && ' '}{showStub && <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(loading…)</span>}</span>
+                  {showStub
+                    ? <span style={{ color: 'var(--neon-green)' }}>{doneSubs}/{subs.length}</span>
+                    : <span style={{ color: 'var(--neon-green)' }}>{(realSubs ?? []).filter((s) => s.status === 'done').length}/{(realSubs ?? []).length}</span>}
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {subs.map((s, i) => <SubTask key={i} done={s.done} text={s.text} />)}
+                  {showStub
+                    ? subs.map((s, i) => <SubTask key={i} done={s.done} text={s.text} />)
+                    : (realSubs ?? []).length === 0
+                      ? <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)' }}>no sub-tasks. break the work down to keep your context fresh next session.</div>
+                      : (realSubs ?? []).map((s) => <SubTask key={s.id} done={s.status === 'done'} text={s.title} />)}
                   <button className="td-subtask-add" type="button">+ add sub-task</button>
                 </div>
               </div>
+
+              {lessons.length > 0 && (
+                <div className="td-section">
+                  <div className="td-section-label">
+                    <span>💎 lessons that might apply</span>
+                    <span style={{ color: 'var(--text-muted)' }}>matched by tag / project</span>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {lessons.map((l) => (
+                      <div key={l.id} className="td-lesson">
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                          <span style={{ color: 'var(--neon-purple)', filter: 'drop-shadow(0 0 6px var(--neon-purple))' }}>💎</span>
+                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.82rem', fontWeight: 600 }}>{l.title}</span>
+                          {l.cross && <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', color: 'var(--neon-cyan)', background: 'rgba(0,255,242,0.08)', padding: '1px 6px', borderRadius: 4, marginLeft: 'auto' }}>cross-proj</span>}
+                        </div>
+                        {l.body && <div style={{ fontFamily: 'var(--font-body)', fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>{l.body}</div>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <div className="td-section">
                 <div className="td-section-label">tags</div>
@@ -416,6 +469,7 @@ const conceptLStyles = `
   cursor: pointer;
 }
 .td-tag-add { background: transparent; color: var(--text-muted); border-style: dashed; border-color: var(--border-subtle); }
+.td-lesson { padding: 0.55rem 0.7rem; background: rgba(191,90,242,0.04); border: 1px solid rgba(191,90,242,0.18); border-radius: var(--radius-md); }
 
 .td-linked-sess {
   display: flex; align-items: center; gap: 0.5rem;

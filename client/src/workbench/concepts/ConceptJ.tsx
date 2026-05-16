@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { FeatureAdvancedRow, WeeklySnapshot, WorkItem } from '@stash/shared';
 import { getWeeklySnapshot } from '../../api/analytics';
-import { listWorkItems } from '../../api/work-items';
+import { listStale, listWorkItems } from '../../api/work-items';
 import { CountUp, ParticleField, ShinyText } from '../../components/effects';
 import { fmt, type WBData, type WBProject } from '../data';
 import { SessionRow, Topbar } from '../shared';
@@ -18,12 +18,17 @@ export function ConceptJ({ data }: { data: WBData; reload: () => void }) {
   const { projects, sessions } = data;
   const [week, setWeek] = useState<WeeklySnapshot | null>(null);
   const [doneItems, setDoneItems] = useState<WorkItem[]>([]);
+  const [stale, setStale] = useState<WorkItem[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([getWeeklySnapshot(), listWorkItems({ status: ['done'] })])
-      .then(([w, items]) => {
+    Promise.all([
+      getWeeklySnapshot(),
+      listWorkItems({ status: ['done'] }),
+      listStale(30),
+    ])
+      .then(([w, items, staleItems]) => {
         if (cancelled) return;
         setWeek(w);
         const within = items.filter((it) => {
@@ -31,6 +36,7 @@ export function ConceptJ({ data }: { data: WBData; reload: () => void }) {
           return it.completedAt >= w.rangeStart && it.completedAt < w.rangeEnd;
         });
         setDoneItems(within);
+        setStale(staleItems);
         setLoading(false);
       })
       .catch(() => { if (!cancelled) setLoading(false); });
@@ -158,6 +164,28 @@ export function ConceptJ({ data }: { data: WBData; reload: () => void }) {
               <WowCompare label="focus hrs"  cur={week.focusHours}             prev={Math.max(0, week.focusHours - 1)} fmt={(n) => n.toFixed(1) + 'h'} />
             </div>
 
+            {stale.length > 0 && (
+              <div className="surface">
+                <div className="sec-head" style={{ marginBottom: '0.6rem' }}>
+                  <span className="prompt">&gt;</span> 🌫 stale digest
+                  <span className="count">— {stale.length} item{stale.length === 1 ? '' : 's'}, untouched 30d+</span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {stale.slice(0, 6).map((it) => (
+                    <div key={it.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 6px', background: 'rgba(255,255,255,0.02)', borderRadius: 4 }}>
+                      <span style={{ flex: 1, fontFamily: 'var(--font-mono)', fontSize: '0.74rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{it.title}</span>
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.62rem', color: 'var(--text-muted)' }}>{daysSince(it.updatedAt)}d</span>
+                    </div>
+                  ))}
+                  {stale.length > 6 && (
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.68rem', color: 'var(--text-muted)', textAlign: 'center', marginTop: 4 }}>
+                      +{stale.length - 6} more
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
             <div className="surface" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
               <div className="sec-head" style={{ marginBottom: '0.75rem' }}>
                 <span className="prompt">&gt;</span> top sessions
@@ -188,6 +216,10 @@ export function ConceptJ({ data }: { data: WBData; reload: () => void }) {
       <style>{conceptJStyles}</style>
     </div>
   );
+}
+
+function daysSince(iso: string): number {
+  return Math.max(0, Math.floor((Date.now() - Date.parse(iso)) / 86_400_000));
 }
 
 function pctDelta(cur: number, prev: number): number {

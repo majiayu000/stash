@@ -36,6 +36,21 @@ describe('computeNextDate', () => {
     ).toBe('2026-06-14');
   });
 
+  test('MONTHLY clamps day to target month length (Jan 31 → Feb 28/29, not Mar 3)', () => {
+    // 2026 is not a leap year — Feb has 28 days
+    expect(
+      computeNextDate({ type: 'rrule', freq: 'MONTHLY', interval: 1 }, '2026-01-31'),
+    ).toBe('2026-02-28');
+    // 2028 is a leap year — Feb has 29 days
+    expect(
+      computeNextDate({ type: 'rrule', freq: 'MONTHLY', interval: 1 }, '2028-01-31'),
+    ).toBe('2028-02-29');
+    // 30th of a month that maps to a 30-day target → unchanged
+    expect(
+      computeNextDate({ type: 'rrule', freq: 'MONTHLY', interval: 1 }, '2026-05-30'),
+    ).toBe('2026-06-30');
+  });
+
   test('UNTIL guard returns undefined when anchor reaches the limit', () => {
     expect(
       computeNextDate(

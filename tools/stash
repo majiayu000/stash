@@ -28,17 +28,19 @@ try {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ raw }),
+    signal: AbortSignal.timeout(5000),
   });
   if (!res.ok) {
     const body = await res.text();
     process.stderr.write(`stash: server returned ${res.status}\n${body}\n`);
     process.exit(1);
   }
-  const json = await res.json() as { data: { id: string; title: string }; parsed: Record<string, unknown> };
+  const json = (await res.json()) as { data: { id: string; title: string }; parsed: Record<string, unknown> };
   const item = json.data;
   const p = json.parsed;
   const bits: string[] = [`✓ ${item.title}`];
-  if (p.projectId) bits.push(`#${p.projectId}`);
+  if (p.projectName) bits.push(`#${p.projectName}`);
+  else if (p.projectId) bits.push(`#${String(p.projectId).slice(-8)}`);
   if (Array.isArray(p.labels) && p.labels.length) bits.push(p.labels.map((l) => `@${l}`).join(' '));
   if (p.priority) bits.push(`^${p.priority}`);
   if (p.scheduledFor) bits.push(`!${p.scheduledFor}`);
@@ -46,7 +48,12 @@ try {
   if (p.estimateMinutes) bits.push(`*${p.estimateMinutes}m`);
   process.stdout.write(bits.join(' ') + ` [${item.id.slice(-8)}]\n`);
 } catch (e) {
+  const isTimeout = e instanceof Error && e.name === 'TimeoutError';
   const msg = e instanceof Error ? e.message : String(e);
-  process.stderr.write(`stash: failed to reach ${BASE} — is the server running?\n${msg}\n`);
+  process.stderr.write(
+    isTimeout
+      ? `stash: timed out reaching ${BASE} after 5s — is the server running?\n`
+      : `stash: failed to reach ${BASE} — is the server running?\n${msg}\n`,
+  );
   process.exit(1);
 }

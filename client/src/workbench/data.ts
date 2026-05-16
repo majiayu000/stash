@@ -42,6 +42,8 @@ export interface WBTodo {
   project: string | null;
   tags: string[];
   done: boolean;
+  /** Raw work-item status — needed by InboxTriage to match what the API filters on. */
+  status: 'inbox' | 'planned' | 'active' | 'waiting' | 'blocked' | 'someday' | 'done';
   priority: 'high' | 'med' | 'low';
   kind: 'task' | 'idea';
   due?: 'today' | 'this-week' | 'someday';
@@ -189,6 +191,7 @@ export function adaptToWorkbenchData(input: AdaptInput): WBData {
       project: i.projectId ?? null,
       tags: i.labels.map((l) => '#' + l),
       done: i.status === 'done',
+      status: i.status as WBTodo['status'],
       priority: PRIORITY_MAP[i.priority] ?? 'med',
       kind: i.kind === 'idea' ? 'idea' : 'task',
       due: todoDue(i, today),

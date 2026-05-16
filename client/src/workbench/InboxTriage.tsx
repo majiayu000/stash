@@ -1,35 +1,70 @@
-import { useEffect, useState } from 'react';
-import { listWorkItems, setPriority, togglePin, updateWorkItem } from '../api/work-items';
+import { useEffect, useRef, useState } from 'react';
+import type { Priority, WorkItem, WorkItemStatus } from '@stash/shared';
+import {
+  listWorkItems,
+  setPriority,
+  togglePin,
+  updateWorkItem,
+} from '../api/work-items';
 
 /**
  * SPEC v0.3 §3e — global inbox triage keyboard layer.
  *
- * Activates when the workbench is focused and no input is. Cursor highlights
- * the focused inbox row by data-testid attribute. Single-key actions hit the
- * API and emit `stash:captured` so the workbench reloads.
+ * Cursor tracks the *id* of the focused row (not its index), so actions that
+ * shift the list don't mis-target the next keypress. Inbox list is cached
+ * and invalidated on `stash:captured`.
  *
- * Keys:
- *   j / k       → next / prev
- *   t           → toggle today_pinned
- *   n           → status planned (Next/Anytime)
- *   s           → status someday
- *   d           → status dropped
- *   0 / 1 / 2 / 3 → priority p0/p1/p2/p3
- *   ?           → show shortcut help overlay
+ * Keys (when no input has focus):
+ *   j / k          next / prev row
+ *   t              toggle today_pinned
+ *   n              → status planned
+ *   s              → status someday
+ *   d              → status dropped (Undo via toast button)
+ *   0..3           priority p0/p1/p2/p3
+ *   e              rename row (browser prompt for v0.3)
+ *   Enter          emit stash:open-detail with the focused id
+ *   ?              toggle help overlay
  */
+
+interface UndoAction {
+  label: string;
+  apply: () => Promise<void>;
+}
+
 export function InboxTriage() {
-  const [cursor, setCursor] = useState(0);
+  const [items, setItems] = useState<WorkItem[]>([]);
+  const [cursorId, setCursorId] = useState<string | null>(null);
   const [help, setHelp] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ msg: string; undo?: UndoAction } | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Load + reload inbox; preserves cursor when possible.
+  useEffect(() => {
+    let cancelled = false;
+    async function reload() {
+      try {
+        const next = await listWorkItems({ status: 'inbox' });
+        if (cancelled) return;
+        setItems(next);
+        setCursorId((cur) => {
+          if (cur && next.some((it) => it.id === cur)) return cur;
+          return next[0]?.id ?? null;
+        });
+      } catch { /* silent — surface elsewhere */ }
+    }
+    reload();
+    function onChange() { reload(); }
+    window.addEventListener('stash:captured', onChange);
+    return () => { cancelled = true; window.removeEventListener('stash:captured', onChange); };
+  }, []);
 
   useEffect(() => {
-    async function act(handler: (id: string) => Promise<void>, label: string) {
-      const items = await loadInboxIds();
-      const id = items[cursor];
-      if (!id) return;
+    async function act(handler: (id: string, current: WorkItem) => Promise<UndoAction | void>, label: string) {
+      const cur = items.find((it) => it.id === cursorId);
+      if (!cur) return;
       try {
-        await handler(id);
-        flash(`✓ ${label}`);
+        const undo = await handler(cur.id, cur);
+        flash(`✓ ${label}`, undo ?? undefined);
         window.dispatchEvent(new CustomEvent('stash:captured'));
       } catch (e) {
         flash(`✕ ${e instanceof Error ? e.message : String(e)}`);
@@ -40,55 +75,138 @@ export function InboxTriage() {
       const tag = (e.target as HTMLElement | null)?.tagName?.toLowerCase();
       const editing = tag === 'input' || tag === 'textarea' || (e.target as HTMLElement | null)?.isContentEditable;
       if (editing) return;
-      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.metaKey || e.altKey) return;
 
-      // Help overlay toggle
+      // Help overlay
       if (e.key === '?') { e.preventDefault(); setHelp((v) => !v); return; }
       if (e.key === 'Escape' && help) { e.preventDefault(); setHelp(false); return; }
+
+      // Cmd+Z / Ctrl+Z → invoke pending undo
+      if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
+        if (toast?.undo) { e.preventDefault(); void invokeUndo(); }
+        return;
+      }
+      if (e.ctrlKey) return;
 
       // Navigation
       if (e.key === 'j') {
         e.preventDefault();
-        const items = await loadInboxIds();
-        if (items.length > 0) setCursor((c) => Math.min(c + 1, items.length - 1));
+        if (items.length === 0) return;
+        const idx = Math.max(0, items.findIndex((it) => it.id === cursorId));
+        setCursorId(items[Math.min(idx + 1, items.length - 1)]?.id ?? null);
         return;
       }
       if (e.key === 'k') {
         e.preventDefault();
-        setCursor((c) => Math.max(0, c - 1));
+        if (items.length === 0) return;
+        const idx = Math.max(0, items.findIndex((it) => it.id === cursorId));
+        setCursorId(items[Math.max(0, idx - 1)]?.id ?? null);
+        return;
+      }
+
+      // Enter → emit detail event (consumer wires this up).
+      if (e.key === 'Enter') {
+        if (!cursorId) return;
+        e.preventDefault();
+        window.dispatchEvent(new CustomEvent('stash:open-detail', { detail: { id: cursorId } }));
+        return;
+      }
+
+      // Rename
+      if (e.key === 'e') {
+        e.preventDefault();
+        await act(async (id, cur) => {
+          const next = window.prompt('rename', cur.title);
+          if (next === null || !next.trim() || next.trim() === cur.title) return;
+          const prevTitle = cur.title;
+          await updateWorkItem(id, { title: next.trim() });
+          return { label: 'rename', apply: async () => { await updateWorkItem(id, { title: prevTitle }); } };
+        }, 'renamed');
         return;
       }
 
       // Actions
-      if (e.key === 't') { e.preventDefault(); await act(async (id) => { const items = await loadInboxItems(); const cur = items[cursor]; if (cur) await togglePin(id, !cur.todayPinned); }, 'pinned'); return; }
-      if (e.key === 'n') { e.preventDefault(); await act(async (id) => { await updateWorkItem(id, { status: 'planned' }); }, '→ planned'); return; }
-      if (e.key === 's') { e.preventDefault(); await act(async (id) => { await updateWorkItem(id, { status: 'someday' }); }, '→ someday'); return; }
-      if (e.key === 'd') { e.preventDefault(); await act(async (id) => { await updateWorkItem(id, { status: 'dropped' }); }, '→ dropped'); return; }
-      if (e.key === '0') { e.preventDefault(); await act(async (id) => { await setPriority(id, 'p0'); }, 'p0'); return; }
-      if (e.key === '1') { e.preventDefault(); await act(async (id) => { await setPriority(id, 'p1'); }, 'p1'); return; }
-      if (e.key === '2') { e.preventDefault(); await act(async (id) => { await setPriority(id, 'p2'); }, 'p2'); return; }
-      if (e.key === '3') { e.preventDefault(); await act(async (id) => { await setPriority(id, 'p3'); }, 'p3'); return; }
+      const statusActions: Record<string, { status: WorkItemStatus; label: string }> = {
+        n: { status: 'planned', label: '→ planned' },
+        s: { status: 'someday', label: '→ someday' },
+        d: { status: 'dropped', label: '→ dropped' },
+      };
+      const sa = statusActions[e.key];
+      if (sa) {
+        e.preventDefault();
+        await act(async (id, cur) => {
+          const prev = cur.status;
+          await updateWorkItem(id, { status: sa.status });
+          return { label: sa.label, apply: async () => { await updateWorkItem(id, { status: prev }); } };
+        }, sa.label);
+        return;
+      }
+
+      const prioActions: Record<string, Priority> = { '0': 'p0', '1': 'p1', '2': 'p2', '3': 'p3' };
+      const pa = prioActions[e.key];
+      if (pa) {
+        e.preventDefault();
+        await act(async (id, cur) => {
+          const prev = cur.priority;
+          await setPriority(id, pa);
+          return { label: pa, apply: async () => { await setPriority(id, prev); } };
+        }, pa);
+        return;
+      }
+
+      if (e.key === 't') {
+        e.preventDefault();
+        await act(async (id, cur) => {
+          const prevPinned = cur.todayPinned;
+          await togglePin(id, !prevPinned);
+          return { label: prevPinned ? 'unpin' : 'pin', apply: async () => { await togglePin(id, prevPinned); } };
+        }, 'pinned');
+        return;
+      }
+    }
+
+    async function invokeUndo() {
+      if (!toast?.undo) return;
+      const u = toast.undo;
+      try {
+        await u.apply();
+        flash(`↶ undone (${u.label})`);
+        window.dispatchEvent(new CustomEvent('stash:captured'));
+      } catch (e) {
+        flash(`✕ undo failed: ${e instanceof Error ? e.message : String(e)}`);
+      }
     }
 
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [cursor, help]);
+  }, [items, cursorId, help, toast]);
 
-  // Visual cursor: highlight the n-th [data-inbox-item] in the DOM.
+  // Paint cursor highlight on the DOM row matching cursorId.
   useEffect(() => {
-    const items = document.querySelectorAll<HTMLElement>('[data-inbox-item]');
-    items.forEach((el, i) => {
-      if (i === cursor) {
-        el.setAttribute('data-cursor', 'true');
-      } else {
-        el.removeAttribute('data-cursor');
-      }
+    const rows = document.querySelectorAll<HTMLElement>('[data-inbox-item]');
+    rows.forEach((el) => {
+      const id = el.getAttribute('data-inbox-item');
+      if (id && id === cursorId) el.setAttribute('data-cursor', 'true');
+      else el.removeAttribute('data-cursor');
     });
   });
 
-  function flash(msg: string) {
-    setToast(msg);
-    setTimeout(() => setToast(null), 1800);
+  function flash(msg: string, undo?: UndoAction) {
+    setToast({ msg, undo });
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(null), undo ? 8000 : 1800);
+  }
+
+  async function clickUndo() {
+    if (!toast?.undo) return;
+    const u = toast.undo;
+    try {
+      await u.apply();
+      flash(`↶ undone (${u.label})`);
+      window.dispatchEvent(new CustomEvent('stash:captured'));
+    } catch (e) {
+      flash(`✕ undo failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
   }
 
   return (
@@ -103,27 +221,29 @@ export function InboxTriage() {
               <kbd>t</kbd><span>toggle today pin</span>
               <kbd>n</kbd><span>→ planned</span>
               <kbd>s</kbd><span>→ someday</span>
-              <kbd>d</kbd><span>→ dropped</span>
+              <kbd>d</kbd><span>→ dropped (undo via toast / ⌘Z)</span>
               <kbd>0–3</kbd><span>set priority</span>
+              <kbd>e</kbd><span>rename row</span>
+              <kbd>Enter</kbd><span>open detail</span>
               <kbd>c</kbd><span>quick capture</span>
               <kbd>?</kbd><span>toggle this help</span>
             </div>
           </div>
         </div>
       )}
-      {toast && <div className="tri-toast">{toast}</div>}
+      {toast && (
+        <div className="tri-toast" data-testid="tri-toast">
+          <span>{toast.msg}</span>
+          {toast.undo && (
+            <button className="tri-undo" type="button" onClick={clickUndo} data-testid="tri-undo">
+              undo
+            </button>
+          )}
+        </div>
+      )}
       <style>{triStyles}</style>
     </>
   );
-}
-
-async function loadInboxIds(): Promise<string[]> {
-  const items = await listWorkItems({ status: 'inbox' });
-  return items.map((i) => i.id);
-}
-
-async function loadInboxItems() {
-  return await listWorkItems({ status: 'inbox' });
 }
 
 const triStyles = `
@@ -170,5 +290,14 @@ const triStyles = `
   font-family: var(--font-mono); font-size: 0.74rem;
   color: var(--text-primary, #fff);
   z-index: 1001;
+  display: flex; align-items: center; gap: 0.6rem;
 }
+.tri-undo {
+  background: rgba(0,255,242,0.08);
+  border: 1px solid rgba(0,255,242,0.4);
+  color: var(--neon-cyan);
+  font-family: inherit; font-size: 0.7rem;
+  padding: 2px 8px; border-radius: 4px; cursor: pointer;
+}
+.tri-undo:hover { background: rgba(0,255,242,0.15); }
 `;

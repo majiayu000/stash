@@ -146,8 +146,9 @@ export class ProjectKnowledgeService {
 
   /**
    * SPEC v0.3 §3h — surface lessons relevant to a task's context.
-   * Match by: (a) same project, (b) any tag overlap with provided labels.
-   * Scores by overlap count; returns top N.
+   * Qualification requires real overlap: (a) same project, OR (b) ≥1 tag in common.
+   * `cross` is only a tiebreaker among already-qualified lessons — it does NOT
+   * make an unrelated cross-project lesson appear by itself.
    */
   findRelevantLessons(opts: { projectId?: string; labels: string[]; limit?: number }): Lesson[] {
     const limit = opts.limit ?? 3;
@@ -157,10 +158,11 @@ export class ProjectKnowledgeService {
       .map((lesson) => {
         const tagOverlap = lesson.tags.filter((t) => labelSet.has(t.toLowerCase())).length;
         const projectMatch = opts.projectId && lesson.projectId === opts.projectId ? 1 : 0;
+        const qualifies = tagOverlap > 0 || projectMatch > 0;
         const crossBonus = lesson.cross ? 0.5 : 0;
-        return { lesson, score: tagOverlap * 2 + projectMatch * 2 + crossBonus };
+        return { lesson, qualifies, score: tagOverlap * 2 + projectMatch * 2 + crossBonus };
       })
-      .filter((x) => x.score > 0);
+      .filter((x) => x.qualifies);
     scored.sort((a, b) => b.score - a.score || b.lesson.createdAt.localeCompare(a.lesson.createdAt));
     return scored.slice(0, limit).map((x) => x.lesson);
   }
