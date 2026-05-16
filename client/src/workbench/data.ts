@@ -49,6 +49,9 @@ export interface WBTodo {
   priority: 'high' | 'med' | 'low';
   kind: 'task' | 'idea';
   due?: 'today' | 'this-week' | 'someday';
+  /** v0.6 — visual flags for TodoItem chrome. */
+  recurring: boolean;
+  reminding: boolean;
 }
 
 export interface WBStats {
@@ -198,6 +201,8 @@ export function adaptToWorkbenchData(input: AdaptInput): WBData {
       priority: PRIORITY_MAP[i.priority] ?? 'med',
       kind: i.kind === 'idea' ? 'idea' : 'task',
       due: todoDue(i, today),
+      recurring: i.recurrence !== undefined,
+      reminding: i.reminderAt !== undefined,
     }));
 
   // Stats.

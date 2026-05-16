@@ -74,7 +74,7 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
     return () => { cancelled = true; };
   }, [todo.id]);
 
-  async function save<K extends 'title' | 'description' | 'priority' | 'status' | 'dueAt' | 'projectId' | 'areaId' | 'labels'>(field: K, value: WorkItem[K]) {
+  async function save<K extends 'title' | 'description' | 'priority' | 'status' | 'dueAt' | 'projectId' | 'areaId' | 'labels' | 'recurrence' | 'reminderAt'>(field: K, value: WorkItem[K]) {
     if (!item) return;
     if (item[field] === value) return;
     const optimistic = { ...item, [field]: value };
@@ -447,6 +447,36 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
                 } />
 
                 <MetaRow k="kind" v={<span style={{ color: todo.kind === 'idea' ? 'var(--neon-purple)' : 'var(--neon-cyan)' }}>{todo.kind === 'idea' ? '💡 idea' : '✓ task'}</span>} />
+
+                <MetaRow k="repeats" v={
+                  <select
+                    value={recurrenceToOption(item?.recurrence)}
+                    onChange={(e) => save('recurrence', optionToRecurrence(e.target.value))}
+                    disabled={!item}
+                    style={{ background: 'transparent', border: 0, color: item?.recurrence ? 'var(--neon-purple)' : 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: '0.78rem', cursor: 'pointer' }}
+                    data-testid="td-repeat"
+                  >
+                    <option value="none">none</option>
+                    <option value="daily">daily</option>
+                    <option value="weekdays">weekdays (mo–fr)</option>
+                    <option value="weekly">weekly</option>
+                    <option value="monthly">monthly</option>
+                    <option value="after_1d">after done · +1d</option>
+                    <option value="after_7d">after done · +7d</option>
+                  </select>
+                } />
+
+                <MetaRow k="remind" v={
+                  <input
+                    type="datetime-local"
+                    value={item?.reminderAt ? toLocalDateTime(item.reminderAt) : ''}
+                    onChange={(e) => save('reminderAt', e.target.value ? new Date(e.target.value).toISOString() : undefined)}
+                    disabled={!item}
+                    style={{ background: 'transparent', border: 0, color: item?.reminderAt ? 'var(--neon-pink)' : 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: '0.78rem', cursor: 'pointer', colorScheme: 'dark' }}
+                    data-testid="td-remind"
+                  />
+                } />
+
                 <MetaRow k="id" v={todo.id.slice(0, 12) + '…'} />
               </div>
 
@@ -589,6 +619,38 @@ function PromoteBtn({ icon, title, sub }: { icon: string; title: string; sub: st
       <span className="td-promote-chev">›</span>
     </button>
   );
+}
+
+// SPEC v0.3 §3c — option ↔ RecurrenceRule mapping for the picker.
+function recurrenceToOption(r: WorkItem['recurrence']): string {
+  if (!r) return 'none';
+  if (r.type === 'rrule' && r.freq === 'DAILY') return 'daily';
+  if (r.type === 'rrule' && r.freq === 'WEEKLY' && r.byDay?.length === 5) return 'weekdays';
+  if (r.type === 'rrule' && r.freq === 'WEEKLY') return 'weekly';
+  if (r.type === 'rrule' && r.freq === 'MONTHLY') return 'monthly';
+  if (r.type === 'after_completion' && r.offsetDays === 1) return 'after_1d';
+  if (r.type === 'after_completion' && r.offsetDays === 7) return 'after_7d';
+  return 'none';
+}
+
+function optionToRecurrence(opt: string): WorkItem['recurrence'] {
+  switch (opt) {
+    case 'daily':    return { type: 'rrule', freq: 'DAILY',   interval: 1 };
+    case 'weekdays': return { type: 'rrule', freq: 'WEEKLY',  interval: 1, byDay: ['MO', 'TU', 'WE', 'TH', 'FR'] };
+    case 'weekly':   return { type: 'rrule', freq: 'WEEKLY',  interval: 1 };
+    case 'monthly':  return { type: 'rrule', freq: 'MONTHLY', interval: 1 };
+    case 'after_1d': return { type: 'after_completion', offsetDays: 1 };
+    case 'after_7d': return { type: 'after_completion', offsetDays: 7 };
+    default:         return undefined;
+  }
+}
+
+// ISO datetime → "YYYY-MM-DDTHH:MM" suitable for <input type=datetime-local>.
+function toLocalDateTime(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 function slugify(s: string): string {

@@ -293,7 +293,11 @@ export function TodoItem({ t, projects, showProject = true }: { t: WBTodo; proje
         {!t.done && isIdea && <span style={{ fontSize: 9, color: 'var(--neon-purple)' }}>💡</span>}
       </button>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div className="todo-text">{t.text}</div>
+        <div className="todo-text">
+          {t.text}
+          {t.recurring && <span title="recurring task" style={{ marginLeft: 6, color: 'var(--neon-purple)', fontSize: '0.74rem' }}>🔁</span>}
+          {t.reminding && <span title="has a reminder" style={{ marginLeft: 4, color: 'var(--neon-pink)', fontSize: '0.74rem' }}>🔔</span>}
+        </div>
         <div className="todo-tags">
           {showProject && proj && <span className="todo-tag proj">#{proj.name}</span>}
           {!proj && !t.done && <span className="todo-tag inbox">#inbox</span>}
