@@ -2,9 +2,11 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import type { Lesson, Priority, WorkItem, WorkItemStatus } from '@stash/shared';
 import { apiGet } from '../../api/client';
-import { getWorkItem, updateWorkItem } from '../../api/work-items';
+import { linkSession, listLinkedSessions, unlinkSession, type LinkedSessionEdge } from '../../api/agent-sessions';
+import { createWorkItem, getWorkItem, updateWorkItem } from '../../api/work-items';
 import { fmt, type WBData, type WBTodo } from '../data';
 import { Topbar } from '../shared';
+import { conceptLStyles } from './conceptL.styles';
 
 /**
  * Concept L — Todo Detail / Split / Promote modal.
@@ -93,13 +95,124 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
     setTimeout(() => setSavedFlash(null), 1400);
   }
 
+  async function reloadSubs() {
+    if (!todo) return;
+    try {
+      const res = await apiGet<{ data: WorkItem[] }>(`/work-items/${todo.id}/subtasks`);
+      setRealSubs(res.data);
+    } catch { /* ignore */ }
+  }
+
+  async function addSubtask() {
+    if (!todo) return;
+    const title = window.prompt('new sub-task title');
+    if (!title || !title.trim()) return;
+    try {
+      await createWorkItem({
+        title: title.trim(),
+        parentId: todo.id,
+        projectId: item?.projectId,
+        areaId: item?.areaId,
+        kind: 'task',
+        status: 'planned',
+      });
+      await reloadSubs();
+      flashSaved('+ sub-task');
+      reload();
+    } catch (e) {
+      flashSaved(`✕ ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  async function toggleSubtask(sub: WorkItem) {
+    try {
+      await updateWorkItem(sub.id, { status: sub.status === 'done' ? 'planned' : 'done' });
+      await reloadSubs();
+    } catch { /* ignore */ }
+  }
+
+  async function dropSubtask(sub: WorkItem) {
+    try {
+      await updateWorkItem(sub.id, { status: 'dropped' });
+      await reloadSubs();
+    } catch { /* ignore */ }
+  }
+
+  async function addLabel() {
+    if (!item) return;
+    const t = window.prompt('new tag (no #)');
+    if (!t || !t.trim()) return;
+    const tag = t.trim().replace(/^#/, '');
+    if (item.labels.includes(tag)) return;
+    await save('labels', [...item.labels, tag]);
+  }
+
+  async function removeLabel(label: string) {
+    if (!item) return;
+    await save('labels', item.labels.filter((l) => l !== label));
+  }
+
+  async function setDue(value: string) {
+    await save('dueAt', value || undefined);
+  }
+
+  async function setProjectField(projectId: string | undefined) {
+    if (!item) return;
+    const optimistic = { ...item, projectId, areaId: projectId };
+    setItem(optimistic);
+    try {
+      const updated = await updateWorkItem(item.id, { projectId, areaId: projectId });
+      setItem(updated);
+      flashSaved('saved');
+      reload();
+    } catch (e) {
+      setItem(item);
+      flashSaved(`✕ ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
   // Stub fallback only when real subtasks aren't loaded yet, for visual continuity.
   const stubSubs = stubSubTasks(todo);
   const showStub = realSubs === null;
   const subs = showStub ? stubSubs : [];
   const doneSubs = subs.filter((s) => s.done).length;
 
-  // Stub linked sessions — Phase 4 swaps with /api/work-items/:id/sessions
+  // SPEC v0.3 — real linked sessions via /api/work-items/:id/sessions (proxied by listLinkedSessions).
+  const todoId = todo.id;
+  const [linkedEdges, setLinkedEdges] = useState<LinkedSessionEdge[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    listLinkedSessions(todoId)
+      .then((e) => { if (!cancelled) setLinkedEdges(e); })
+      .catch(() => { if (!cancelled) setLinkedEdges([]); });
+    return () => { cancelled = true; };
+  }, [todoId]);
+
+  async function linkPick() {
+    const candidates = data.sessions.slice(0, 12);
+    if (candidates.length === 0) { window.alert('no agent sessions available yet'); return; }
+    const choice = window.prompt(
+      'pick a session to link (number):\n' +
+        candidates.map((s, i) => `${i + 1}. [${s.provider}] ${s.title || s.id.slice(0, 8)}`).join('\n'),
+    );
+    const idx = Number(choice ?? '') - 1;
+    const pick = candidates[idx];
+    if (!pick) return;
+    try {
+      await linkSession(todoId, pick.provider, pick.id);
+      const fresh = await listLinkedSessions(todoId);
+      setLinkedEdges(fresh);
+    } catch (e) { window.alert(e instanceof Error ? e.message : String(e)); }
+  }
+
+  async function unlinkOne(edge: LinkedSessionEdge) {
+    try {
+      await unlinkSession(todoId, edge.provider, edge.sessionId);
+      setLinkedEdges((cur) => cur.filter((e) => !(e.provider === edge.provider && e.sessionId === edge.sessionId)));
+    } catch { /* swallow */ }
+  }
+
+  // Stub fallback only for layout continuity if we have nothing yet.
   const linked = stubLinkedSessions(todo);
   // Stub journal — Phase 3b notes / lessons
   const journal = stubJournal(todo);
@@ -182,8 +295,17 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
                     ? subs.map((s, i) => <SubTask key={i} done={s.done} text={s.text} />)
                     : (realSubs ?? []).length === 0
                       ? <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)' }}>no sub-tasks. break the work down to keep your context fresh next session.</div>
-                      : (realSubs ?? []).map((s) => <SubTask key={s.id} done={s.status === 'done'} text={s.title} />)}
-                  <button className="td-subtask-add" type="button">+ add sub-task</button>
+                      : (realSubs ?? []).map((s) => (
+                        <SubTask
+                          key={s.id}
+                          done={s.status === 'done'}
+                          dropped={s.status === 'dropped'}
+                          text={s.title}
+                          onToggle={() => toggleSubtask(s)}
+                          onDrop={() => dropSubtask(s)}
+                        />
+                      ))}
+                  <button className="td-subtask-add" type="button" onClick={addSubtask}>+ add sub-task</button>
                 </div>
               </div>
 
@@ -211,22 +333,60 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
               <div className="td-section">
                 <div className="td-section-label">tags</div>
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                  {todo.tags.length === 0
-                    ? <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', color: 'var(--text-muted)' }}>(no tags)</span>
-                    : todo.tags.map((t) => <span key={t} className="td-tag">{t}</span>)}
-                  <span className="td-tag td-tag-add">+ add</span>
+                  {(item?.labels ?? []).length === 0 && (
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', color: 'var(--text-muted)' }}>(no tags)</span>
+                  )}
+                  {(item?.labels ?? []).map((t) => (
+                    <span key={t} className="td-tag" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                      #{t}
+                      <button
+                        type="button"
+                        onClick={() => removeLabel(t)}
+                        style={{ background: 'transparent', border: 0, color: 'var(--text-muted)', cursor: 'pointer', padding: 0, fontSize: '0.7rem' }}
+                        aria-label={`remove ${t}`}
+                      >×</button>
+                    </span>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={addLabel}
+                    className="td-tag td-tag-add"
+                    style={{ background: 'transparent', border: '1px dashed var(--border-subtle)', color: 'var(--text-muted)', cursor: 'pointer', font: 'inherit' }}
+                  >+ add</button>
                 </div>
               </div>
 
               <div className="td-section">
                 <div className="td-section-label">
-                  <span>linked sessions <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(stub)</span></span>
-                  <span style={{ color: 'var(--text-muted)' }}>auto-discovered</span>
+                  <span>linked sessions</span>
+                  <button
+                    type="button"
+                    onClick={linkPick}
+                    style={{ background: 'transparent', border: 0, color: 'var(--neon-cyan)', cursor: 'pointer', fontFamily: 'inherit', fontSize: '0.72rem' }}
+                  >+ link</button>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {linked.length === 0
-                    ? <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)' }}>none</div>
-                    : linked.map((l) => <LinkedSession key={l.id} {...l} />)}
+                  {linkedEdges.length === 0 ? (
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)' }}>none — link an agent session to keep its trace tied to this todo</div>
+                  ) : (
+                    linkedEdges.map((e) => {
+                      const sess = data.sessions.find((s) => s.id === e.sessionId && s.provider === e.provider);
+                      return (
+                        <div key={`${e.provider}:${e.sessionId}`} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-hair)', borderRadius: 4 }}>
+                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.64rem', color: 'var(--neon-cyan)', textTransform: 'uppercase' }}>{e.provider}</span>
+                          <span style={{ flex: 1, fontFamily: 'var(--font-mono)', fontSize: '0.78rem', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {sess?.title || e.sessionId.slice(0, 12)}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => unlinkOne(e)}
+                            style={{ background: 'transparent', border: 0, color: 'var(--text-muted)', cursor: 'pointer', fontSize: '0.9rem' }}
+                            title="unlink"
+                          >×</button>
+                        </div>
+                      );
+                    })
+                  )}
                 </div>
               </div>
 
@@ -257,10 +417,36 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
 
               <div className="td-meta-block">
                 <div className="td-section-label">properties</div>
-                <MetaRow k="project" v={proj ? <span style={{ color: 'var(--neon-cyan)' }}>#{proj.name}</span> : <span style={{ color: 'var(--neon-orange)' }}>#inbox</span>} editable />
-                <MetaRow k="priority" v={<span className={`todo-prio ${todo.priority}`} style={{ margin: 0 }}>· {todo.priority}</span>} editable />
-                <MetaRow k="due" v={todo.due ?? 'none'} editable />
-                <MetaRow k="kind" v={<span style={{ color: todo.kind === 'idea' ? 'var(--neon-purple)' : 'var(--neon-cyan)' }}>{todo.kind === 'idea' ? '💡 idea' : '✓ task'}</span>} editable />
+
+                <MetaRow k="project" v={
+                  <select
+                    value={item?.projectId ?? ''}
+                    onChange={(e) => setProjectField(e.target.value || undefined)}
+                    disabled={!item}
+                    style={{ background: 'transparent', border: 0, color: item?.projectId ? 'var(--neon-cyan)' : 'var(--neon-orange)', fontFamily: 'var(--font-mono)', fontSize: '0.78rem', cursor: 'pointer', maxWidth: 160 }}
+                    data-testid="td-project"
+                  >
+                    <option value="">#inbox</option>
+                    {projects.map((p) => (
+                      <option key={p.id} value={p.id}>#{p.name}</option>
+                    ))}
+                  </select>
+                } />
+
+                <MetaRow k="priority" v={<span className={`todo-prio ${todo.priority}`} style={{ margin: 0 }}>· {item?.priority ?? todo.priority}</span>} />
+
+                <MetaRow k="due" v={
+                  <input
+                    type="date"
+                    value={item?.dueAt ? item.dueAt.slice(0, 10) : ''}
+                    onChange={(e) => setDue(e.target.value)}
+                    disabled={!item}
+                    style={{ background: 'transparent', border: 0, color: item?.dueAt ? 'var(--neon-orange)' : 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: '0.78rem', cursor: 'pointer', colorScheme: 'dark' }}
+                    data-testid="td-due"
+                  />
+                } />
+
+                <MetaRow k="kind" v={<span style={{ color: todo.kind === 'idea' ? 'var(--neon-purple)' : 'var(--neon-cyan)' }}>{todo.kind === 'idea' ? '💡 idea' : '✓ task'}</span>} />
                 <MetaRow k="id" v={todo.id.slice(0, 12) + '…'} />
               </div>
 
@@ -339,11 +525,32 @@ function EditableDescription({ value, disabled, placeholder, onCommit }: { value
   );
 }
 
-function SubTask({ done, text }: { done?: boolean; text: string }) {
+function SubTask({ done, dropped, text, onToggle, onDrop }: {
+  done?: boolean;
+  dropped?: boolean;
+  text: string;
+  onToggle?: () => void;
+  onDrop?: () => void;
+}) {
   return (
-    <div className={`td-sub ${done ? 'done' : ''}`}>
-      <span className="td-sub-check">{done ? '✓' : ''}</span>
+    <div className={`td-sub ${done ? 'done' : ''}`} style={dropped ? { opacity: 0.4, textDecoration: 'line-through' } : undefined}>
+      <button
+        type="button"
+        className="td-sub-check"
+        onClick={onToggle}
+        disabled={!onToggle}
+        style={{ background: 'transparent', border: 0, padding: 0, cursor: onToggle ? 'pointer' : 'default' }}
+        title={done ? 'mark not done' : 'mark done'}
+      >{done ? '✓' : '○'}</button>
       <span className="td-sub-text">{text}</span>
+      {onDrop && !dropped && (
+        <button
+          type="button"
+          onClick={onDrop}
+          style={{ background: 'transparent', border: 0, color: 'var(--text-muted)', cursor: 'pointer', fontSize: '0.85rem', padding: '0 4px', marginLeft: 'auto' }}
+          title="drop sub-task"
+        >×</button>
+      )}
     </div>
   );
 }
@@ -422,276 +629,3 @@ function hash(s: string): number {
   return Math.abs(h);
 }
 
-const conceptLStyles = `
-.td-overlay {
-  position: absolute; inset: 0;
-  background: rgba(5,5,8,0.6);
-  backdrop-filter: blur(8px);
-  display: flex; align-items: flex-start; justify-content: center;
-  padding: 2rem;
-  z-index: 10;
-}
-.td-modal {
-  width: min(900px, 100%);
-  max-height: calc(100% - 2rem);
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-glow);
-  border-radius: var(--radius-xl, 16px);
-  box-shadow: var(--shadow-deep, 0 25px 50px rgba(0,0,0,0.6)), 0 0 50px rgba(191,90,242,0.15), inset 0 1px 0 rgba(255,255,255,0.06);
-  display: flex; flex-direction: column;
-  overflow: hidden;
-  animation: modalSlideIn 0.3s var(--ease-smooth, ease);
-}
-.td-modal-head {
-  padding: 1.1rem 1.5rem;
-  border-bottom: 1px solid var(--border-subtle);
-}
-.td-close {
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-subtle);
-  color: var(--text-secondary);
-  width: 28px; height: 28px;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 0.85rem;
-}
-.td-close:hover { border-color: var(--neon-pink); color: var(--neon-pink); }
-.td-modal-title {
-  width: 100%;
-  background: transparent;
-  border: none;
-  font-family: var(--font-mono);
-  font-size: 1.35rem;
-  font-weight: 700;
-  color: var(--text-primary);
-  margin-bottom: 0.5rem;
-  padding: 0;
-  outline: none;
-  text-shadow: 0 0 18px rgba(255,255,255,0.1);
-}
-.td-modal-title:focus { color: var(--neon-cyan); }
-.td-modal-desc {
-  width: 100%;
-  background: var(--bg-void);
-  border: 1px solid var(--border-hair);
-  border-radius: var(--radius-md);
-  padding: 0.7rem 0.85rem;
-  font-family: var(--font-body);
-  font-size: 0.85rem;
-  color: var(--text-secondary);
-  line-height: 1.6;
-  resize: none;
-  outline: none;
-  min-height: 100px;
-  margin-top: 0.4rem;
-}
-
-.td-modal-body {
-  display: grid;
-  grid-template-columns: 1fr 280px;
-  flex: 1;
-  min-height: 0;
-  overflow: hidden;
-}
-.td-modal-main {
-  overflow-y: auto;
-  padding: 1.1rem 1.25rem;
-  display: flex; flex-direction: column; gap: 1.1rem;
-  border-right: 1px solid var(--border-subtle);
-}
-.td-modal-meta {
-  overflow-y: auto;
-  padding: 1.1rem 1.1rem;
-  display: flex; flex-direction: column; gap: 1rem;
-}
-
-.td-section { display: flex; flex-direction: column; gap: 0.5rem; }
-.td-section-label {
-  font-family: var(--font-mono);
-  font-size: 0.66rem;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  font-weight: 600;
-  display: flex; justify-content: space-between;
-}
-
-.td-sub {
-  display: flex; align-items: flex-start; gap: 0.55rem;
-  padding: 0.4rem 0.6rem;
-  background: var(--bg-glass);
-  border: 1px solid var(--border-hair);
-  border-radius: var(--radius-sm);
-}
-.td-sub:hover { border-color: var(--border-glow); }
-.td-sub-check {
-  width: 16px; height: 16px;
-  border: 1.5px solid var(--text-muted);
-  border-radius: 4px;
-  flex-shrink: 0;
-  margin-top: 1px;
-  font-size: 10px;
-  display: flex; align-items: center; justify-content: center;
-  color: var(--bg-void);
-  font-weight: 700;
-}
-.td-sub.done .td-sub-check {
-  background: var(--gradient-success);
-  border-color: transparent;
-}
-.td-sub-text {
-  font-family: var(--font-body);
-  font-size: 0.82rem;
-  color: var(--text-primary);
-  line-height: 1.4;
-}
-.td-sub.done .td-sub-text { color: var(--text-muted); text-decoration: line-through; }
-.td-subtask-add {
-  background: transparent;
-  border: 1px dashed var(--border-subtle);
-  color: var(--text-muted);
-  padding: 0.4rem 0.6rem;
-  border-radius: var(--radius-sm);
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
-  cursor: pointer;
-  text-align: left;
-  transition: all var(--transition-fast, 0.2s);
-}
-.td-subtask-add:hover { border-color: var(--neon-cyan); color: var(--neon-cyan); }
-
-.td-tag {
-  font-family: var(--font-mono);
-  font-size: 0.7rem;
-  padding: 2px 8px;
-  border-radius: var(--radius-pill);
-  background: rgba(191,90,242,0.08);
-  color: var(--neon-purple);
-  border: 1px solid rgba(191,90,242,0.2);
-  cursor: pointer;
-}
-.td-tag-add { background: transparent; color: var(--text-muted); border-style: dashed; border-color: var(--border-subtle); }
-.td-lesson { padding: 0.55rem 0.7rem; background: rgba(191,90,242,0.04); border: 1px solid rgba(191,90,242,0.18); border-radius: var(--radius-md); }
-
-.td-linked-sess {
-  display: flex; align-items: center; gap: 0.5rem;
-  padding: 0.5rem 0.7rem;
-  background: rgba(0,255,242,0.03);
-  border: 1px solid rgba(0,255,242,0.15);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-}
-.td-linked-sess:hover { border-color: var(--border-glow); }
-
-.td-journal { display: flex; flex-direction: column; gap: 0.4rem; }
-.td-journal-entry {
-  font-family: var(--font-body);
-  font-size: 0.82rem;
-  color: var(--text-secondary);
-  line-height: 1.6;
-  padding: 0.55rem 0.75rem;
-  background: var(--bg-glass);
-  border: 1px solid var(--border-hair);
-  border-left: 2px solid var(--neon-purple);
-  border-radius: var(--radius-sm);
-}
-.td-journal-date {
-  font-family: var(--font-mono);
-  font-size: 0.68rem;
-  color: var(--neon-purple);
-  margin-right: 0.6rem;
-  font-weight: 600;
-}
-
-.td-promote, .td-meta-block, .td-run {
-  display: flex; flex-direction: column; gap: 0.4rem;
-  padding: 0.85rem 0.9rem;
-  background: var(--bg-glass);
-  border: 1px solid var(--border-hair);
-  border-radius: var(--radius-md);
-}
-.td-promote-btn {
-  display: flex; align-items: center; gap: 0.55rem;
-  width: 100%;
-  padding: 0.55rem 0.7rem;
-  background: rgba(255,255,255,0.025);
-  border: 1px solid var(--border-hair);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  transition: all var(--transition-fast, 0.2s);
-  text-align: left;
-}
-.td-promote-btn:hover {
-  border-color: var(--border-glow);
-  background: rgba(0,255,242,0.05);
-  transform: translateX(2px);
-}
-.td-promote-title { font-family: var(--font-mono); font-size: 0.78rem; font-weight: 600; color: var(--text-primary); }
-.td-promote-sub { font-family: var(--font-mono); font-size: 0.65rem; color: var(--text-muted); margin-top: 1px; }
-.td-promote-chev { font-family: var(--font-mono); font-size: 0.9rem; color: var(--text-muted); }
-.td-promote-btn:hover .td-promote-chev { color: var(--neon-cyan); }
-
-.td-meta-row {
-  display: grid; grid-template-columns: 75px 1fr auto;
-  gap: 0.5rem; align-items: center;
-  padding: 0.35rem 0;
-  font-family: var(--font-mono);
-  font-size: 0.74rem;
-}
-.td-meta-k { color: var(--text-muted); text-transform: uppercase; font-size: 0.65rem; letter-spacing: 0.05em; }
-.td-meta-v { color: var(--text-primary); }
-.td-meta-edit { color: var(--text-muted); cursor: pointer; opacity: 0.4; }
-.td-meta-row:hover .td-meta-edit { opacity: 1; }
-
-.td-run-btn {
-  display: flex; align-items: center; gap: 0.55rem;
-  width: 100%;
-  padding: 0.7rem 0.85rem;
-  background: var(--gradient-primary);
-  color: var(--bg-void);
-  border: none;
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  font-family: var(--font-mono);
-  font-size: 0.85rem;
-  font-weight: 700;
-  box-shadow: 0 0 20px rgba(0,255,242,0.3);
-  transition: all var(--transition-fast, 0.2s);
-}
-.td-run-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 30px rgba(0,255,242,0.45); }
-.td-run-kbd {
-  margin-left: auto;
-  font-family: var(--font-mono);
-  font-size: 0.7rem;
-  background: rgba(0,0,0,0.2);
-  padding: 1px 6px;
-  border-radius: 3px;
-}
-
-.td-modal-foot {
-  display: flex; gap: 0.5rem; align-items: center;
-  padding: 0.85rem 1.25rem;
-  border-top: 1px solid var(--border-subtle);
-  background: rgba(0,0,0,0.15);
-}
-.np-btn {
-  padding: 0.5rem 1rem;
-  border-radius: var(--radius-md);
-  font-family: var(--font-mono);
-  font-size: 0.76rem;
-  cursor: pointer;
-  transition: all var(--transition-fast, 0.2s);
-  border: 1px solid var(--border-subtle);
-}
-.np-btn.ghost { background: transparent; color: var(--text-secondary); }
-.np-btn.ghost:hover { border-color: var(--border-glow); color: var(--neon-cyan); }
-.np-btn.ghost.danger:hover { border-color: var(--neon-pink); color: var(--neon-pink); }
-.np-btn.primary {
-  background: var(--gradient-primary);
-  color: var(--bg-void);
-  border-color: transparent;
-  font-weight: 700;
-  box-shadow: 0 0 18px rgba(0,255,242,0.3);
-}
-.np-btn.primary:hover { transform: translateY(-1px); box-shadow: 0 4px 24px rgba(0,255,242,0.45); }
-`;

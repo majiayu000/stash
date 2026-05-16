@@ -1,5 +1,7 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useParams } from 'react-router-dom';
+import type { AgentSessionEvent } from '@stash/shared';
+import { getAgentSessionEvents } from '../../api/agent-sessions';
 import { LiveDot } from '../../components/effects';
 import { fmt, type WBData, type WBSession } from '../data';
 import { ModelBadge, Tile, TodoItem, ToolBadge, Topbar } from '../shared';
@@ -24,6 +26,17 @@ export function ConceptG({ data }: { data: WBData; reload: () => void }) {
   const session = sessionId
     ? sessions.find((s) => s.id === sessionId)
     : sessions.find((s) => s.state === 'live') ?? sessions[0];
+
+  // SPEC v0.3 §9d — real session events from /api/agent-sessions/:provider/:id/events.
+  const [events, setEvents] = useState<AgentSessionEvent[] | null>(null);
+  useEffect(() => {
+    if (!session) return;
+    let cancelled = false;
+    getAgentSessionEvents(session.provider, session.id)
+      .then((res) => { if (!cancelled) setEvents(res); })
+      .catch(() => { if (!cancelled) setEvents([]); });
+    return () => { cancelled = true; };
+  }, [session?.id, session?.provider]);
 
   if (!session) {
     return (
@@ -88,7 +101,13 @@ export function ConceptG({ data }: { data: WBData; reload: () => void }) {
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: '1.25rem', flex: 1, minHeight: 0 }}>
           {/* TRANSCRIPT */}
           <div className="transcript" style={{ minWidth: 0, overflowY: 'auto' }}>
-            <TranscriptSkeleton session={session} />
+            {events === null ? (
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.74rem', color: 'var(--text-muted)', padding: '1rem' }}>loading events…</div>
+            ) : events.length === 0 ? (
+              <TranscriptSkeleton session={session} />
+            ) : (
+              <RealTranscript events={events} session={session} />
+            )}
           </div>
 
           {/* SIDE */}
@@ -113,8 +132,8 @@ export function ConceptG({ data }: { data: WBData; reload: () => void }) {
               </div>
             </div>
 
-            <ToolCallSummary />
-            <FilesTouched />
+            <ToolCallSummary events={events} />
+            <FilesTouched events={events} />
 
             <div className="surface" style={{ padding: '1rem' }}>
               <div className="sec-head" style={{ marginBottom: '0.6rem' }}>
@@ -248,50 +267,119 @@ function Diff({ lines }: { lines: DiffLine[] }) {
   );
 }
 
-function ToolCallSummary() {
+/**
+ * Real transcript renderer over /events. Maps AgentSessionEvent → existing
+ * Turn / ToolCall layout so the design stays intact.
+ */
+function RealTranscript({ events, session }: { events: AgentSessionEvent[]; session: WBSession }) {
+  return (
+    <>
+      {events.map((e, i) => {
+        if (e.kind === 'tool_call') {
+          const argPreview = e.meta ? truncateArgs(e.meta) : '';
+          return <ToolCall key={i} name={e.tool ?? e.text} args={argPreview} status="ok" />;
+        }
+        const who = e.kind === 'user' ? 'you' : e.kind === 'assistant' ? 'agent' : e.kind;
+        const kind: 'user' | 'assistant' | 'thinking' | 'tool' =
+          e.kind === 'user' ? 'user' :
+            e.kind === 'assistant' ? 'assistant' :
+              e.kind === 'plan' ? 'thinking' : 'tool';
+        return (
+          <Turn key={i} kind={kind} who={who} at={fmt.ago(new Date(e.timestamp).getTime())}>
+            {e.text}
+          </Turn>
+        );
+      })}
+      {session.state === 'live' && (
+        <Turn kind="assistant" at="now" pending>
+          <p>streaming…<span className="td-cursor">▎</span></p>
+        </Turn>
+      )}
+    </>
+  );
+}
+
+function truncateArgs(meta: Record<string, unknown> | undefined): string {
+  if (!meta) return '';
+  try {
+    const s = JSON.stringify(meta);
+    return s.length > 80 ? s.slice(0, 77) + '…' : s;
+  } catch { return ''; }
+}
+
+function ToolCallSummary({ events }: { events: AgentSessionEvent[] | null }) {
+  const byTool = new Map<string, number>();
+  for (const ev of events ?? []) {
+    if (ev.kind === 'tool_call' && ev.tool) byTool.set(ev.tool, (byTool.get(ev.tool) ?? 0) + 1);
+  }
+  const rows = Array.from(byTool.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8)
+    .map(([name, count], i) => ({ name, count, color: TOOL_COLOR[i % TOOL_COLOR.length]! }));
+  const total = Array.from(byTool.values()).reduce((s, n) => s + n, 0);
   return (
     <div className="surface" style={{ padding: '1rem' }}>
       <div className="sec-head" style={{ marginBottom: '0.6rem' }}>
-        <span className="prompt">&gt;</span> tool calls <span className="count">— 7 (stub)</span>
+        <span className="prompt">&gt;</span> tool calls <span className="count">— {total}</span>
       </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        {[
-          { name: 'read_file', count: 3, color: 'var(--neon-cyan)' },
-          { name: 'edit_file', count: 2, color: 'var(--neon-purple)' },
-          { name: 'run_tests', count: 1, color: 'var(--neon-orange)' },
-          { name: 'grep', count: 1, color: 'var(--text-muted)' },
-        ].map((t) => (
-          <div key={t.name} style={{ display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'var(--font-mono)', fontSize: '0.78rem' }}>
-            <span style={{ color: t.color }}>●</span>
-            <span style={{ color: 'var(--text-primary)', flex: 1 }}>{t.name}</span>
-            <span style={{ color: 'var(--text-muted)' }}>×{t.count}</span>
-          </div>
-        ))}
-      </div>
+      {rows.length === 0 ? (
+        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)' }}>none recorded yet</div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {rows.map((t) => (
+            <div key={t.name} style={{ display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'var(--font-mono)', fontSize: '0.78rem' }}>
+              <span style={{ color: t.color }}>●</span>
+              <span style={{ color: 'var(--text-primary)', flex: 1 }}>{t.name}</span>
+              <span style={{ color: 'var(--text-muted)' }}>×{t.count}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
-function FilesTouched() {
+const TOOL_COLOR = [
+  'var(--neon-cyan)', 'var(--neon-purple)', 'var(--neon-orange)',
+  'var(--neon-green)', 'var(--neon-pink)', 'var(--text-secondary)',
+];
+
+function FilesTouched({ events }: { events: AgentSessionEvent[] | null }) {
+  const seen = new Map<string, number>();
+  for (const ev of events ?? []) {
+    if (ev.kind !== 'tool_call' || !ev.meta) continue;
+    const m = ev.meta as Record<string, unknown>;
+    const p = pickPath(m);
+    if (p) seen.set(p, (seen.get(p) ?? 0) + 1);
+  }
+  const rows = Array.from(seen.entries()).sort((a, b) => b[1] - a[1]).slice(0, 12);
   return (
     <div className="surface" style={{ padding: '1rem' }}>
       <div className="sec-head" style={{ marginBottom: '0.6rem' }}>
-        <span className="prompt">&gt;</span> files touched <span className="count">— 2 (stub)</span>
+        <span className="prompt">&gt;</span> files touched <span className="count">— {rows.length}</span>
       </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        {[
-          { p: 'src/auth/session.ts', plus: 24, minus: 3 },
-          { p: 'src/auth/oauth.ts', plus: 9, minus: 1 },
-        ].map((f) => (
-          <div key={f.p} style={{ display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'var(--font-mono)', fontSize: '0.74rem' }}>
-            <span style={{ color: 'var(--text-primary)', flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{f.p}</span>
-            <span style={{ color: 'var(--neon-green)' }}>+{f.plus}</span>
-            <span style={{ color: 'var(--neon-pink)' }}>−{f.minus}</span>
-          </div>
-        ))}
-      </div>
+      {rows.length === 0 ? (
+        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)' }}>none yet</div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {rows.map(([p, count]) => (
+            <div key={p} style={{ display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'var(--font-mono)', fontSize: '0.74rem' }}>
+              <span style={{ color: 'var(--text-primary)', flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p}</span>
+              <span style={{ color: 'var(--text-muted)' }}>×{count}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
+}
+
+function pickPath(meta: Record<string, unknown>): string | undefined {
+  for (const k of ['file_path', 'filePath', 'path', 'notebook_path']) {
+    const v = meta[k];
+    if (typeof v === 'string' && v.length > 0) return v;
+  }
+  return undefined;
 }
 
 const conceptGStyles = `

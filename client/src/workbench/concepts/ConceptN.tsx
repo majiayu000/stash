@@ -1,4 +1,6 @@
 import { useState, useEffect } from 'react';
+import type { Area } from '@stash/shared';
+import { createArea, deleteArea, listAreas, updateArea } from '../../api/areas';
 import { ShinyText } from '../../components/effects';
 import { THEMES, getTheme, onThemeChange, setTheme, type ThemeId } from '../../lib/theme';
 import type { WBData } from '../data';
@@ -21,7 +23,7 @@ const THEME_INFO: ThemeDescriptor[] = [
  * Left rail (settings menu), right column with appearance grid, quick toggles,
  * paths/rates lookup, integrations grid.
  */
-export function ConceptN({ data }: { data: WBData; reload: () => void }) {
+export function ConceptN({ data, reload }: { data: WBData; reload: () => void }) {
   return (
     <div className="dashboard-canvas">
       <div className="inner" style={{ overflow: 'hidden', height: '100%' }}>
@@ -100,6 +102,8 @@ export function ConceptN({ data }: { data: WBData; reload: () => void }) {
               ]} />
             </div>
 
+            <ProjectsPanel reload={reload} />
+
             <div className="surface" style={{ padding: '1.2rem' }}>
               <h3 style={{ fontFamily: 'var(--font-mono)', fontSize: '1rem', fontWeight: 600, marginBottom: '0.85rem', margin: 0 }}>🔗 integrations</h3>
               <div className="int-grid" style={{ marginTop: '0.85rem' }}>
@@ -119,6 +123,74 @@ export function ConceptN({ data }: { data: WBData; reload: () => void }) {
     </div>
   );
 }
+
+function ProjectsPanel({ reload }: { reload: () => void }) {
+  const [areas, setAreas] = useState<Area[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  async function refresh() {
+    try { setAreas(await listAreas()); } finally { setLoading(false); }
+  }
+  useEffect(() => { refresh(); }, []);
+
+  async function add() {
+    const name = window.prompt('project name');
+    if (!name?.trim()) return;
+    try { await createArea({ name: name.trim() }); await refresh(); reload(); }
+    catch (e) { window.alert(e instanceof Error ? e.message : String(e)); }
+  }
+  async function rename(a: Area) {
+    const next = window.prompt('rename project', a.name);
+    if (!next?.trim() || next.trim() === a.name) return;
+    try { await updateArea(a.id, { name: next.trim() }); await refresh(); reload(); }
+    catch (e) { window.alert(e instanceof Error ? e.message : String(e)); }
+  }
+  async function remove(a: Area) {
+    if (!window.confirm(`delete "${a.name}"? all attached work items, knowledge, and skill bindings cascade.`)) return;
+    try { await deleteArea(a.id); await refresh(); reload(); }
+    catch (e) { window.alert(e instanceof Error ? e.message : String(e)); }
+  }
+
+  return (
+    <div className="surface" style={{ padding: '1.2rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', marginBottom: '0.85rem' }}>
+        <h3 style={{ fontFamily: 'var(--font-mono)', fontSize: '1rem', fontWeight: 600, margin: 0 }}>📁 projects</h3>
+        <button
+          type="button"
+          onClick={add}
+          style={{
+            marginLeft: 'auto',
+            background: 'rgba(0,255,242,0.08)', border: '1px solid rgba(0,255,242,0.3)',
+            color: 'var(--neon-cyan)', fontFamily: 'var(--font-mono)', fontSize: '0.72rem',
+            padding: '3px 10px', borderRadius: 4, cursor: 'pointer',
+          }}
+        >+ new project</button>
+      </div>
+      {loading ? (
+        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)' }}>loading…</div>
+      ) : areas.length === 0 ? (
+        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)' }}>no projects yet. press <code>+ new project</code> to create one.</div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {areas.map((a) => (
+            <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-hair)', borderRadius: 4 }}>
+              <span style={{ flex: 1, fontFamily: 'var(--font-mono)', fontSize: '0.82rem', color: 'var(--text-primary)' }}>#{a.name}</span>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.62rem', color: 'var(--text-muted)' }}>{a.reviewCadence}</span>
+              <button type="button" onClick={() => rename(a)} style={projectBtnStyle}>rename</button>
+              <button type="button" onClick={() => remove(a)} style={{ ...projectBtnStyle, color: 'var(--neon-pink)' }}>delete</button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const projectBtnStyle: React.CSSProperties = {
+  background: 'transparent', border: '1px solid var(--border-hair)',
+  color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: '0.66rem',
+  padding: '2px 8px', borderRadius: 3, cursor: 'pointer',
+};
 
 function SettingsRail({ item, active }: { item: string; active?: boolean }) {
   return (

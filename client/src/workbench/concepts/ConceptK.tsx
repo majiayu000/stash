@@ -10,10 +10,18 @@ import {
   listLessons,
   listMilestones,
 } from '../../api/project-knowledge';
+import {
+  KnowledgeDecisionsEditor,
+  KnowledgeIntentEditor,
+  KnowledgeLessonsEditor,
+  KnowledgeMilestonesEditor,
+  KnowledgeNotesEditor,
+} from './conceptK.knowledge';
 import { listProjectSkills, listSkills } from '../../api/skills';
 import { CountUp } from '../../components/effects';
 import { fmt, type WBData, type WBProject } from '../data';
 import { ModelBadge, ProgressBar, SessionRow, StatusPill, Tile, Topbar, TodoItem } from '../shared';
+import { conceptKStyles } from './conceptK.styles';
 
 interface ProjectKnowledgeView {
   intent: string;
@@ -44,35 +52,32 @@ export function ConceptK({ data }: { data: WBData; reload: () => void }) {
   const [candidates, setCandidates] = useState<Array<DecisionCandidate & { sessionId: string; provider: 'claude' | 'codex' }>>([]);
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
 
-  useEffect(() => {
+  async function loadKb() {
     if (!p) return;
-    let cancelled = false;
-    setLoading(true);
-    Promise.all([
-      getProjectIntent(p.id),
-      listMilestones(p.id),
-      listDecisions(p.id),
-      getProjectNotes(p.id),
-      listLessons({ projectId: p.id }),
-      listProjectSkills(p.id),
-      listSkills(),
-    ])
-      .then(([intent, milestones, decisions, notes, lessons, bindings, allSkills]) => {
-        if (cancelled) return;
-        setKb({
-          intent: intent?.text ?? '',
-          milestones,
-          decisions,
-          notes: notes?.markdown ?? '',
-          lessons,
-        });
-        const enabledIds = new Set(bindings.filter((b) => b.enabled).map((b) => b.skillId));
-        setMySkills(allSkills.filter((s) => enabledIds.has(s.id)));
-        setLoading(false);
-      })
-      .catch(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, [p?.id]);
+    try {
+      const [intent, milestones, decisions, notes, lessons, bindings, allSkills] = await Promise.all([
+        getProjectIntent(p.id),
+        listMilestones(p.id),
+        listDecisions(p.id),
+        getProjectNotes(p.id),
+        listLessons({ projectId: p.id }),
+        listProjectSkills(p.id),
+        listSkills(),
+      ]);
+      setKb({
+        intent: intent?.text ?? '',
+        milestones,
+        decisions,
+        notes: notes?.markdown ?? '',
+        lessons,
+      });
+      const enabledIds = new Set(bindings.filter((b) => b.enabled).map((b) => b.skillId));
+      setMySkills(allSkills.filter((s) => enabledIds.has(s.id)));
+      setLoading(false);
+    } catch { setLoading(false); }
+  }
+
+  useEffect(() => { setLoading(true); loadKb(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [p?.id]);
 
   // Pull decision candidates from this project's most recent 3 sessions.
   useEffect(() => {
@@ -196,11 +201,11 @@ export function ConceptK({ data }: { data: WBData; reload: () => void }) {
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 360px', gap: '1.25rem', flex: 1, minHeight: 0, marginTop: '1.25rem' }}>
           {/* LEFT — knowledge column */}
           <div style={{ minWidth: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '1rem', paddingRight: '0.25rem' }}>
-            <KnowledgeIntent kb={kb} />
-            <KnowledgeMilestones kb={kb} />
-            <KnowledgeDecisions kb={kb} />
-            <KnowledgeNotes kb={kb} />
-            <KnowledgeLessons kb={kb} />
+            <KnowledgeIntentEditor      projectId={p.id} value={kb.intent}      onChange={loadKb} />
+            <KnowledgeMilestonesEditor  projectId={p.id} value={kb.milestones}  onChange={loadKb} />
+            <KnowledgeDecisionsEditor   projectId={p.id} value={kb.decisions}   onChange={loadKb} />
+            <KnowledgeNotesEditor       projectId={p.id} value={kb.notes}       onChange={loadKb} />
+            <KnowledgeLessonsEditor     projectId={p.id} value={kb.lessons}     onChange={loadKb} />
           </div>
 
           {/* RIGHT — sidebar */}
@@ -277,82 +282,6 @@ export function ConceptK({ data }: { data: WBData; reload: () => void }) {
     </div>
   );
 }
-
-// ─── Knowledge sub-sections ───────────────────────────────────────────────
-
-function KnowledgeIntent({ kb }: { kb: ProjectKnowledgeView }) {
-  return (
-    <div className="surface kw-intent">
-      <div className="sec-head" style={{ marginBottom: '0.6rem' }}>
-        <span className="prompt">&gt;</span> 🎯 project intent
-        <span className="right" style={{ color: 'var(--neon-cyan)', cursor: 'pointer' }}>edit</span>
-      </div>
-      <p style={{ fontFamily: 'var(--font-body)', fontSize: '0.95rem', lineHeight: 1.65, color: 'var(--text-primary)', fontStyle: 'italic', margin: 0 }}>
-        "{kb.intent}"
-      </p>
-    </div>
-  );
-}
-
-function KnowledgeMilestones({ kb }: { kb: ProjectKnowledgeView }) {
-  return (
-    <div className="surface">
-      <div className="sec-head" style={{ marginBottom: '0.85rem' }}>
-        <span className="prompt">&gt;</span> 🏁 milestones
-        <span className="count">— {kb.milestones.length}</span>
-        <span className="right" style={{ color: 'var(--neon-cyan)', cursor: 'pointer' }}>+ add</span>
-      </div>
-      <div className="kw-ms">
-        {kb.milestones.map((m, i) => <Milestone key={m.id} m={m} last={i === kb.milestones.length - 1} />)}
-      </div>
-    </div>
-  );
-}
-
-function KnowledgeDecisions({ kb }: { kb: ProjectKnowledgeView }) {
-  return (
-    <div className="surface">
-      <div className="sec-head" style={{ marginBottom: '0.85rem' }}>
-        <span className="prompt">&gt;</span> 📜 decision log
-        <span className="count">— {kb.decisions.length}</span>
-        <span className="right" style={{ color: 'var(--text-muted)' }}>auto-captured from sessions · always editable</span>
-      </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-        {kb.decisions.map((d) => <Decision key={d.id} d={d} />)}
-      </div>
-    </div>
-  );
-}
-
-function KnowledgeNotes({ kb }: { kb: ProjectKnowledgeView }) {
-  return (
-    <div className="surface">
-      <div className="sec-head" style={{ marginBottom: '0.6rem' }}>
-        <span className="prompt">&gt;</span> 📖 notes · scratchpad
-        <span className="right" style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', color: 'var(--text-muted)' }}>markdown · auto-saves · ⌘E to edit</span>
-      </div>
-      <div className="kw-notes">
-        <MarkdownLite text={kb.notes} />
-      </div>
-    </div>
-  );
-}
-
-function KnowledgeLessons({ kb }: { kb: ProjectKnowledgeView }) {
-  return (
-    <div className="surface">
-      <div className="sec-head" style={{ marginBottom: '0.85rem' }}>
-        <span className="prompt">&gt;</span> 💎 lessons
-        <span className="count">— {kb.lessons.length}</span>
-        <span className="right" style={{ color: 'var(--text-muted)' }}>atomic · cross-project searchable</span>
-      </div>
-      <div className="kw-lessons">
-        {kb.lessons.map((l) => <Lesson key={l.id} l={l} />)}
-      </div>
-    </div>
-  );
-}
-
 // ─── Sidebar sub-sections ──────────────────────────────────────────────────
 
 function FeaturesSidebar({ p }: { p: WBProject }) {
@@ -524,220 +453,3 @@ function renderInline(s: string): React.ReactNode[] {
   );
 }
 
-const conceptKStyles = `
-.kw-hero {
-  background: var(--bg-glass);
-  backdrop-filter: blur(20px);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-lg);
-  padding: 1.4rem 1.6rem;
-  position: relative;
-  overflow: hidden;
-}
-.kw-hero::before {
-  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
-  background: var(--gradient-primary);
-}
-.kw-hero-row { display: flex; align-items: flex-start; gap: 1rem; }
-.kw-crumb {
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
-  color: var(--text-muted);
-  margin-bottom: 0.4rem;
-}
-.kw-name {
-  font-family: var(--font-mono);
-  font-size: 2.1rem;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  color: var(--neon-cyan);
-  text-shadow: 0 0 24px rgba(0,255,242,0.4);
-  line-height: 1.1;
-  margin: 0;
-}
-.sd-action {
-  padding: 0.45rem 0.75rem;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-hair);
-  border-radius: var(--radius-md);
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition: all var(--transition-fast, 0.2s);
-}
-.sd-action:hover { border-color: var(--border-glow); color: var(--neon-cyan); }
-
-.kw-intent {
-  background: linear-gradient(135deg, rgba(0,255,242,0.05), rgba(191,90,242,0.03));
-  border-color: rgba(0,255,242,0.2);
-}
-.kw-intent p { color: var(--text-primary); }
-
-.kw-ms { display: flex; flex-direction: column; }
-.kw-ms-row {
-  position: relative;
-  display: grid; grid-template-columns: 24px 1fr; gap: 0.85rem;
-  padding-bottom: 1rem;
-}
-.kw-ms-row:last-child { padding-bottom: 0; }
-.kw-ms-dot {
-  width: 14px; height: 14px;
-  border-radius: 50%;
-  margin-left: 5px;
-  margin-top: 4px;
-  display: flex; align-items: center; justify-content: center;
-  flex-shrink: 0;
-}
-.kw-ms-line {
-  position: absolute;
-  left: 11px;
-  top: 22px;
-  bottom: 0;
-  width: 2px;
-  background: linear-gradient(to bottom, var(--border-subtle), transparent);
-}
-.kw-ms-head {
-  display: flex; align-items: baseline; gap: 0.75rem; flex-wrap: wrap;
-  font-family: var(--font-mono);
-  font-size: 0.85rem;
-}
-.kw-ms-name { font-weight: 600; color: var(--text-primary); }
-.kw-ms-date { color: var(--text-muted); font-size: 0.72rem; }
-.kw-ms-pct { margin-left: auto; font-weight: 600; font-size: 0.78rem; }
-
-.kw-dec {
-  padding: 0.75rem 0.9rem;
-  background: rgba(255,255,255,0.025);
-  border: 1px solid var(--border-hair);
-  border-left: 2px solid var(--neon-purple);
-  border-radius: var(--radius-md);
-}
-.kw-dec-head { display: flex; align-items: baseline; gap: 0.6rem; flex-wrap: wrap; margin-bottom: 5px; }
-.kw-dec-date {
-  font-family: var(--font-mono);
-  font-size: 0.68rem;
-  color: var(--neon-purple);
-  font-weight: 600;
-  background: rgba(191,90,242,0.08);
-  padding: 1px 6px;
-  border-radius: var(--radius-sm);
-  white-space: nowrap;
-}
-.kw-dec-title {
-  font-family: var(--font-mono);
-  font-size: 0.88rem;
-  color: var(--text-primary);
-  font-weight: 600;
-  flex: 1;
-}
-.kw-dec-body {
-  font-family: var(--font-body);
-  font-size: 0.85rem;
-  color: var(--text-secondary);
-  line-height: 1.6;
-}
-.kw-tag {
-  font-family: var(--font-mono);
-  font-size: 0.66rem;
-  color: var(--neon-purple);
-  background: rgba(191,90,242,0.06);
-  padding: 1px 6px;
-  border-radius: var(--radius-sm);
-  border: 1px solid rgba(191,90,242,0.15);
-}
-
-.kw-notes {
-  padding: 0.85rem 1rem;
-  background: var(--bg-void);
-  border: 1px solid var(--border-glow);
-  border-radius: var(--radius-md);
-  box-shadow: inset 0 0 25px rgba(0,255,242,0.03);
-  font-family: var(--font-mono);
-  font-size: 0.8rem;
-  line-height: 1.7;
-  max-height: 360px;
-  overflow-y: auto;
-}
-.md-body { color: var(--text-secondary); }
-.md-h1 {
-  font-family: var(--font-mono);
-  font-size: 1rem;
-  font-weight: 700;
-  color: var(--neon-cyan);
-  text-shadow: 0 0 12px rgba(0,255,242,0.4);
-  margin: 0.5rem 0 0.4rem;
-}
-.md-h1:first-child { margin-top: 0; }
-.md-h2 {
-  font-family: var(--font-mono);
-  font-size: 0.88rem;
-  font-weight: 600;
-  color: var(--neon-purple);
-  margin: 0.7rem 0 0.3rem;
-}
-.md-p { margin: 0 0 0.4rem; color: var(--text-secondary); }
-.md-ul { margin: 0 0 0.5rem; padding-left: 1.25rem; list-style: none; }
-.md-ul li { position: relative; padding-left: 0.4rem; margin-bottom: 0.15rem; color: var(--text-secondary); }
-.md-ul li::before { content: '·'; color: var(--neon-cyan); position: absolute; left: -0.7rem; font-weight: 700; }
-.md-code {
-  font-family: var(--font-mono);
-  color: var(--neon-green);
-  background: var(--bg-elevated);
-  padding: 1px 6px;
-  border-radius: 3px;
-  font-size: 0.76rem;
-}
-
-.kw-lessons {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.65rem;
-}
-.kw-lesson {
-  padding: 0.75rem 0.85rem;
-  background: linear-gradient(135deg, rgba(191,90,242,0.04), rgba(255,255,255,0.02));
-  border: 1px solid rgba(191,90,242,0.15);
-  border-radius: var(--radius-md);
-}
-
-.kw-skill {
-  display: grid;
-  grid-template-columns: 22px 1fr 32px;
-  gap: 0.55rem;
-  align-items: center;
-  padding: 0.5rem 0.6rem;
-  background: var(--bg-glass);
-  border: 1px solid var(--border-hair);
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  transition: all var(--transition-fast, 0.2s);
-}
-.kw-skill:hover { border-color: var(--border-glow); transform: translateX(2px); }
-.kw-skill-toggle {
-  width: 28px; height: 16px;
-  background: var(--bg-elevated);
-  border-radius: 8px;
-  position: relative;
-  border: 1px solid var(--border-subtle);
-  flex-shrink: 0;
-  transition: all var(--transition-fast, 0.2s);
-}
-.kw-skill-toggle.on {
-  background: var(--gradient-primary);
-  border-color: transparent;
-  box-shadow: 0 0 10px rgba(0,255,242,0.4);
-}
-.kw-skill-toggle-knob {
-  position: absolute;
-  width: 12px; height: 12px;
-  border-radius: 50%;
-  background: var(--text-secondary);
-  top: 1px; left: 1px;
-  transition: all var(--transition-fast, 0.2s);
-}
-.kw-skill-toggle.on .kw-skill-toggle-knob {
-  background: var(--bg-void);
-  left: 13px;
-}
-`;
