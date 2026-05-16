@@ -248,8 +248,10 @@ export function SessionRow({ s, projects, compact }: { s: WBSession; projects: W
 export function TodoItem({ t, projects, showProject = true }: { t: WBTodo; projects: WBProject[]; showProject?: boolean }) {
   const proj = projects.find((p) => p.id === t.project);
   const isIdea = t.kind === 'idea';
+  // SPEC v0.3 §3e — only inbox rows participate in the triage cursor.
+  const inboxAttr = !t.project && !t.done ? { 'data-inbox-item': t.id } : {};
   return (
-    <div className={`todo ${t.done ? 'done' : ''} ${isIdea ? 'idea' : ''}`}>
+    <div className={`todo ${t.done ? 'done' : ''} ${isIdea ? 'idea' : ''}`} {...inboxAttr}>
       <div className="todo-check">
         {isIdea && !t.done && <span style={{ fontSize: 9, color: 'var(--neon-purple)' }}>💡</span>}
       </div>

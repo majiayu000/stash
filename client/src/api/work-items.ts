@@ -1,5 +1,20 @@
-import type { CreateWorkItemInput, UpdateWorkItemInput, WorkItem, WorkItemStatus } from '@stash/shared';
+import type { CreateWorkItemInput, Priority, UpdateWorkItemInput, WorkItem, WorkItemStatus } from '@stash/shared';
 import { apiDelete, apiGet, apiPatch, apiPost } from './client';
+
+interface CaptureResponse {
+  data: WorkItem;
+  parsed: {
+    title: string;
+    projectId?: string;
+    areaId?: string;
+    labels: string[];
+    priority?: Priority;
+    scheduledFor?: string;
+    dueAt?: string;
+    estimateMinutes?: number;
+    unresolved: string[];
+  };
+}
 
 export interface WorkItemFilter {
   status?: WorkItemStatus | WorkItemStatus[];
@@ -65,5 +80,27 @@ export async function toggleChecklist(id: string, itemId: string): Promise<WorkI
 
 export async function removeChecklist(id: string, itemId: string): Promise<WorkItem> {
   const res = await apiDelete<ItemResponse>(`/work-items/${id}/checklist/${itemId}`);
+  return res.data;
+}
+
+/** SPEC v0.3 §3b/§3f — token-aware quick capture. Returns the saved item + parsed structure. */
+export async function captureWorkItem(raw: string): Promise<CaptureResponse> {
+  return apiPost<CaptureResponse>('/work-items/capture', { raw });
+}
+
+/** SPEC v0.3 §3d — canonical Today list. */
+export async function listToday(): Promise<WorkItem[]> {
+  const res = await apiGet<ListResponse>('/work-items/today');
+  return res.data;
+}
+
+/** SPEC v0.3 §3e — single-keystroke triage helpers. */
+export async function togglePin(id: string, pinned: boolean): Promise<WorkItem> {
+  const res = await apiPost<ItemResponse>(`/work-items/${id}/today-pin`, { pinned });
+  return res.data;
+}
+
+export async function setPriority(id: string, priority: Priority): Promise<WorkItem> {
+  const res = await apiPost<ItemResponse>(`/work-items/${id}/priority`, { priority });
   return res.data;
 }

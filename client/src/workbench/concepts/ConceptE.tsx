@@ -148,6 +148,17 @@ export function ConceptE({ data, reload }: { data: WBData; reload: () => void })
   );
 }
 
+function emptyCopyFor(col: string): string {
+  // SPEC v0.3 §3i — actionable empty states, no fake data.
+  switch (col) {
+    case 'inbox':  return 'Inbox empty. Press `c` to capture.';
+    case 'today':  return 'Nothing planned for today.';
+    case 'doing':  return 'No active work.';
+    case 'later':  return 'No items scheduled later.';
+    default:       return '— empty —';
+  }
+}
+
 function BoardCol({ icon, name, tone, hint, items, count, live, projects }: { icon: string; name: string; tone: 'orange' | 'cyan' | 'green' | 'purple'; hint: string; items: WBTodo[]; count?: number; live?: boolean; projects: WBProject[] }) {
   const c = count ?? items.length;
   return (
@@ -161,7 +172,7 @@ function BoardCol({ icon, name, tone, hint, items, count, live, projects }: { ic
       <div className="board-col-hint">{hint}</div>
       <div className="board-col-body">
         {items.length === 0 ? (
-          <div className="board-col-empty">— empty —</div>
+          <div className="board-col-empty">{emptyCopyFor(name)}</div>
         ) : (
           items.map((t) => <TodoItem key={t.id} t={t} projects={projects} />)
         )}

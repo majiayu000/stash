@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import './styles/brand.css';
 import './styles/dashboard.css';
@@ -6,12 +7,21 @@ import { useWorkbenchData } from './useWorkbenchData';
 import { findConcept, type ConceptId } from './concepts/registry';
 import { renderConcept } from './concepts/render';
 import { ConceptSwitcher } from './ConceptSwitcher';
+import { InboxTriage } from './InboxTriage';
+import { QuickCapture } from './QuickCapture';
 
 export function Workbench() {
   const { data, loading, error, reload } = useWorkbenchData();
   const params = useParams<{ id?: ConceptId }>();
   const conceptId: ConceptId = (params.id as ConceptId) ?? 'e';
   const entry = findConcept(conceptId);
+
+  // SPEC v0.3 — refresh data after Quick Capture submits.
+  useEffect(() => {
+    function onCaptured() { reload(); }
+    window.addEventListener('stash:captured', onCaptured);
+    return () => window.removeEventListener('stash:captured', onCaptured);
+  }, [reload]);
 
   if (loading && !data) {
     return (
@@ -37,6 +47,8 @@ export function Workbench() {
         <ConceptSwitcher />
         <ThemeSwitcher />
       </div>
+      <QuickCapture />
+      <InboxTriage />
       {content}
 
       <style>{`
