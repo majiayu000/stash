@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import type { Area } from '@stash/shared';
 import { createArea, deleteArea, listAreas, updateArea } from '../../api/areas';
+import { getReminderPermission, requestReminderPermission } from '../ReminderTicker';
 import { ShinyText } from '../../components/effects';
 import { THEMES, getTheme, onThemeChange, setTheme, type ThemeId } from '../../lib/theme';
 import type { WBData } from '../data';
@@ -104,6 +105,8 @@ export function ConceptN({ data, reload }: { data: WBData; reload: () => void })
 
             <ProjectsPanel reload={reload} />
 
+            <NotificationsPanel />
+
             <div className="surface" style={{ padding: '1.2rem' }}>
               <h3 style={{ fontFamily: 'var(--font-mono)', fontSize: '1rem', fontWeight: 600, marginBottom: '0.85rem', margin: 0 }}>🔗 integrations</h3>
               <div className="int-grid" style={{ marginTop: '0.85rem' }}>
@@ -191,6 +194,53 @@ const projectBtnStyle: React.CSSProperties = {
   color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: '0.66rem',
   padding: '2px 8px', borderRadius: 3, cursor: 'pointer',
 };
+
+function NotificationsPanel() {
+  const [perm, setPerm] = useState<NotificationPermission | 'unsupported'>('default');
+  useEffect(() => { setPerm(getReminderPermission()); }, []);
+
+  async function enable() {
+    const ok = await requestReminderPermission();
+    setPerm(getReminderPermission());
+    if (!ok && Notification.permission === 'denied') {
+      window.alert('notifications are blocked at the browser level — re-enable in site settings');
+    }
+  }
+
+  const badge = (() => {
+    if (perm === 'granted') return { color: 'var(--neon-green)', label: '● on — reminders will fire' };
+    if (perm === 'denied') return { color: 'var(--neon-pink)', label: '✕ blocked at browser level' };
+    if (perm === 'unsupported') return { color: 'var(--text-muted)', label: '— browser does not support notifications' };
+    return { color: 'var(--text-muted)', label: '○ off — click to enable' };
+  })();
+
+  return (
+    <div className="surface" style={{ padding: '1.2rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', marginBottom: '0.85rem' }}>
+        <h3 style={{ fontFamily: 'var(--font-mono)', fontSize: '1rem', fontWeight: 600, margin: 0 }}>🔔 reminders</h3>
+        <span style={{ marginLeft: 'auto', color: badge.color, fontFamily: 'var(--font-mono)', fontSize: '0.72rem' }}>{badge.label}</span>
+      </div>
+      <p style={{ fontFamily: 'var(--font-body)', fontSize: '0.84rem', color: 'var(--text-secondary)', lineHeight: 1.5, marginTop: 0 }}>
+        stash checks every minute for work items whose <code style={{ color: 'var(--neon-pink)' }}>reminderAt</code> just fell due. when one fires, you get a system notification; click it to jump straight to that todo.
+      </p>
+      <button
+        type="button"
+        onClick={enable}
+        disabled={perm === 'granted' || perm === 'unsupported'}
+        style={{
+          background: perm === 'granted' ? 'rgba(48,209,88,0.1)' : 'rgba(0,255,242,0.08)',
+          border: `1px solid ${perm === 'granted' ? 'rgba(48,209,88,0.4)' : 'rgba(0,255,242,0.3)'}`,
+          color: perm === 'granted' ? 'var(--neon-green)' : 'var(--neon-cyan)',
+          fontFamily: 'var(--font-mono)', fontSize: '0.78rem',
+          padding: '6px 14px', borderRadius: 5,
+          cursor: perm === 'granted' || perm === 'unsupported' ? 'default' : 'pointer',
+        }}
+      >
+        {perm === 'granted' ? 'notifications enabled' : perm === 'unsupported' ? 'unsupported' : 'enable browser notifications'}
+      </button>
+    </div>
+  );
+}
 
 function SettingsRail({ item, active }: { item: string; active?: boolean }) {
   return (

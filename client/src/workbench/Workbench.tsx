@@ -8,8 +8,10 @@ import { findConcept, type ConceptId } from './concepts/registry';
 import { renderConcept } from './concepts/render';
 import { ConceptSwitcher } from './ConceptSwitcher';
 import { InboxTriage } from './InboxTriage';
+import { ReminderTicker } from './ReminderTicker';
 import { QuickCapture } from './QuickCapture';
 import { SearchPalette } from './SearchPalette';
+import { SmartLists } from './SmartLists';
 
 export function Workbench() {
   const { data, loading, error, reload } = useWorkbenchData();
@@ -51,6 +53,8 @@ export function Workbench() {
       <QuickCapture />
       <InboxTriage />
       <SearchPalette />
+      <SmartLists />
+      <ReminderTicker />
       {content}
 
       <style>{`

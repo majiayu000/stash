@@ -104,6 +104,13 @@ export const ListWorkItemsQuery = z.object({
     .optional()
     .transform((v) => (v === undefined ? undefined : v === 'true')),
   q: z.string().optional(),
+  priority: z.enum(['p0', 'p1', 'p2', 'p3']).optional(),
+  dueBefore: z.string().optional(),
+  todayPinned: z
+    .union([z.literal('true'), z.literal('false')])
+    .optional()
+    .transform((v) => (v === undefined ? undefined : v === 'true')),
+  label: z.string().optional(),
   scheduledFrom: z.string().optional(),
   scheduledTo: z.string().optional(),
   scheduledIsNull: z

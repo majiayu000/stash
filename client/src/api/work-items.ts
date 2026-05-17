@@ -25,6 +25,10 @@ export interface WorkItemFilter {
   scheduledIsNull?: boolean;
   includeDropped?: boolean;
   q?: string;
+  priority?: Priority;
+  dueBefore?: string;
+  todayPinned?: boolean;
+  label?: string;
 }
 
 interface ListResponse {
@@ -52,6 +56,10 @@ export async function listWorkItems(filter: WorkItemFilter = {}): Promise<WorkIt
     query.includeDropped = String(filter.includeDropped);
   }
   if (filter.q) query.q = filter.q;
+  if (filter.priority) query.priority = filter.priority;
+  if (filter.dueBefore) query.dueBefore = filter.dueBefore;
+  if (filter.todayPinned !== undefined) query.todayPinned = String(filter.todayPinned);
+  if (filter.label) query.label = filter.label;
   const res = await apiGet<ListResponse>('/work-items', query);
   return res.data;
 }

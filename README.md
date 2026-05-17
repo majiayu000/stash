@@ -1,56 +1,161 @@
 # stash
 
-Todo + Agent Workboard. Inbox-first task capture; Claude/Codex sessions are evidence, not the product.
+A local-first todo + AI-agent workbench. Capture in milliseconds, manage with one
+hand on the keyboard, and pull the right context forward when you start working.
+
+Built for power users who live between a terminal, a todo list, and an AI coding
+assistant. Single user, single device, no cloud, no auth, no telemetry.
+
+## Why
+
+Generic todo apps don't know your agent ran for four hours yesterday and made
+three decisions. Generic agent dashboards don't help you triage tomorrow's work.
+stash sits between them. Your todos point at projects; your projects gather
+lessons, decisions and Claude/Codex sessions; the next time you start work, the
+context surfaces itself.
 
 ## Quick start
 
 ```sh
+# 1) Install
 bun install
-bun run seed              # populate sample data
-bun run server:dev        # http://localhost:4174
-# in another shell
-bun run client:dev        # http://localhost:5173
+
+# 2) Seed a believable demo (areas, todos, projects, milestones, decisions, lessons,
+#    plus one fake Claude JSONL so analytics has data to chew on)
+STASH_DB_PATH=/tmp/stash-demo.db bun run seed:rich:sessions
+
+# 3) Start the server
+STASH_DB_PATH=/tmp/stash-demo.db CLAUDE_ROOT=/tmp/stash-rich-claude \
+  bun run server:dev          # http://localhost:4174
+
+# 4) Start the client (in another shell)
+bun run client:dev            # http://localhost:5173
 ```
+
+Open `http://localhost:5173` and press `?` for the keyboard cheatsheet.
+
+## Daily flow
+
+```
+Capture:        press  c  →  type "fix login #aurora ^p1 !tomorrow @auth *45m"  →  enter
+                or:    stash "fix login #aurora ^p1 !tomorrow @auth *45m"   (CLI)
+Triage:         j / k  to walk inbox, t/n/s/d for pin/plan/someday/drop
+Multi-select:   v to mark, V to mark all, action keys apply to all marked
+Find:           Cmd+K  search title/description/labels
+Smart lists:    `  toggles a chip row: overdue / today-pinned / p0 / etc
+Detail:         Enter on a row opens the modal; edit anything; ✓ done; Cmd+Z undo
+Reminders:      ConceptN → enable browser notifications; reminderAt fires automatically
+```
+
+## The 16 concept pages
+
+stash renders the same data through 16 different lenses. Pick the one that
+matches what you're doing:
+
+| route | concept | when |
+|---|---|---|
+| `/`              | E — capture & board | default; daily triage |
+| `/c/a`           | A — card wall | project-first browse |
+| `/c/b`           | B — multi-project board | drag work across projects |
+| `/c/c`           | C — calendar | what's due when |
+| `/c/d`           | D — terminal feed | low-latency log of activity |
+| `/c/e`           | E — inbox & 4-col board | same as `/` |
+| `/c/f`           | F — file picker | jump by file path |
+| `/c/g/:provider/:sessionId` | G — session detail | what the agent did |
+| `/c/h`           | H — cost & burn | spend per project / model / day |
+| `/c/i`           | I — ⌘K palette | global search |
+| `/c/j`           | J — weekly review | what shipped, what's stale |
+| `/c/k/:projectId`| K — project workbench | intent / milestones / decisions / notes / lessons |
+| `/c/l/:workItemId`| L — todo detail | edit anything, link sessions |
+| `/c/m`           | M — skills library | install + bind skills to projects |
+| `/c/n`           | N — settings | themes, projects CRUD, notifications |
+| `/c/o`           | O — start session dispatcher | (UI scaffolded; subprocess launch is future) |
+| `/c/prd`         | PRD | product requirements |
+
+Use the floating switcher (top-right) to jump between concepts.
+
+## Capture token grammar
+
+Quick Capture (`c`) and the CLI (`stash …`) both parse the same inline tokens:
+
+| token | example | meaning |
+|---|---|---|
+| `#project` | `#aurora` | resolves to an area name (case-insensitive) |
+| `@tag` | `@auth` | adds a label |
+| `^p0..^p3` | `^p1` | sets priority |
+| `!date` | `!tomorrow` / `!fri` / `!next-tue` / `!2026-05-20` | `scheduledFor` |
+| `!!date` | `!!2026-05-30` | `dueAt` (the deadline, not the start) |
+| `*duration` | `*45m` / `*2h` | estimate in minutes |
+
+Anything that doesn't match falls into the `unresolved` field so the original
+text is never lost; the raw input is also stored in `rawInput` for re-parsing.
 
 ## Architecture
 
-See [`SPEC.md`](./SPEC.md).
+```
+shared/   types used by both ends (Area, WorkItem, Skill, Lesson, Decision, …)
+server/   Bun + Hono + bun:sqlite
+          • domain/      services (work-item, area, project-knowledge, skill,
+                                    capture, analytics/burn, analytics/weekly)
+          • adapters/    Claude + Codex JSONL parsers + aggregator
+          • web/         routes + Zod schemas + error mapper
+          • db/          migrations 001…007
+client/   React + Vite + 7-theme system
+          • workbench/   the shell + concepts/ (16 files) + shared widgets
+          • api/         one wrapper per backend domain
+tools/    stash CLI binary (POSTs to /api/work-items/capture)
+docs/     SPEC v0.1 / v0.2 / v0.3 (workbench-design + friction-zero release)
+```
 
-- `shared/` — TypeScript type definitions used by both server and client.
-- `server/` — Bun + Hono + `bun:sqlite`. Owns work items, areas, evidence, and Claude/Codex scanners.
-- `client/` — React + Vite + Tailwind. Eight top-level pages (Overview, Inbox, Todo, Projects, Workboard, Sessions, Evidence, Analytics).
-- `docs/reference/` — read-only source material (PRD, mockups, original workbench exploration).
+The DB is one SQLite file (default `~/Library/Application Support/stash/app.db`
+on macOS). Override with `STASH_DB_PATH`.
+
+Claude/Codex JSONL roots: `CLAUDE_ROOT` (default `~/.claude`), `CODEX_ROOT`
+(default `~/.codex`).
 
 ## Tests
 
 ```sh
-bun run server:test       # domain unit + adapter unit + API integration
-bun run client:test       # component + hook (vitest)
-bun run client:e2e        # Playwright golden paths
+bun run typecheck        # server + client TypeScript
+bun run server:test      # 185 domain + route tests
+bun run client:test      # 2 vitest hook tests
+bun run client:e2e       # 8 Playwright golden paths
 bun run test:all
-bun run typecheck
 ```
 
-## Data
+The pre-commit hook (VibeGuard) runs guards inline; no setup needed beyond
+`bun install`.
 
-State lives in `$STASH_DB_PATH` (default `~/.local/share/stash/stash.db`). SQLite WAL mode, single-process.
+## What ships vs what's deferred
 
-Claude session source: `$CLAUDE_ROOT` (default `~/.claude`).
-Codex session source: `$CODEX_ROOT` (default `~/.codex`).
+**Shipped today** (v0.6):
+- All 16 concept pages render from real backend data
+- Quick Capture + CLI capture with token grammar
+- Inbox triage keyboard layer with multi-select + undo + help overlay (`?`)
+- Global search (`Cmd+K`) + smart-lists chip row (`` ` ``)
+- Today list with manual pin + auto-promote, drag-reorder via fractional `sortOrder`
+- Recurrence engine (RRULE-lite + Things-style `after_completion`) with picker
+- Reminder timestamps + browser notifications (opt-in)
+- Project workbench: editable intent / milestones / decisions / notes / lessons
+- Skills library: install/uninstall + per-project bindings
+- Session detail: real transcript / tool-call summary / files-touched
+- Decision candidate extraction from JSONL (accept/ignore inline)
+- Analytics: 30-day burn (daily spend / hourly heatmap / model mix / per-project)
+- Weekly review snapshot (WoW pairs, focus hours, done-by-project, stale digest)
+- Settings: 7 themes, project CRUD, notifications opt-in
 
-## Slices
+**Deferred** (real new features, not wiring):
+- ConceptO actually starting Claude/Codex subprocesses
+- Voice capture (Whisper local)
+- Browser extension / native global hotkey
+- Multi-device sync (CRDT or Tailscale)
+- Persisted budgets + alerts (currently labelled stubs)
+- Daily-plan generation a la Motion / Sunsama
 
-| Slice | What | Status |
-|---|---|---|
-| 1 | Inbox + manual todo core (Overview, Inbox, Todo) | shipped |
-| 2 | Claude session scanner + link sessions to work items | shipped |
-| 3 | Codex session adapter (provider-neutral) | shipped |
-| 4 | Progress evidence + completion candidate flow | shipped |
+See [`docs/SPEC_v0.3.md`](./docs/SPEC_v0.3.md) for the most recent SPEC and
+[`docs/SPEC_v0.2.md`](./docs/SPEC_v0.2.md) for the original workbench design.
 
-## Verification (last run)
+## License
 
-- `bun run server:test` → **83/83 pass**, 227 assertions, ~95 ms
-- `bun run client:test` → **11/11 pass** (vitest + RTL)
-- `bun run client:e2e` → **4/4 pass** (Playwright: inbox-capture, link-session, codex-session, progress-evidence)
-- `bun run typecheck` → clean both sides
-- Manual smoke: `bun run server:start` boots in ~1 s, `bun run client:dev` boots in ~1 s, `/api/overview` returns 200 via Vite proxy `5173 → 4174`.
+Personal use only for now. No license file = no permission to redistribute.
+File an issue if you want one.

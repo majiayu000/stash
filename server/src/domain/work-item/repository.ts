@@ -120,6 +120,14 @@ export interface ListFilter {
   includeDropped?: boolean;
   /** v0.4 — case-insensitive LIKE against title + description + labels JSON. */
   q?: string;
+  /** v0.6 — smart list filters. */
+  priority?: 'p0' | 'p1' | 'p2' | 'p3';
+  /** Items with due_at strictly before this ISO timestamp. */
+  dueBefore?: string;
+  /** Items with today_pinned = 1. */
+  todayPinned?: boolean;
+  /** Items whose labels_json contains a JSON-encoded match for the given tag. */
+  label?: string;
 }
 
 export class WorkItemRepository {
@@ -224,6 +232,24 @@ export class WorkItemRepository {
       const needle = `%${filter.q.trim().toLowerCase()}%`;
       where.push('(lower(title) like ? or lower(coalesce(description, "")) like ? or lower(labels_json) like ?)');
       params.push(needle, needle, needle);
+    }
+    if (filter.priority) {
+      where.push('priority = ?');
+      params.push(filter.priority);
+    }
+    if (filter.dueBefore) {
+      where.push('due_at is not null and due_at < ?');
+      params.push(filter.dueBefore);
+    }
+    if (filter.todayPinned !== undefined) {
+      where.push('today_pinned = ?');
+      params.push(filter.todayPinned ? 1 : 0);
+    }
+    if (filter.label) {
+      // labels_json is e.g. ["auth","security"] — match the JSON-quoted token.
+      const needle = `%"${filter.label.toLowerCase()}"%`;
+      where.push('lower(labels_json) like ?');
+      params.push(needle);
     }
 
     const whereSql = where.length ? `where ${where.join(' and ')}` : '';

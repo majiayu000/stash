@@ -34,6 +34,7 @@ interface UndoAction {
 export function InboxTriage() {
   const [items, setItems] = useState<WorkItem[]>([]);
   const [cursorId, setCursorId] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [help, setHelp] = useState(false);
   const [toast, setToast] = useState<{ msg: string; undo?: UndoAction } | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -59,12 +60,29 @@ export function InboxTriage() {
   }, []);
 
   useEffect(() => {
+    /**
+     * Apply `handler` to the cursor's item OR every item in `selected` when
+     * the selection is non-empty. Single-item ops keep their undo; bulk ops
+     * compose all undos into one chained reverse.
+     */
     async function act(handler: (id: string, current: WorkItem) => Promise<UndoAction | void>, label: string) {
-      const cur = items.find((it) => it.id === cursorId);
-      if (!cur) return;
+      const targets = selected.size > 0
+        ? items.filter((it) => selected.has(it.id))
+        : items.filter((it) => it.id === cursorId);
+      if (targets.length === 0) return;
+
       try {
-        const undo = await handler(cur.id, cur);
-        flash(`✓ ${label}`, undo ?? undefined);
+        const undos: UndoAction[] = [];
+        for (const cur of targets) {
+          const undo = await handler(cur.id, cur);
+          if (undo) undos.push(undo);
+        }
+        const composedUndo: UndoAction | undefined = undos.length > 0
+          ? { label: undos[0]!.label, apply: async () => { for (const u of undos) await u.apply(); } }
+          : undefined;
+        const labelTxt = targets.length === 1 ? `✓ ${label}` : `✓ ${label} · ${targets.length} items`;
+        flash(labelTxt, composedUndo);
+        setSelected(new Set()); // clear after bulk
         window.dispatchEvent(new CustomEvent('stash:captured'));
       } catch (e) {
         flash(`✕ ${e instanceof Error ? e.message : String(e)}`);
@@ -79,7 +97,29 @@ export function InboxTriage() {
 
       // Help overlay
       if (e.key === '?') { e.preventDefault(); setHelp((v) => !v); return; }
-      if (e.key === 'Escape' && help) { e.preventDefault(); setHelp(false); return; }
+      if (e.key === 'Escape') {
+        if (help) { e.preventDefault(); setHelp(false); return; }
+        if (selected.size > 0) { e.preventDefault(); setSelected(new Set()); return; }
+      }
+
+      // v → toggle current row in selection
+      if (e.key === 'v') {
+        e.preventDefault();
+        if (!cursorId) return;
+        setSelected((prev) => {
+          const next = new Set(prev);
+          if (next.has(cursorId)) next.delete(cursorId); else next.add(cursorId);
+          return next;
+        });
+        return;
+      }
+
+      // V (shift) → select all visible inbox rows
+      if (e.key === 'V') {
+        e.preventDefault();
+        setSelected(new Set(items.map((it) => it.id)));
+        return;
+      }
 
       // Cmd+Z / Ctrl+Z → invoke pending undo
       if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
@@ -179,15 +219,17 @@ export function InboxTriage() {
 
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [items, cursorId, help, toast]);
+  }, [items, cursorId, help, toast, selected]);
 
-  // Paint cursor highlight on the DOM row matching cursorId.
+  // Paint cursor + selection highlight on the matching DOM rows.
   useEffect(() => {
     const rows = document.querySelectorAll<HTMLElement>('[data-inbox-item]');
     rows.forEach((el) => {
       const id = el.getAttribute('data-inbox-item');
       if (id && id === cursorId) el.setAttribute('data-cursor', 'true');
       else el.removeAttribute('data-cursor');
+      if (id && selected.has(id)) el.setAttribute('data-selected', 'true');
+      else el.removeAttribute('data-selected');
     });
   });
 
@@ -226,9 +268,20 @@ export function InboxTriage() {
               <kbd>e</kbd><span>rename row</span>
               <kbd>Enter</kbd><span>open detail</span>
               <kbd>c</kbd><span>quick capture</span>
+              <kbd>v</kbd><span>toggle select current row</span>
+              <kbd>shift V</kbd><span>select all visible</span>
+              <kbd>esc</kbd><span>clear selection / close help</span>
               <kbd>?</kbd><span>toggle this help</span>
             </div>
+            <div style={{ marginTop: 12, fontFamily: 'var(--font-mono)', fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+              when ≥1 row is selected, action keys (t / n / s / d / 0–3) apply to the whole selection.
+            </div>
           </div>
+        </div>
+      )}
+      {selected.size > 0 && (
+        <div className="tri-sel-pill" data-testid="tri-sel-count">
+          {selected.size} selected · t · n · s · d · 0–3 · esc
         </div>
       )}
       {toast && (
@@ -251,6 +304,22 @@ const triStyles = `
   outline: 2px solid var(--neon-cyan, #00fff2);
   outline-offset: 2px;
   border-radius: 6px;
+}
+[data-inbox-item][data-selected] {
+  box-shadow: inset 3px 0 0 var(--neon-purple, #bf5af2);
+  background: rgba(191,90,242,0.06);
+}
+[data-inbox-item][data-selected][data-cursor] {
+  /* both: cursor outline wins; selection bar still shows on the left */
+}
+.tri-sel-pill {
+  position: fixed; bottom: 8.5rem; right: 1.5rem;
+  background: rgba(191,90,242,0.12);
+  border: 1px solid var(--neon-purple, #bf5af2);
+  color: var(--neon-purple, #bf5af2);
+  font-family: var(--font-mono); font-size: 0.72rem;
+  padding: 4px 10px; border-radius: 4px;
+  z-index: 1001;
 }
 .tri-help {
   position: fixed; inset: 0; z-index: 1002;
