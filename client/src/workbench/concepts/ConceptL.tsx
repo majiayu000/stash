@@ -598,7 +598,12 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
 
               <div className="td-run">
                 <div className="td-section-label" style={{ color: 'var(--neon-cyan)' }}>▶ run with</div>
-                <button className="td-run-btn" type="button">
+                <button
+                  className="td-run-btn"
+                  type="button"
+                  onClick={() => navigate(`/c/o?todoId=${journalTodoId}`)}
+                  data-testid="td-run"
+                >
                   <span style={{ fontSize: '1.05rem' }}>🤖</span>
                   <span>claude code · sonnet-4.5</span>
                   <span className="td-run-kbd">⌘↵</span>

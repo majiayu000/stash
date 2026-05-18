@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import type { Skill } from '@stash/shared';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import type { Skill, WorkItem } from '@stash/shared';
 import { listProjectSkills, listSkills } from '../../api/skills';
+import { getWorkItem } from '../../api/work-items';
 import { ShinyText } from '../../components/effects';
 import type { WBData } from '../data';
 import { Topbar } from '../shared';
@@ -15,8 +16,22 @@ import { Topbar } from '../shared';
  */
 export function ConceptO({ data }: { data: WBData; reload: () => void }) {
   const { projects } = data;
-  const selectedProject = projects[0];
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const todoId = searchParams.get('todoId');
+
+  // If we arrived from ConceptL "▶ run with", pre-load the todo so we can use
+  // its project + title as the starting prompt.
+  const [todo, setTodo] = useState<WorkItem | null>(null);
+  useEffect(() => {
+    if (!todoId) { setTodo(null); return; }
+    let cancelled = false;
+    getWorkItem(todoId).then((it) => { if (!cancelled) setTodo(it); }).catch(() => { if (!cancelled) setTodo(null); });
+    return () => { cancelled = true; };
+  }, [todoId]);
+
+  const selectedProject = (todo?.projectId && projects.find((p) => p.id === todo.projectId))
+    || projects[0];
   const [allSkills, setAllSkills] = useState<Skill[]>([]);
   const [boundSkills, setBoundSkills] = useState<Skill[]>([]);
 
@@ -60,10 +75,20 @@ export function ConceptO({ data }: { data: WBData; reload: () => void }) {
             <label className="ss-label">prompt</label>
             <div className="ss-prompt">
               <span style={{ color: 'var(--neon-cyan)', fontFamily: 'var(--font-mono)', fontWeight: 700, marginTop: 2 }}>$</span>
-              <div style={{ flex: 1, fontFamily: 'var(--font-mono)', fontSize: '0.95rem', color: 'var(--text-primary)', lineHeight: 1.6, minHeight: 80 }}>
-                {selectedProject ? <>wire {selectedProject.doing}. should land in this cycle.</> : 'pick a project to start'}
-                <br />
-                <span style={{ color: 'var(--text-muted)' }}>also: cover the failure path the workboard flagged last sprint.</span>
+              <div style={{ flex: 1, fontFamily: 'var(--font-mono)', fontSize: '0.95rem', color: 'var(--text-primary)', lineHeight: 1.6, minHeight: 80 }} data-testid="ss-prompt">
+                {todo ? (
+                  <>
+                    {todo.title}
+                    {todo.description && <>
+                      <br />
+                      <span style={{ color: 'var(--text-muted)' }}>{todo.description}</span>
+                    </>}
+                  </>
+                ) : selectedProject ? (
+                  <>wire {selectedProject.doing}. should land in this cycle.</>
+                ) : (
+                  'pick a project to start'
+                )}
                 <span style={{ color: 'var(--neon-cyan)', animation: 'blink 1s steps(1) infinite' }}>▎</span>
               </div>
             </div>

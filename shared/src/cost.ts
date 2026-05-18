@@ -92,6 +92,27 @@ export interface WeeklySnapshot {
   wow: { tokens: WoWPair; cost: WoWPair; sessions: WoWPair };
 }
 
+export type BudgetPeriod = 'day' | 'week' | 'month' | 'quarter';
+
+export interface Budget {
+  id: string;
+  scope: string;
+  capUsd: number;
+  period: BudgetPeriod;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateBudgetInput {
+  scope: string;
+  capUsd: number;
+  period?: BudgetPeriod;
+  notes?: string;
+}
+
+export type UpdateBudgetInput = Partial<CreateBudgetInput>;
+
 /** Cost USD for one event, using the matching default rate (zero if unknown model). */
 export function eventCost(e: UsageEvent, rates: ModelRate[] = DEFAULT_MODEL_RATES): number {
   const rate = rates.find((r) => r.model === e.model);

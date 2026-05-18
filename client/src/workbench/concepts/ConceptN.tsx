@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import type { Area } from '@stash/shared';
+import type { Budget } from '@stash/shared';
 import { createArea, deleteArea, listAreas, updateArea } from '../../api/areas';
+import { createBudget, deleteBudget, listBudgets, updateBudget } from '../../api/budgets';
 import { getReminderPermission, requestReminderPermission } from '../ReminderTicker';
 import { ShinyText } from '../../components/effects';
 import { THEMES, getTheme, onThemeChange, setTheme, type ThemeId } from '../../lib/theme';
@@ -107,6 +109,8 @@ export function ConceptN({ data, reload }: { data: WBData; reload: () => void })
 
             <NotificationsPanel />
 
+            <BudgetsPanel />
+
             <div className="surface" style={{ padding: '1.2rem' }}>
               <h3 style={{ fontFamily: 'var(--font-mono)', fontSize: '1rem', fontWeight: 600, marginBottom: '0.85rem', margin: 0 }}>🔗 integrations</h3>
               <div className="int-grid" style={{ marginTop: '0.85rem' }}>
@@ -194,6 +198,102 @@ const projectBtnStyle: React.CSSProperties = {
   color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: '0.66rem',
   padding: '2px 8px', borderRadius: 3, cursor: 'pointer',
 };
+
+function BudgetsPanel() {
+  const [budgets, setBudgets] = useState<Budget[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  async function refresh() {
+    try { setBudgets(await listBudgets()); } finally { setLoading(false); }
+  }
+  useEffect(() => { refresh(); }, []);
+
+  async function add() {
+    const scope = window.prompt('budget scope (e.g. "aurora" or "all")');
+    if (!scope?.trim()) return;
+    const capStr = window.prompt('cap in USD', '50');
+    const capUsd = Number(capStr);
+    if (!(capUsd > 0)) { window.alert('cap must be > 0'); return; }
+    const period = window.prompt('period (day / week / month / quarter)', 'month');
+    if (!period || !['day', 'week', 'month', 'quarter'].includes(period)) { window.alert('invalid period'); return; }
+    try {
+      await createBudget({ scope: scope.trim(), capUsd, period: period as Budget['period'] });
+      await refresh();
+      window.dispatchEvent(new CustomEvent('stash:captured'));
+    } catch (e) { window.alert(e instanceof Error ? e.message : String(e)); }
+  }
+
+  async function edit(b: Budget) {
+    const capStr = window.prompt(`cap for ${b.scope} (${b.period})`, String(b.capUsd));
+    if (capStr === null) return;
+    const capUsd = Number(capStr);
+    if (!(capUsd > 0)) { window.alert('cap must be > 0'); return; }
+    try {
+      await updateBudget(b.id, { capUsd });
+      await refresh();
+      window.dispatchEvent(new CustomEvent('stash:captured'));
+    } catch (e) { window.alert(e instanceof Error ? e.message : String(e)); }
+  }
+
+  async function remove(b: Budget) {
+    if (!window.confirm(`delete budget for ${b.scope} / ${b.period}?`)) return;
+    try {
+      await deleteBudget(b.id);
+      await refresh();
+      window.dispatchEvent(new CustomEvent('stash:captured'));
+    } catch (e) { window.alert(e instanceof Error ? e.message : String(e)); }
+  }
+
+  return (
+    <div className="surface" style={{ padding: '1.2rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', marginBottom: '0.85rem' }}>
+        <h3 style={{ fontFamily: 'var(--font-mono)', fontSize: '1rem', fontWeight: 600, margin: 0 }}>💰 budgets</h3>
+        <button
+          type="button"
+          onClick={add}
+          style={{
+            marginLeft: 'auto',
+            background: 'rgba(0,255,242,0.08)', border: '1px solid rgba(0,255,242,0.3)',
+            color: 'var(--neon-cyan)', fontFamily: 'var(--font-mono)', fontSize: '0.72rem',
+            padding: '3px 10px', borderRadius: 4, cursor: 'pointer',
+          }}
+        >+ budget</button>
+      </div>
+      <p style={{ fontFamily: 'var(--font-body)', fontSize: '0.82rem', color: 'var(--text-secondary)', lineHeight: 1.5, marginTop: 0 }}>
+        Each (scope, period) is unique. Scope <code style={{ color: 'var(--neon-cyan)' }}>all</code> tracks total spend; project names track the matching area's burn.
+      </p>
+      {loading ? (
+        <div style={projectHint}>loading…</div>
+      ) : budgets.length === 0 ? (
+        <div style={projectHint}>no budgets yet. press <code>+ budget</code> to set one.</div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {budgets.map((b) => (
+            <div key={b.id} style={projectRowStyle}>
+              <span style={{ flex: 1, fontFamily: 'var(--font-mono)', fontSize: '0.82rem' }}>
+                <span style={{ color: 'var(--text-primary)' }}>{b.scope}</span>
+                <span style={{ color: 'var(--text-muted)' }}> · {b.period}</span>
+              </span>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', color: 'var(--neon-orange)' }}>${b.capUsd.toFixed(2)}</span>
+              <button type="button" onClick={() => edit(b)} style={projectBtnStyle}>edit</button>
+              <button type="button" onClick={() => remove(b)} style={{ ...projectBtnStyle, color: 'var(--neon-pink)' }}>delete</button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const projectRowStyle: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', gap: 8,
+  padding: '6px 8px',
+  background: 'rgba(255,255,255,0.02)',
+  border: '1px solid var(--border-hair)',
+  borderRadius: 4,
+};
+
+const projectHint: React.CSSProperties = { fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)' };
 
 function NotificationsPanel() {
   const [perm, setPerm] = useState<NotificationPermission | 'unsupported'>('default');

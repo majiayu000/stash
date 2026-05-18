@@ -10,6 +10,7 @@ import {
   WorkItemNotFoundError,
 } from '../domain/work-item/service.js';
 import { NoPendingCandidateError } from '../domain/evidence/service.js';
+import { BudgetConflictError, BudgetNotFoundError } from '../domain/budget/service.js';
 import { SkillConflictError, SkillNotFoundError } from '../domain/skill/service.js';
 import { KnowledgeNotFoundError } from '../domain/project-knowledge/service.js';
 
@@ -39,11 +40,12 @@ export function mapError(err: unknown): { status: 400 | 404 | 409 | 422 | 500; b
     err instanceof WorkItemNotFoundError ||
     err instanceof AreaNotFoundError ||
     err instanceof SkillNotFoundError ||
+    err instanceof BudgetNotFoundError ||
     err instanceof KnowledgeNotFoundError
   ) {
     return { status: 404, body: apiError('NOT_FOUND', err.message) };
   }
-  if (err instanceof SkillConflictError) {
+  if (err instanceof SkillConflictError || err instanceof BudgetConflictError) {
     return { status: 409, body: apiError('CONFLICT', err.message) };
   }
   if (err instanceof NoPendingCandidateError) {

@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import type { BurnSnapshot } from '@stash/shared';
+import type { Budget, BurnSnapshot, ProjectBurnRow } from '@stash/shared';
 import { getBurnSnapshot } from '../../api/analytics';
+import { listBudgets } from '../../api/budgets';
 import { CountUp } from '../../components/effects';
 import { fmt, type WBData } from '../data';
-import { MOCK_ALERTS, MOCK_BUDGETS, type MockAlert, type MockBudget } from '../mock';
+import { MOCK_ALERTS, type MockAlert } from '../mock';
 import { StatTile, Topbar } from '../shared';
 
 /**
@@ -25,7 +26,16 @@ const MODEL_PALETTE = [
 
 export function ConceptH({ data }: { data: WBData; reload: () => void }) {
   const [snap, setSnap] = useState<BurnSnapshot | null>(null);
+  const [budgets, setBudgets] = useState<Budget[]>([]);
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    listBudgets().then((rows) => { if (!cancelled) setBudgets(rows); }).catch(() => {});
+    function onChange() { listBudgets().then((rows) => { if (!cancelled) setBudgets(rows); }).catch(() => {}); }
+    window.addEventListener('stash:captured', onChange);
+    return () => { cancelled = true; window.removeEventListener('stash:captured', onChange); };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -148,11 +158,24 @@ export function ConceptH({ data }: { data: WBData; reload: () => void }) {
 
             <div className="surface">
               <div className="sec-head" style={{ marginBottom: '0.8rem' }}>
-                <span className="prompt">&gt;</span> budgets <span className="count">— stub · not persisted</span>
+                <span className="prompt">&gt;</span> budgets <span className="count">— {budgets.length}</span>
+                <span className="right" style={{ color: 'var(--text-muted)', fontSize: '0.7rem' }}>edit in settings</span>
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.7rem' }}>
-                {MOCK_BUDGETS.map((b) => <BudgetRow key={b.scope} b={b} />)}
-              </div>
+              {budgets.length === 0 ? (
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                  no budgets yet. set one in <code>settings → 💰 budgets</code>.
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.7rem' }}>
+                  {budgets.map((b) => (
+                    <BudgetRow
+                      key={b.id}
+                      b={b}
+                      used={spendForScope(b, snap?.perProjectLeaderboard ?? [], data.projects)}
+                    />
+                  ))}
+                </div>
+              )}
             </div>
 
             <div className="surface">
@@ -282,23 +305,38 @@ function ModelDonut({ mix, totalTokens }: { mix: { model: string; share: number;
   );
 }
 
-function BudgetRow({ b }: { b: MockBudget }) {
-  const pct = (b.used / b.cap) * 100;
+/**
+ * v0.9 — given a budget scope and the burn snapshot's per-project leaderboard,
+ * compute how much has been spent against that scope. Scope === 'all' aggregates
+ * the entire snapshot; otherwise it matches against the project name in the
+ * leaderboard (which the BurnService resolves via AreaService.get).
+ */
+function spendForScope(b: Budget, leaderboard: ProjectBurnRow[], _projects: WBData['projects']): number {
+  if (b.scope.toLowerCase() === 'all') {
+    return leaderboard.reduce((sum, r) => sum + r.cost, 0);
+  }
+  const match = leaderboard.find((r) => r.projectName.toLowerCase() === b.scope.toLowerCase());
+  return match?.cost ?? 0;
+}
+
+function BudgetRow({ b, used }: { b: Budget; used: number }) {
+  const pct = b.capUsd > 0 ? (used / b.capUsd) * 100 : 0;
   const over = pct > 100;
   const warn = pct > 75;
+  const color = over ? 'var(--neon-pink)' : warn ? 'var(--neon-orange)' : 'var(--neon-cyan)';
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontFamily: 'var(--font-mono)', fontSize: '0.74rem' }}>
-        <span style={{ color: 'var(--text-secondary)' }}>{b.scope}</span>
+        <span style={{ color: 'var(--text-secondary)' }}>{b.scope} <span style={{ color: 'var(--text-muted)' }}>· {b.period}</span></span>
         <span style={{ color: over ? 'var(--neon-pink)' : warn ? 'var(--neon-orange)' : 'var(--text-muted)' }}>
-          <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>${b.used.toFixed(2)}</span> / ${b.cap.toFixed(2)} <span>· {pct.toFixed(0)}%</span>
+          <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>${used.toFixed(2)}</span> / ${b.capUsd.toFixed(2)} <span>· {pct.toFixed(0)}%</span>
         </span>
       </div>
       <div className="pbar thin">
         <div className="pbar-fill" style={{
           width: Math.min(100, pct) + '%',
-          background: over ? 'var(--neon-pink)' : warn ? 'var(--neon-orange)' : b.color,
-          boxShadow: `0 0 8px ${over ? 'var(--neon-pink)' : warn ? 'var(--neon-orange)' : b.color}`,
+          background: color,
+          boxShadow: `0 0 8px ${color}`,
         }} />
       </div>
     </div>

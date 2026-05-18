@@ -12,6 +12,7 @@ import { ReminderTicker } from './ReminderTicker';
 import { QuickCapture } from './QuickCapture';
 import { SearchPalette } from './SearchPalette';
 import { SmartLists } from './SmartLists';
+import { TodayTriage } from './TodayTriage';
 
 export function Workbench() {
   const { data, loading, error, reload } = useWorkbenchData();
@@ -55,6 +56,7 @@ export function Workbench() {
       <SearchPalette />
       <SmartLists />
       <ReminderTicker />
+      <TodayTriage />
       {content}
 
       <style>{`
