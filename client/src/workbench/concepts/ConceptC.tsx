@@ -1,18 +1,18 @@
 import type { ReactNode } from 'react';
-import { CountUp, CursorGlow, LiveDot, ParticleField, Typewriter } from '../../components/effects';
+import { CountUp, CursorGlow, LiveDot, ParticleField } from '../../components/effects';
 import { fmt, type WBData, type WBProject } from '../data';
 import { ModelBadge, ProgressBar, StatusPill, Topbar, TodoItem } from '../shared';
 
 /**
  * Concept C — Hero + Stream. One project as cinematic hero, others as a
- * compact strip, right rail is a chronological agent stream feed.
+ * compact strip, right rail is a real agent activity feed (newest first).
  *
  * Backend coverage:
  *   - hero project (workboard.projects[0]): real
- *   - feed lines: deterministic stub (Phase 4 will pull from /events stream)
+ *   - feed lines: real — pulled from `data.sessions` newest-first.
  */
 export function ConceptC({ data }: { data: WBData; reload: () => void }) {
-  const { projects, todos } = data;
+  const { projects, todos, sessions } = data;
   const hero = projects[0];
 
   if (!hero) {
@@ -55,11 +55,7 @@ export function ConceptC({ data }: { data: WBData; reload: () => void }) {
                       </h1>
                       <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.95rem', color: 'var(--text-secondary)', marginBottom: '0.8rem' }}>
                         <span style={{ color: 'var(--neon-cyan)', marginRight: 8, animation: 'blink 1s steps(1) infinite' }}>&gt;</span>
-                        <Typewriter
-                          phrases={[hero.doing, 'patching session.ts (+24 -3)', 'running test suite…', '2 tests failing — investigating']}
-                          speed={45}
-                          pause={2200}
-                        />
+                        {hero.doing || <span style={{ color: 'var(--text-muted)' }}>(no active focus — set one via /c/k/{hero.id})</span>}
                       </div>
                       <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                         {hero.branch && <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem', color: 'var(--text-muted)', padding: '3px 8px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-sm)' }}>⎇ {hero.branch}</span>}
@@ -141,29 +137,37 @@ export function ConceptC({ data }: { data: WBData; reload: () => void }) {
               <LiveDot color="var(--neon-green)" />
             </div>
             <div className="live-feed">
-              <FeedLine ts="12:42:27" type="warn">⚠ 2 tests failing in src/auth/session.test.ts</FeedLine>
-              <FeedLine ts="12:42:26" type="info">running test suite (jest --testPathPattern auth)</FeedLine>
-              <FeedLine ts="12:42:24" type="ok">✓ patched src/auth/session.ts (+24 -3)</FeedLine>
-              <FeedLine ts="12:42:21" type="tool">tool_call: <span style={{ color: 'var(--neon-purple)' }}>edit_file</span> · src/auth/session.ts</FeedLine>
-              <FeedLine ts="12:42:18" type="msg"><span style={{ color: 'var(--neon-cyan)' }}>&gt;</span> proposing Session interface</FeedLine>
-              <FeedLine ts="12:42:14" type="tool">tool_call: <span style={{ color: 'var(--neon-purple)' }}>read_file</span> · src/auth/oauth.ts</FeedLine>
-              <FeedLine ts="12:42:11" type="msg"><span style={{ color: 'var(--neon-cyan)' }}>&gt;</span> reading src/auth/oauth.ts… 3 call sites found</FeedLine>
-              <FeedLine ts="12:42:08" type="info">session:{hero.id.slice(0, 6)} · {hero.lastModel} started</FeedLine>
-              <FeedLine ts="12:41:52" type="user"><span style={{ color: 'var(--neon-green)' }}>$</span> {hero.doing}</FeedLine>
-              <FeedLine ts="12:38:14" type="done">✓ session:s5 completed · audit log review · 3.1k tokens</FeedLine>
-              <FeedLine ts="12:31:02" type="info">session:s5 · haiku-4.5 started</FeedLine>
+              {sessions.length === 0 ? (
+                <FeedLine ts="--:--" type="info">no agent sessions yet — dispatch one from a todo via "▶ run with"</FeedLine>
+              ) : (
+                sessions.slice(0, 12).map((s) => {
+                  const ts = new Date(s.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                  const tone: 'tool' | 'msg' | 'done' =
+                    s.state === 'live' ? 'tool'
+                    : s.state === 'idle' ? 'msg'
+                    : 'done';
+                  return (
+                    <FeedLine key={`${s.provider}:${s.id}`} ts={ts} type={tone}>
+                      <span style={{ color: 'var(--neon-cyan)', fontWeight: 600 }}>{s.provider}</span>
+                      {' · '}
+                      <span style={{ color: tone === 'done' ? 'var(--text-muted)' : 'var(--text-primary)' }}>
+                        {s.title || s.id.slice(0, 12)}
+                      </span>
+                      {s.preview && (
+                        <span style={{ color: 'var(--text-muted)' }}> · {s.preview.replace(/\s+/g, ' ').slice(0, 60)}</span>
+                      )}
+                    </FeedLine>
+                  );
+                })
+              )}
             </div>
 
             <div className="surface" style={{ padding: '0.75rem 0.9rem' }}>
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>quick capture</div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '0.5rem 0.7rem', background: 'var(--bg-void)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)' }}>
                 <span style={{ color: 'var(--neon-cyan)', fontFamily: 'var(--font-mono)' }}>$</span>
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem', color: 'var(--text-secondary)', flex: 1 }}>
-                  <Typewriter
-                    phrases={['fix rate limit edge case', 'review aurora pr #482', 'port lexer fixtures', '#bug auth callback hangs']}
-                    speed={50}
-                    pause={1800}
-                  />
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem', color: 'var(--text-muted)', flex: 1 }}>
+                  press <kbd style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)', borderRadius: 3, padding: '0 5px', fontFamily: 'inherit', fontSize: '0.7rem' }}>c</kbd> anywhere to capture
                 </span>
                 <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.65rem', color: 'var(--text-muted)', background: 'var(--bg-elevated)', padding: '2px 6px', borderRadius: 3 }}>⏎</span>
               </div>
