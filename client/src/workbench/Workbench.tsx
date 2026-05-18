@@ -27,6 +27,35 @@ export function Workbench() {
     return () => window.removeEventListener('stash:captured', onCaptured);
   }, [reload]);
 
+  // Live refresh — new JSONL files from a dispatched agent should show up
+  // without a manual reload. Three triggers, ordered cheapest first:
+  //   1. window focus (user came back from another window)
+  //   2. document visibilitychange → visible (tab becomes active)
+  //   3. 60s heartbeat while the tab is visible
+  // No fetch while hidden — keeps idle tabs cheap.
+  useEffect(() => {
+    let pendingFocusReload = false;
+    function onFocus() {
+      if (document.visibilityState === 'visible' && !pendingFocusReload) {
+        pendingFocusReload = true;
+        Promise.resolve().then(() => { pendingFocusReload = false; reload(); });
+      }
+    }
+    function onVisibility() {
+      if (document.visibilityState === 'visible') reload();
+    }
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
+    const heartbeat = window.setInterval(() => {
+      if (document.visibilityState === 'visible') reload();
+    }, 60_000);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.clearInterval(heartbeat);
+    };
+  }, [reload]);
+
   if (loading && !data) {
     return (
       <div style={{ display: 'grid', placeItems: 'center', minHeight: '100vh', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
