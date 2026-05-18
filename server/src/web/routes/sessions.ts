@@ -28,12 +28,12 @@ export function createSessionsRouter(dispatch: SessionDispatchService): Hono {
     } catch (e) { return handleError(c, e); }
   });
 
-  // Useful for preview/debug: compose without spawning. Same shape minus spawn fields.
+  // Preview / debug: compose without spawning the CLI. Same shape minus spawn fields.
   r.post('/compose', async (c) => {
     try {
       const body = StartBody.parse(await c.req.json());
-      const result = dispatch.dispatch({ ...body });
-      return c.json({ data: { prompt: result.prompt, promptFile: result.promptFile, suggestedCommand: result.suggestedCommand } });
+      const result = dispatch.compose(body);
+      return c.json({ data: result });
     } catch (e) { return handleError(c, e); }
   });
 

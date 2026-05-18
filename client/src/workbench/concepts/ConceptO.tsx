@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import type { Skill, WorkItem } from '@stash/shared';
+import { DEFAULT_MODEL_RATES } from '@stash/shared';
 import { listProjectSkills, listSkills } from '../../api/skills';
-import { startSession, type DispatchResult } from '../../api/sessions';
+import { composeSession, startSession, type DispatchResult } from '../../api/sessions';
 import { getWorkItem } from '../../api/work-items';
 import { ShinyText } from '../../components/effects';
 import type { WBData } from '../data';
@@ -38,6 +39,27 @@ export function ConceptO({ data }: { data: WBData; reload: () => void }) {
   const [tool, setTool] = useState<'claude' | 'codex'>('claude');
   const [dispatching, setDispatching] = useState(false);
   const [result, setResult] = useState<DispatchResult | null>(null);
+  const [composedPrompt, setComposedPrompt] = useState<string>('');
+  const [composing, setComposing] = useState(false);
+
+  // Live preview — refetch composed prompt whenever the todo or tool changes.
+  useEffect(() => {
+    if (!todo) { setComposedPrompt(''); return; }
+    let cancelled = false;
+    setComposing(true);
+    composeSession({ workItemId: todo.id, tool })
+      .then((res) => { if (!cancelled) setComposedPrompt(res.prompt); })
+      .catch(() => { if (!cancelled) setComposedPrompt(''); })
+      .finally(() => { if (!cancelled) setComposing(false); });
+    return () => { cancelled = true; };
+  }, [todo?.id, tool]);
+
+  // Token estimate ≈ char/4. Cost ≈ tokens × input rate of the picked model
+  // (assistant output adds ~1-2× more, but we don't predict that).
+  const modelKey = tool === 'claude' ? 'claude-sonnet-4-6' : 'gpt-5';
+  const inputRate = DEFAULT_MODEL_RATES.find((r) => r.model === modelKey)?.inputPerM ?? 0;
+  const estTokens = Math.round(composedPrompt.length / 4);
+  const estCostUsd = (estTokens / 1_000_000) * inputRate;
 
   async function dispatchNow() {
     if (!todo) { window.alert('open this page from a todo via "▶ run with" (or stash CLI)'); return; }
@@ -94,31 +116,40 @@ export function ConceptO({ data }: { data: WBData; reload: () => void }) {
           </div>
 
           <div className="ss-section">
-            <label className="ss-label">prompt</label>
-            <div className="ss-prompt">
+            <label className="ss-label">
+              prompt
+              <span style={{ color: 'var(--text-muted)', fontWeight: 400, marginLeft: 6 }}>· live preview of what the agent will receive</span>
+            </label>
+            <div className="ss-prompt" style={{ alignItems: 'flex-start' }}>
               <span style={{ color: 'var(--neon-cyan)', fontFamily: 'var(--font-mono)', fontWeight: 700, marginTop: 2 }}>$</span>
-              <div style={{ flex: 1, fontFamily: 'var(--font-mono)', fontSize: '0.95rem', color: 'var(--text-primary)', lineHeight: 1.6, minHeight: 80 }} data-testid="ss-prompt">
-                {todo ? (
-                  <>
-                    {todo.title}
-                    {todo.description && <>
-                      <br />
-                      <span style={{ color: 'var(--text-muted)' }}>{todo.description}</span>
-                    </>}
-                  </>
-                ) : selectedProject ? (
-                  <>wire {selectedProject.doing}. should land in this cycle.</>
-                ) : (
-                  'pick a project to start'
-                )}
-                <span style={{ color: 'var(--neon-cyan)', animation: 'blink 1s steps(1) infinite' }}>▎</span>
-              </div>
+              <pre style={{
+                flex: 1,
+                fontFamily: 'var(--font-mono)',
+                fontSize: '0.85rem',
+                color: 'var(--text-primary)',
+                lineHeight: 1.55,
+                minHeight: 80,
+                maxHeight: 280,
+                overflow: 'auto',
+                whiteSpace: 'pre-wrap',
+                margin: 0,
+              }} data-testid="ss-prompt">
+                {!todo
+                  ? 'pick a project to start  ▎ open this page via "▶ run with" on a todo'
+                  : composing && !composedPrompt
+                    ? 'composing…'
+                    : composedPrompt || '(empty)'}
+              </pre>
             </div>
             <div className="ss-hint">
-              <span><kbd>#</kbd> reference project</span>
-              <span><kbd>@file</kbd> attach file</span>
-              <span><kbd>↑</kbd> previous prompt</span>
-              <span style={{ marginLeft: 'auto', color: 'var(--text-muted)' }}>~280 tokens · 1.4k context</span>
+              <span style={{ color: 'var(--text-muted)' }}>
+                {composedPrompt
+                  ? `${composedPrompt.length} chars · ~${estTokens.toLocaleString()} tokens (≈ char/4)`
+                  : 'no prompt yet'}
+              </span>
+              <span style={{ marginLeft: 'auto', color: 'var(--text-muted)' }}>
+                tool: <span style={{ color: 'var(--neon-cyan)' }}>{tool}</span>
+              </span>
             </div>
           </div>
 
@@ -201,7 +232,12 @@ export function ConceptO({ data }: { data: WBData; reload: () => void }) {
 
           <div className="ss-foot">
             <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-              estimated: <span style={{ color: 'var(--text-primary)' }}>~14k tokens · $0.19</span>
+              {composedPrompt ? (
+                <>
+                  estimated input: <span style={{ color: 'var(--text-primary)' }}>~{estTokens.toLocaleString()} tokens · ${estCostUsd.toFixed(4)}</span>
+                  <span style={{ color: 'var(--text-muted)', marginLeft: 6 }}>({modelKey})</span>
+                </>
+              ) : <>estimated: <span style={{ color: 'var(--text-muted)' }}>— pick a todo —</span></>}
               <span style={{ margin: '0 0.4rem' }}>·</span>
               auto-skill load: <span style={{ color: 'var(--neon-cyan)' }}>{boundSkills.length} of {allSkills.length}</span>
             </span>

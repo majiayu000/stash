@@ -111,4 +111,18 @@ describe('SessionDispatchService.composePrompt', () => {
   test('rejects unknown work item id', () => {
     expect(() => dispatch.dispatch({ workItemId: 'ghost', tool: 'claude' })).toThrow();
   });
+
+  test('compose() composes prompt + writes file but never spawns', () => {
+    const item = workItems.create({ title: 'audit the auth flow' });
+    const res = dispatch.compose({ workItemId: item.id, tool: 'codex' });
+    expect(res.prompt).toContain('# Task: audit the auth flow');
+    expect(res.prompt).toContain('Begin.');
+    expect(res.suggestedCommand).toMatch(/^codex < /);
+    expect(writes.length).toBe(1);
+    expect(spawns.length).toBe(0);
+  });
+
+  test('compose() rejects unknown work item id', () => {
+    expect(() => dispatch.compose({ workItemId: 'ghost', tool: 'claude' })).toThrow();
+  });
 });

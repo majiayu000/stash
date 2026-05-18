@@ -50,6 +50,12 @@ export interface DispatchResult {
   spawnError?: string;
 }
 
+export interface ComposeResult {
+  prompt: string;
+  promptFile: string;
+  suggestedCommand: string;
+}
+
 export interface SessionDispatchServiceDeps {
   workItems: WorkItemService;
   areas: AreaService;
@@ -67,13 +73,15 @@ export class SessionDispatchService {
     this.clock = deps.clock ?? systemClock;
   }
 
-  dispatch(input: DispatchInput): DispatchResult {
+  /**
+   * Compose-only: prompt + temp file + suggested command. No spawn.
+   * Safe for preview UIs that re-fire on every form change.
+   */
+  compose(input: DispatchInput): ComposeResult {
     const item = this.deps.workItems.get(input.workItemId);
     if (!item) throw new Error(`work item ${input.workItemId} not found`);
 
     const prompt = this.composePrompt(item, input.extraInstructions);
-
-    // Persist the prompt so it's auditable + reusable.
     const dir = join(tmpdir(), 'stash-prompts');
     try { mkdirSync(dir, { recursive: true }); } catch { /* exists */ }
     const stamp = ulid(this.clock.now());
@@ -81,13 +89,19 @@ export class SessionDispatchService {
     (this.deps.writeFileImpl ?? defaultWrite)(promptFile, prompt);
 
     const cmd = input.tool === 'claude' ? 'claude' : 'codex';
-    const suggestedCommand = `${cmd} < ${shellEscape(promptFile)}`;
-
-    const { pid, error } = (this.deps.spawnImpl ?? defaultSpawn)(cmd, [], prompt);
     return {
       prompt,
       promptFile,
-      suggestedCommand,
+      suggestedCommand: `${cmd} < ${shellEscape(promptFile)}`,
+    };
+  }
+
+  dispatch(input: DispatchInput): DispatchResult {
+    const composed = this.compose(input);
+    const cmd = input.tool === 'claude' ? 'claude' : 'codex';
+    const { pid, error } = (this.deps.spawnImpl ?? defaultSpawn)(cmd, [], composed.prompt);
+    return {
+      ...composed,
       spawned: pid !== undefined,
       pid,
       spawnError: error,
