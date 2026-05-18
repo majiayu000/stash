@@ -26,7 +26,6 @@ export function ProjectCardFull({ p, onClick }: { p: WBProject; onClick?: () => 
         <div className="pcard-emoji">{p.emoji}</div>
         <div className="pcard-titles">
           <div className="pcard-name">{p.name}</div>
-          {p.branch && <div className="pcard-branch">{p.branch}</div>}
         </div>
         <StatusPill status={p.status} />
       </div>

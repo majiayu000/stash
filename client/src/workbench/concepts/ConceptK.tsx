@@ -163,7 +163,6 @@ export function ConceptK({ data }: { data: WBData; reload: () => void }) {
                 <div className="kw-crumb">workbench &nbsp;/&nbsp; <span style={{ color: 'var(--text-secondary)' }}>projects</span> &nbsp;/&nbsp; <span style={{ color: 'var(--neon-cyan)' }}>{p.name}</span></div>
                 <h2 className="kw-name">{p.name}</h2>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginTop: '0.4rem', flexWrap: 'wrap' }}>
-                  {p.branch && <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem', color: 'var(--text-muted)' }}>⎇ {p.branch}</span>}
                   <StatusPill status={p.status} />
                   <ModelBadge model={p.lastModel} />
                   <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)' }}>last touched {fmt.ago(p.lastTouched)}</span>

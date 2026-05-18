@@ -58,7 +58,6 @@ export function ConceptC({ data }: { data: WBData; reload: () => void }) {
                         {hero.doing || <span style={{ color: 'var(--text-muted)' }}>(no active focus — set one via /c/k/{hero.id})</span>}
                       </div>
                       <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                        {hero.branch && <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem', color: 'var(--text-muted)', padding: '3px 8px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-sm)' }}>⎇ {hero.branch}</span>}
                         <StatusPill status={hero.status} />
                         <ModelBadge model={hero.lastModel} />
                       </div>

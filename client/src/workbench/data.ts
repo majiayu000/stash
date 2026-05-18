@@ -8,7 +8,6 @@ export interface WBProject {
   id: string;
   name: string;
   emoji: string;
-  branch?: string;
   progress: number;
   status: 'active' | 'shipping' | 'paused' | 'fresh';
   doing: string;
@@ -153,7 +152,6 @@ export function adaptToWorkbenchData(input: AdaptInput): WBData {
       id: wb.projectId,
       name: areasById.get(wb.projectId)?.name ?? basename(wb.projectId),
       emoji: areasById.get(wb.projectId)?.emoji || emojiFor(wb.projectId, idx),
-      branch: 'main',
       progress,
       status,
       doing: doingItem?.title ?? (wb.blockedCount > 0 ? 'blocked' : 'no active work'),

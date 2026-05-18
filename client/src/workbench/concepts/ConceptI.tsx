@@ -89,7 +89,7 @@ export function ConceptI({ data }: { data: WBData; reload: () => void }) {
                     icon={p.emoji}
                     title={p.name}
                     selected={i === 0}
-                    hint={<><span style={{ color: 'var(--neon-cyan)' }}>{p.progress}%</span> · {p.todoCount} todo {p.branch ? `· ⎇ ${p.branch}` : ''}</>}
+                    hint={<><span style={{ color: 'var(--neon-cyan)' }}>{p.progress}%</span> · {p.todoCount} todo</>}
                     badge={p.status === 'active' && p.tokens24h > 0 ? <LiveDot color="var(--neon-green)" /> : null}
                     onClick={() => navigate(`/c/k/${p.id}`)}
                   />

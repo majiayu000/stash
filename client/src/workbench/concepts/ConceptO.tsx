@@ -160,7 +160,7 @@ export function ConceptO({ data }: { data: WBData; reload: () => void }) {
                 <span style={{ fontSize: '1.1rem' }}>{selectedProject?.emoji ?? '·'}</span>
                 <div style={{ flex: 1, textAlign: 'left' }}>
                   <div className="ss-picker-name">{selectedProject?.name ?? '(none)'}</div>
-                  <div className="ss-picker-sub">⎇ {selectedProject?.branch ?? '—'}</div>
+                  <div className="ss-picker-sub">{selectedProject?.id.slice(0, 12) ?? '—'}</div>
                 </div>
                 <span style={{ color: 'var(--text-muted)' }}>▾</span>
               </button>

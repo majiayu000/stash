@@ -147,7 +147,6 @@ export function ConceptD({ data }: { data: WBData; reload: () => void }) {
                 <div style={{ flex: 1 }}>
                   <h2 style={{ fontFamily: 'var(--font-mono)', fontSize: '1.3rem', fontWeight: 700, color: 'var(--neon-cyan)', textShadow: '0 0 18px rgba(0,255,242,0.4)', lineHeight: 1.2, margin: 0 }}>{selected.name}</h2>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: 6, flexWrap: 'wrap' }}>
-                    {selected.branch && <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)' }}>⎇ {selected.branch}</span>}
                     <StatusPill status={selected.status} />
                   </div>
                 </div>

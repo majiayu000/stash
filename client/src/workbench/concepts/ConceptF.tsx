@@ -316,7 +316,7 @@ function EditProjectPanel({ p, area, allProjects, onPick, onSaved, onDeleted, on
           <span style={{ fontSize: '2rem', filter: 'drop-shadow(0 0 14px var(--neon-cyan))' }}>{emoji || p.emoji}</span>
           <div style={{ flex: 1 }}>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.05rem', fontWeight: 700, color: 'var(--neon-cyan)' }}>{area.name}</div>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)' }}>{area.id.slice(0, 12)}… · ⎇ {p.branch ?? 'main'}</div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)' }}>{area.id.slice(0, 12)}… · created {area.createdAt.slice(0, 10)}</div>
           </div>
           <button className="np-btn ghost small danger" type="button" onClick={remove} data-testid="cf-delete">delete</button>
         </div>

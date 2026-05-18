@@ -65,7 +65,6 @@ export function ConceptB({ data }: { data: WBData; reload: () => void }) {
                     {active.name}
                   </h2>
                   <div style={{ display: 'flex', gap: '0.6rem', marginTop: '0.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
-                    {active.branch && <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', color: 'var(--text-muted)' }}>⎇ {active.branch}</span>}
                     <StatusPill status={active.status} />
                     <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)' }}>last touched {fmt.ago(active.lastTouched)}</span>
                   </div>
