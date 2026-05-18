@@ -1,6 +1,6 @@
 {
   "name": "stash",
-  "version": "0.1.10",
+  "version": "0.1.12",
   "private": true,
   "description": "Todo + Agent Workboard — Inbox-first task capture with Claude/Codex session evidence",
   "type": "module",

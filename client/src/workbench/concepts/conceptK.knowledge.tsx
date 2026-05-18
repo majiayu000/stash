@@ -9,6 +9,8 @@ import {
   deleteMilestone,
   setProjectIntent,
   setProjectNotes,
+  updateDecision,
+  updateLesson,
   updateMilestone,
 } from '../../api/project-knowledge';
 
@@ -182,6 +184,12 @@ export function KnowledgeDecisionsEditor({ projectId, value: decisions, onChange
     const body = window.prompt('one-line reason (optional)') ?? '';
     try { await createDecision(projectId, { title: title.trim(), body }); onChange(); } catch { /* noop */ }
   }
+  async function edit(d: Decision) {
+    const title = window.prompt('decision title', d.title);
+    if (!title?.trim()) return;
+    const body = window.prompt('one-line reason', d.body ?? '') ?? '';
+    try { await updateDecision(projectId, d.id, { title: title.trim(), body }); onChange(); } catch { /* noop */ }
+  }
   async function remove(d: Decision) {
     if (!window.confirm(`delete decision "${d.title}"?`)) return;
     try { await deleteDecision(projectId, d.id); onChange(); } catch { /* noop */ }
@@ -205,8 +213,14 @@ export function KnowledgeDecisionsEditor({ projectId, value: decisions, onChange
                 <span className="kw-dec-title">{d.title}</span>
                 <button
                   type="button"
-                  onClick={() => remove(d)}
+                  onClick={() => edit(d)}
                   style={{ background: 'transparent', border: 0, color: 'var(--text-muted)', cursor: 'pointer', marginLeft: 'auto' }}
+                  title="edit decision"
+                >✎</button>
+                <button
+                  type="button"
+                  onClick={() => remove(d)}
+                  style={{ background: 'transparent', border: 0, color: 'var(--text-muted)', cursor: 'pointer' }}
                   title="delete decision"
                 >×</button>
               </div>
@@ -233,6 +247,15 @@ export function KnowledgeLessonsEditor({ projectId, value: lessons, onChange }: 
     const body = window.prompt('details / what to remember (optional)') ?? '';
     try { await createLesson({ title: title.trim(), body, projectId }); onChange(); } catch { /* noop */ }
   }
+  async function edit(l: Lesson) {
+    const title = window.prompt('lesson title', l.title);
+    if (!title?.trim()) return;
+    const body = window.prompt('details / what to remember', l.body ?? '') ?? '';
+    try { await updateLesson(l.id, { title: title.trim(), body }); onChange(); } catch { /* noop */ }
+  }
+  async function toggleCross(l: Lesson) {
+    try { await updateLesson(l.id, { cross: !l.cross }); onChange(); } catch { /* noop */ }
+  }
   async function remove(l: Lesson) {
     if (!window.confirm(`delete lesson "${l.title}"?`)) return;
     try { await deleteLesson(l.id); onChange(); } catch { /* noop */ }
@@ -254,7 +277,25 @@ export function KnowledgeLessonsEditor({ projectId, value: lessons, onChange }: 
               <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, marginBottom: 6 }}>
                 <span style={{ color: 'var(--neon-purple)', fontSize: '0.9rem', filter: 'drop-shadow(0 0 8px var(--neon-purple))', flexShrink: 0, marginTop: 2 }}>💎</span>
                 <div style={{ flex: 1, minWidth: 0, fontFamily: 'var(--font-mono)', fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-primary)', lineHeight: 1.4 }}>{l.title}</div>
-                {l.cross && <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', color: 'var(--neon-cyan)', background: 'rgba(0,255,242,0.08)', padding: '1px 6px', borderRadius: 4 }}>cross-proj</span>}
+                <button
+                  type="button"
+                  onClick={() => toggleCross(l)}
+                  title={l.cross ? 'unmark cross-project' : 'mark as cross-project'}
+                  style={{
+                    fontFamily: 'var(--font-mono)', fontSize: '0.6rem',
+                    color: l.cross ? 'var(--neon-cyan)' : 'var(--text-muted)',
+                    background: l.cross ? 'rgba(0,255,242,0.08)' : 'transparent',
+                    padding: '1px 6px', borderRadius: 4,
+                    border: l.cross ? '1px solid rgba(0,255,242,0.2)' : '1px dashed var(--border-subtle)',
+                    cursor: 'pointer',
+                  }}
+                >cross-proj</button>
+                <button
+                  type="button"
+                  onClick={() => edit(l)}
+                  style={{ background: 'transparent', border: 0, color: 'var(--text-muted)', cursor: 'pointer' }}
+                  title="edit lesson"
+                >✎</button>
                 <button
                   type="button"
                   onClick={() => remove(l)}

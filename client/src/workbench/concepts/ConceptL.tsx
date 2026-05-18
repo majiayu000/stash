@@ -2,6 +2,8 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import type { JournalEntry, Lesson, Priority, WorkItem, WorkItemStatus } from '@stash/shared';
 import { apiGet } from '../../api/client';
+import { ChecklistPanel, useChecklist } from './conceptL.checklist';
+import { EvidencePanel, usePendingEvidence } from './conceptL.evidence';
 import { linkSession, listLinkedSessions, unlinkSession, type LinkedSessionEdge } from '../../api/agent-sessions';
 import { createArea } from '../../api/areas';
 import { createLesson } from '../../api/project-knowledge';
@@ -16,7 +18,7 @@ import {
 import { fmt, type WBData, type WBTodo } from '../data';
 import { Topbar } from '../shared';
 import { conceptLStyles } from './conceptL.styles';
-import { slugify, stubLinkedSessions, stubSubTasks } from './conceptL.stubs';
+import { slugify, stubSubTasks } from './conceptL.stubs';
 
 /**
  * Concept L — Todo Detail / Split / Promote modal.
@@ -194,6 +196,19 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
     } catch { /* swallow */ }
   }
 
+  const evidence = usePendingEvidence({
+    workItemId: journalTodoId,
+    onAccepted: setItem,
+    onFlash: flashSaved,
+    reload,
+  });
+
+  const checklist = useChecklist({
+    workItem: item,
+    onChange: setItem,
+    onFlash: flashSaved,
+  });
+
   async function setProjectField(projectId: string | undefined) {
     if (!item) return;
     const optimistic = { ...item, projectId, areaId: projectId };
@@ -296,9 +311,6 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
     } catch (e) { flashSaved(`✕ ${e instanceof Error ? e.message : String(e)}`); }
   }
 
-  // Stub fallback only for layout continuity if we have nothing yet.
-  const linked = stubLinkedSessions(todo);
-
   return (
     <div className="dashboard-canvas" style={{ position: 'relative' }}>
       {/* Dimmed backdrop preview */}
@@ -391,6 +403,8 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
                 </div>
               </div>
 
+              <ChecklistPanel state={checklist} />
+
               {lessons.length > 0 && (
                 <div className="td-section">
                   <div className="td-section-label">
@@ -471,6 +485,8 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
                   )}
                 </div>
               </div>
+
+              <EvidencePanel state={evidence} />
 
               <div className="td-section">
                 <div className="td-section-label">
@@ -702,19 +718,6 @@ function SubTask({ done, dropped, text, onToggle, onDrop }: {
           title="drop sub-task"
         >×</button>
       )}
-    </div>
-  );
-}
-
-function LinkedSession({ id, who, title, at }: { id: string; who: string; title: string; at: string }) {
-  return (
-    <div className="td-linked-sess">
-      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', color: 'var(--neon-cyan)', fontWeight: 600 }}>{id}</span>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{title}</div>
-        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.66rem', color: 'var(--text-muted)' }}>{who} · {at}</div>
-      </div>
-      <span style={{ color: 'var(--neon-cyan)', cursor: 'pointer' }}>↗</span>
     </div>
   );
 }

@@ -1,33 +1,83 @@
+import { useEffect, useState } from 'react';
+import type { Area, ReviewCadence } from '@stash/shared';
 import { CountUp, ShinyText } from '../../components/effects';
+import { createArea, deleteArea, listAreas, updateArea } from '../../api/areas';
 import { fmt, type WBData, type WBProject } from '../data';
 import { ProgressBar, Topbar } from '../shared';
+import { slugify } from './conceptL.stubs';
 
 /**
  * Concept F — New Project + Edit. Side-by-side: left = scaffold-new flow,
- * right = edit-existing settings (features/tags/session sources/budgets).
+ * right = edit-existing settings.
  *
  * Backend coverage:
- *   - existing projects map to the `areas` table (see SPEC §3 — areas-as-projects)
- *   - editing fields persist via Phase 4 (PATCH /api/areas/:id)
- *   - "watch sessions from" toggle is purely UI in v0.2 (sources are auto-discovered)
+ *   - Real CRUD against /api/areas (name / description / reviewCadence).
+ *   - Visual fields without persistence (features, tags, session sources,
+ *     budgets) are labelled `(preview)` so the user knows they don't save.
  */
-export function ConceptF({ data }: { data: WBData; reload: () => void }) {
+export function ConceptF({ data, reload }: { data: WBData; reload: () => void }) {
   const { projects } = data;
-  const editTarget = projects[0];
+  const [editingId, setEditingId] = useState<string>(projects[0]?.id ?? '');
+  const [areas, setAreas] = useState<Area[]>([]);
+  const [flash, setFlash] = useState<string | null>(null);
+
+  useEffect(() => {
+    listAreas().then(setAreas).catch(() => setAreas([]));
+  }, [projects.length]);
+
+  function flashMsg(m: string) {
+    setFlash(m);
+    setTimeout(() => setFlash(null), 1600);
+  }
+
+  const editTarget = projects.find((p) => p.id === editingId) ?? projects[0];
+  const editArea = areas.find((a) => a.id === (editTarget?.id ?? ''));
 
   return (
     <div className="dashboard-canvas">
       <div className="inner" style={{ overflow: 'hidden', height: '100%' }}>
         <Topbar data={data} />
+        {flash && (
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--neon-green)', marginBottom: 8 }}>
+            {flash}
+          </div>
+        )}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem', flex: 1, minHeight: 0 }}>
-          <NewProjectModal />
-          {editTarget
-            ? <EditProjectPanel p={editTarget} />
-            : (
-              <div className="surface" style={{ padding: '2rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', alignSelf: 'center' }}>
-                no existing projects to edit — scaffold one from the left.
-              </div>
-            )}
+          <NewProjectPanel
+            onCreated={(a) => {
+              reload();
+              setAreas((cur) => [...cur, a]);
+              setEditingId(a.id);
+              flashMsg(`✓ created #${a.name}`);
+            }}
+            onError={(msg) => flashMsg(`✕ ${msg}`)}
+          />
+          {editTarget && editArea ? (
+            <EditProjectPanel
+              key={editArea.id}
+              p={editTarget}
+              area={editArea}
+              allProjects={projects}
+              onPick={setEditingId}
+              onSaved={(a) => {
+                setAreas((cur) => cur.map((x) => (x.id === a.id ? a : x)));
+                reload();
+                flashMsg('✓ saved');
+              }}
+              onDeleted={(id) => {
+                setAreas((cur) => cur.filter((x) => x.id !== id));
+                const next = projects.find((p) => p.id !== id);
+                setEditingId(next?.id ?? '');
+                reload();
+                flashMsg('✕ deleted');
+              }}
+              onError={(msg) => flashMsg(`✕ ${msg}`)}
+            />
+          ) : (
+            <div className="surface" style={{ padding: '2rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', alignSelf: 'center' }}>
+              no existing projects to edit — scaffold one from the left.
+            </div>
+          )}
         </div>
       </div>
       <style>{conceptFStyles}</style>
@@ -35,12 +85,47 @@ export function ConceptF({ data }: { data: WBData; reload: () => void }) {
   );
 }
 
-function NewProjectModal() {
+function NewProjectPanel({ onCreated, onError }: {
+  onCreated: (a: Area) => void;
+  onError: (msg: string) => void;
+}) {
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
+  const [cadence, setCadence] = useState<ReviewCadence>('weekly');
+  const [submitting, setSubmitting] = useState(false);
+
+  async function submit() {
+    const n = name.trim();
+    if (!n) { onError('name is required'); return; }
+    setSubmitting(true);
+    try {
+      const a = await createArea({
+        name: n,
+        description: description.trim() || undefined,
+        reviewCadence: cadence,
+      });
+      setName('');
+      setDescription('');
+      setCadence('weekly');
+      onCreated(a);
+    } catch (e) {
+      onError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  function clear() {
+    setName('');
+    setDescription('');
+    setCadence('weekly');
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', minHeight: 0 }}>
       <div className="sec-head" style={{ marginBottom: 0, whiteSpace: 'nowrap', overflow: 'hidden' }}>
         <span className="prompt">&gt;</span> new project flow
-        <span className="right" style={{ whiteSpace: 'nowrap' }}>via + new project</span>
+        <span className="right" style={{ whiteSpace: 'nowrap' }}>persists to /api/areas</span>
       </div>
 
       <div className="np-modal">
@@ -51,141 +136,252 @@ function NewProjectModal() {
               <ShinyText>scaffold a project</ShinyText>
             </div>
           </div>
-          <button className="np-close" type="button">✕</button>
+          <button className="np-close" type="button" onClick={clear} title="clear form">✕</button>
         </div>
 
         <div className="np-field">
           <label>name</label>
           <div className="np-input">
             <span className="np-emoji-pick">🚀</span>
-            <span className="np-input-text">spectre-sdk</span>
-            <span style={{ color: 'var(--neon-cyan)', animation: 'blink 1s steps(1) infinite' }}>▎</span>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submit(); }}
+              placeholder="spectre-sdk"
+              data-testid="cf-name"
+              style={{ flex: 1, background: 'transparent', border: 0, color: 'var(--text-primary)', fontFamily: 'var(--font-mono)', fontSize: '0.95rem', outline: 'none' }}
+            />
           </div>
-          <div className="np-hint">used as <code>#spectre-sdk</code> in todos · lowercase, dash-separated</div>
+          <div className="np-hint">used as <code>#{slugify(name) || 'project'}</code> in todos · stored verbatim in the areas table</div>
         </div>
 
         <div className="np-field">
-          <label>source <span className="np-hint inline">— optional, auto-discovers branch + sessions</span></label>
-          <div className="np-source-row">
-            <SourceBtn icon="📁" name="local repo"  meta="~/code/spectre-sdk" active />
-            <SourceBtn icon="🌐" name="git remote" meta="github.com/…" />
-            <SourceBtn icon="📝" name="none"        meta="just a tag" />
+          <label>description <span className="np-hint inline">— optional one-liner</span></label>
+          <div className="np-input">
+            <input
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="what is this project trying to do?"
+              data-testid="cf-desc"
+              style={{ flex: 1, background: 'transparent', border: 0, color: 'var(--text-primary)', fontFamily: 'var(--font-mono)', fontSize: '0.9rem', outline: 'none' }}
+            />
           </div>
         </div>
 
         <div className="np-field">
-          <label>seed features <span className="np-hint inline">— prefill the progress breakdown</span></label>
+          <label>review cadence</label>
+          <div className="np-tools-row">
+            {(['daily', 'weekly', 'monthly', 'ad_hoc'] as ReviewCadence[]).map((c) => (
+              <button
+                key={c}
+                type="button"
+                onClick={() => setCadence(c)}
+                className={`np-tool ${cadence === c ? 'on' : ''}`}
+                data-testid={`cf-cadence-${c}`}
+                style={{ background: 'transparent', cursor: 'pointer' }}
+              >
+                <span>{cadence === c ? '●' : '○'}</span> {c.replace('_', ' ')}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="np-field" style={{ opacity: 0.55 }}>
+          <label>seed features <span className="np-hint inline">— preview, not persisted yet</span></label>
           <div className="np-feat-list">
             {['type generation', 'event bus', 'docs'].map((n) => (
               <div key={n} className="np-feat-row">
                 <span className="feat-dot todo" />
                 <span className="np-feat-name">{n}</span>
-                <button className="np-feat-x" type="button">×</button>
+                <button className="np-feat-x" type="button" disabled>×</button>
               </div>
             ))}
-            <button className="np-feat-add" type="button">+ add feature</button>
           </div>
         </div>
 
-        <div className="np-field">
-          <label>watch sessions from</label>
+        <div className="np-field" style={{ opacity: 0.55 }}>
+          <label>watch sessions from <span className="np-hint inline">— auto-discovered, not editable here</span></label>
           <div className="np-tools-row">
-            <label className="np-tool on"><span>●</span> claude code</label>
-            <label className="np-tool on"><span>●</span> codex</label>
-            <label className="np-tool"><span>○</span> aider</label>
-            <label className="np-tool"><span>○</span> cursor</label>
+            <span className="np-tool on"><span>●</span> claude code</span>
+            <span className="np-tool on"><span>●</span> codex</span>
           </div>
         </div>
 
         <div className="np-actions">
-          <button className="np-btn ghost"   type="button">cancel <kbd>esc</kbd></button>
-          <button className="np-btn primary" type="button">scaffold <kbd>⌘↵</kbd></button>
+          <button className="np-btn ghost" type="button" onClick={clear}>cancel <kbd>esc</kbd></button>
+          <button
+            className="np-btn primary"
+            type="button"
+            onClick={submit}
+            disabled={submitting || !name.trim()}
+            data-testid="cf-scaffold"
+            style={{ opacity: submitting || !name.trim() ? 0.6 : 1, cursor: submitting || !name.trim() ? 'default' : 'pointer' }}
+          >{submitting ? 'scaffolding…' : 'scaffold'} <kbd>⌘↵</kbd></button>
         </div>
       </div>
 
       <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)', padding: '0.6rem 0.8rem', background: 'var(--bg-glass)', border: '1px dashed var(--border-subtle)', borderRadius: 'var(--radius-md)' }}>
         <span style={{ color: 'var(--neon-cyan)' }}>$</span>{' '}
-        <span style={{ color: 'var(--neon-green)' }}>stash new spectre-sdk --src ~/code/spectre-sdk</span>
+        <span style={{ color: 'var(--neon-green)' }}>stash new {slugify(name) || 'spectre-sdk'} {description ? `--desc "${description.slice(0, 30)}"` : ''}</span>
         <span style={{ color: 'var(--text-muted)' }}> # CLI equivalent</span>
       </div>
     </div>
   );
 }
 
-function SourceBtn({ icon, name, meta, active }: { icon: string; name: string; meta: string; active?: boolean }) {
-  return (
-    <button className={`np-source-btn ${active ? 'active' : ''}`} type="button">
-      <span style={{ fontSize: '1.1rem' }}>{icon}</span>
-      <div>
-        <div className="np-source-name">{name}</div>
-        <div className="np-source-meta">{meta}</div>
-      </div>
-    </button>
-  );
-}
+function EditProjectPanel({ p, area, allProjects, onPick, onSaved, onDeleted, onError }: {
+  p: WBProject;
+  area: Area;
+  allProjects: WBProject[];
+  onPick: (id: string) => void;
+  onSaved: (a: Area) => void;
+  onDeleted: (id: string) => void;
+  onError: (msg: string) => void;
+}) {
+  const [name, setName] = useState(area.name);
+  const [description, setDescription] = useState(area.description ?? '');
+  const [cadence, setCadence] = useState<ReviewCadence>(area.reviewCadence);
+  const [saving, setSaving] = useState(false);
 
-function EditProjectPanel({ p }: { p: WBProject }) {
+  const dirty =
+    name !== area.name ||
+    (description || undefined) !== (area.description || undefined) ||
+    cadence !== area.reviewCadence;
+
   const featPct = p.features.length === 0 ? [{ name: '(no features)', status: 'todo' as const, progress: 0 }] : p.features;
   const tokenCap = Math.max(500_000, p.tokens24h * 5);
   const costCap = Math.max(10, p.cost24h * 5);
 
+  async function save() {
+    if (!dirty) return;
+    const trimmed = name.trim();
+    if (!trimmed) { onError('name is required'); return; }
+    setSaving(true);
+    try {
+      const updated = await updateArea(area.id, {
+        name: trimmed,
+        description: description.trim() || undefined,
+        reviewCadence: cadence,
+      });
+      onSaved(updated);
+    } catch (e) {
+      onError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function remove() {
+    if (!window.confirm(`delete project #${area.name}? todos inside will be unlinked (not removed).`)) return;
+    try {
+      await deleteArea(area.id);
+      onDeleted(area.id);
+    } catch (e) {
+      onError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  function reset() {
+    setName(area.name);
+    setDescription(area.description ?? '');
+    setCadence(area.reviewCadence);
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', minHeight: 0, overflowY: 'auto' }}>
-      <div className="sec-head" style={{ marginBottom: 0, whiteSpace: 'nowrap', overflow: 'hidden' }}>
-        <span className="prompt">&gt;</span> edit project · {p.name}
-        <span className="right" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>via ⋯ on any project card</span>
+      <div className="sec-head" style={{ marginBottom: 0, display: 'flex', gap: '0.5rem', alignItems: 'center', whiteSpace: 'nowrap', overflow: 'hidden' }}>
+        <span className="prompt">&gt;</span> edit project ·
+        <select
+          value={area.id}
+          onChange={(e) => onPick(e.target.value)}
+          data-testid="cf-pick"
+          style={{ background: 'transparent', border: 0, color: 'var(--neon-cyan)', fontFamily: 'var(--font-mono)', fontSize: '0.8rem', cursor: 'pointer', flex: 1, minWidth: 0, textOverflow: 'ellipsis' }}
+        >
+          {allProjects.map((proj) => (
+            <option key={proj.id} value={proj.id}>#{proj.name}</option>
+          ))}
+        </select>
       </div>
 
       <div className="surface">
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem' }}>
           <span style={{ fontSize: '2rem', filter: 'drop-shadow(0 0 14px var(--neon-cyan))' }}>{p.emoji}</span>
           <div style={{ flex: 1 }}>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.05rem', fontWeight: 700, color: 'var(--neon-cyan)' }}>{p.name}</div>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)' }}>{p.id} · ⎇ {p.branch ?? 'main'}</div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.05rem', fontWeight: 700, color: 'var(--neon-cyan)' }}>{area.name}</div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)' }}>{area.id.slice(0, 12)}… · ⎇ {p.branch ?? 'main'}</div>
           </div>
-          <button className="np-btn ghost small" type="button">archive</button>
-          <button className="np-btn ghost small danger" type="button">delete</button>
+          <button className="np-btn ghost small danger" type="button" onClick={remove} data-testid="cf-delete">delete</button>
         </div>
 
         <div className="ep-section">
-          <label>features <span className="np-hint inline">— drag to reorder</span></label>
+          <label>name</label>
+          <div className="np-input">
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              data-testid="cf-edit-name"
+              style={{ flex: 1, background: 'transparent', border: 0, color: 'var(--text-primary)', fontFamily: 'var(--font-mono)', fontSize: '0.95rem', outline: 'none' }}
+            />
+          </div>
+        </div>
+
+        <div className="ep-section">
+          <label>description</label>
+          <div className="np-input">
+            <input
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="what is this project trying to do?"
+              data-testid="cf-edit-desc"
+              style={{ flex: 1, background: 'transparent', border: 0, color: 'var(--text-primary)', fontFamily: 'var(--font-mono)', fontSize: '0.9rem', outline: 'none' }}
+            />
+          </div>
+        </div>
+
+        <div className="ep-section">
+          <label>review cadence</label>
+          <div className="np-tools-row">
+            {(['daily', 'weekly', 'monthly', 'ad_hoc'] as ReviewCadence[]).map((c) => (
+              <button
+                key={c}
+                type="button"
+                onClick={() => setCadence(c)}
+                className={`np-tool ${cadence === c ? 'on' : ''}`}
+                data-testid={`cf-edit-cadence-${c}`}
+                style={{ background: 'transparent', cursor: 'pointer' }}
+              >
+                <span>{cadence === c ? '●' : '○'}</span> {c.replace('_', ' ')}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="ep-section" style={{ opacity: 0.55 }}>
+          <label>features <span className="np-hint inline">— preview, edited via ConceptK</span></label>
           <div className="np-feat-list">
             {featPct.map((f) => (
               <div key={f.name} className="np-feat-row editable">
-                <span className="np-feat-grip">⋮⋮</span>
                 <span className={`feat-dot ${f.status}`} />
                 <span className="np-feat-name">{f.name}</span>
                 <div style={{ flex: 1 }}>
                   <ProgressBar value={f.progress} thin />
                 </div>
                 <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)', minWidth: 32, textAlign: 'right' }}>{f.progress}%</span>
-                <button className="np-feat-x" type="button">×</button>
               </div>
             ))}
-            <button className="np-feat-add" type="button">+ add feature</button>
           </div>
         </div>
 
-        <div className="ep-section">
-          <label>tags <span className="np-hint inline">— show up as quick filters</span></label>
+        <div className="ep-section" style={{ opacity: 0.55 }}>
+          <label>session sources <span className="np-hint inline">— auto-discovered</span></label>
           <div className="np-tools-row">
-            <span className="ep-tag">#bug</span>
-            <span className="ep-tag">#perf</span>
-            <span className="ep-tag">#design</span>
-            <span className="ep-tag ep-tag-add">+ add</span>
+            <span className="np-tool on"><span>●</span> claude code <span style={{ color: 'var(--text-muted)' }}>· {Math.max(0, p.sessions - 2)} sessions</span></span>
+            <span className="np-tool on"><span>●</span> codex <span style={{ color: 'var(--text-muted)' }}>· {Math.min(p.sessions, 2)} sessions</span></span>
           </div>
         </div>
 
-        <div className="ep-section">
-          <label>session sources</label>
-          <div className="np-tools-row">
-            <label className="np-tool on"><span>●</span> claude code <span style={{ color: 'var(--text-muted)' }}>· {Math.max(0, p.sessions - 2)} sessions</span></label>
-            <label className="np-tool on"><span>●</span> codex <span style={{ color: 'var(--text-muted)' }}>· {Math.min(p.sessions, 2)} sessions</span></label>
-          </div>
-        </div>
-
-        <div className="ep-section">
-          <label>budget · 24h</label>
+        <div className="ep-section" style={{ opacity: 0.55 }}>
+          <label>budget · 24h <span className="np-hint inline">— set in ConceptH</span></label>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
             <div className="ep-budget">
               <span className="ep-budget-label">token cap</span>
@@ -199,8 +395,15 @@ function EditProjectPanel({ p }: { p: WBProject }) {
         </div>
 
         <div className="np-actions" style={{ marginTop: '1rem' }}>
-          <button className="np-btn ghost"   type="button">cancel</button>
-          <button className="np-btn primary" type="button">save changes</button>
+          <button className="np-btn ghost" type="button" onClick={reset} disabled={!dirty || saving}>cancel</button>
+          <button
+            className="np-btn primary"
+            type="button"
+            onClick={save}
+            disabled={!dirty || saving || !name.trim()}
+            data-testid="cf-save"
+            style={{ opacity: !dirty || saving ? 0.6 : 1, cursor: !dirty || saving ? 'default' : 'pointer' }}
+          >{saving ? 'saving…' : 'save changes'}</button>
         </div>
       </div>
     </div>
@@ -266,27 +469,6 @@ const conceptFStyles = `
 .np-emoji-pick { font-size: 1.2rem; cursor: pointer; padding: 2px 6px; border-radius: 4px; background: var(--bg-elevated); }
 .np-input-text { flex: 1; font-family: var(--font-mono); font-size: 0.95rem; color: var(--text-primary); }
 
-.np-source-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; }
-.np-source-btn {
-  display: flex; align-items: center; gap: 0.6rem;
-  padding: 0.6rem 0.7rem;
-  background: var(--bg-glass);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  text-align: left;
-  transition: all var(--transition-fast, 0.2s);
-  color: var(--text-secondary);
-}
-.np-source-btn:hover { border-color: var(--border-glow); }
-.np-source-btn.active {
-  border-color: var(--neon-cyan);
-  background: rgba(0,255,242,0.06);
-  box-shadow: 0 0 15px rgba(0,255,242,0.15);
-}
-.np-source-name { font-family: var(--font-mono); font-size: 0.78rem; font-weight: 600; color: var(--text-primary); }
-.np-source-meta { font-family: var(--font-mono); font-size: 0.65rem; color: var(--text-muted); margin-top: 1px; }
-
 .np-feat-list { display: flex; flex-direction: column; gap: 0.35rem; }
 .np-feat-row {
   display: flex; align-items: center; gap: 0.5rem;
@@ -296,23 +478,9 @@ const conceptFStyles = `
   border-radius: var(--radius-sm);
 }
 .np-feat-row.editable { padding-right: 0.4rem; }
-.np-feat-grip { color: var(--text-muted); cursor: grab; font-family: var(--font-mono); font-size: 0.7rem; padding: 0 2px; }
 .np-feat-name { flex: 1; font-family: var(--font-mono); font-size: 0.8rem; color: var(--text-primary); }
 .np-feat-x { background: transparent; border: none; color: var(--text-muted); cursor: pointer; font-size: 0.95rem; padding: 0 4px; }
 .np-feat-x:hover { color: var(--neon-pink); }
-.np-feat-add {
-  background: transparent;
-  border: 1px dashed var(--border-subtle);
-  color: var(--text-muted);
-  padding: 0.4rem 0.6rem;
-  border-radius: var(--radius-sm);
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
-  cursor: pointer;
-  text-align: left;
-  transition: all var(--transition-fast, 0.2s);
-}
-.np-feat-add:hover { border-color: var(--neon-cyan); color: var(--neon-cyan); }
 
 .np-tools-row { display: flex; gap: 0.5rem; flex-wrap: wrap; }
 .np-tool {
@@ -355,15 +523,6 @@ const conceptFStyles = `
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
-.ep-tag {
-  font-family: var(--font-mono); font-size: 0.74rem;
-  padding: 3px 10px; border-radius: var(--radius-pill);
-  background: rgba(191,90,242,0.08);
-  color: var(--neon-purple);
-  border: 1px solid rgba(191,90,242,0.2);
-  cursor: pointer;
-}
-.ep-tag.ep-tag-add { background: transparent; color: var(--text-muted); border-style: dashed; border-color: var(--border-subtle); }
 .ep-budget {
   padding: 0.55rem 0.7rem;
   background: var(--bg-glass);
