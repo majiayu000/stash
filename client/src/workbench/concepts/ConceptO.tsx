@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import type { Skill, WorkItem } from '@stash/shared';
 import { listProjectSkills, listSkills } from '../../api/skills';
+import { startSession, type DispatchResult } from '../../api/sessions';
 import { getWorkItem } from '../../api/work-items';
 import { ShinyText } from '../../components/effects';
 import type { WBData } from '../data';
@@ -34,6 +35,27 @@ export function ConceptO({ data }: { data: WBData; reload: () => void }) {
     || projects[0];
   const [allSkills, setAllSkills] = useState<Skill[]>([]);
   const [boundSkills, setBoundSkills] = useState<Skill[]>([]);
+  const [tool, setTool] = useState<'claude' | 'codex'>('claude');
+  const [dispatching, setDispatching] = useState(false);
+  const [result, setResult] = useState<DispatchResult | null>(null);
+
+  async function dispatchNow() {
+    if (!todo) { window.alert('open this page from a todo via "▶ run with" (or stash CLI)'); return; }
+    setDispatching(true);
+    try {
+      const res = await startSession({ workItemId: todo.id, tool });
+      setResult(res);
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : String(e));
+    } finally {
+      setDispatching(false);
+    }
+  }
+
+  async function copySuggestedCommand() {
+    if (!result) return;
+    try { await navigator.clipboard.writeText(result.suggestedCommand); } catch { /* fallback below */ }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -116,9 +138,9 @@ export function ConceptO({ data }: { data: WBData; reload: () => void }) {
             <div className="ss-section">
               <label className="ss-label">tool</label>
               <div className="ss-toolrow">
-                <ToolBtn name="claude code" active glyph=">" color="var(--neon-cyan)" />
-                <ToolBtn name="codex"             glyph="$" color="var(--neon-purple)" />
-                <ToolBtn name="aider"             glyph="✱" color="var(--text-muted)" />
+                <ToolBtn name="claude code" active={tool === 'claude'} glyph=">" color="var(--neon-cyan)"   onClick={() => setTool('claude')} />
+                <ToolBtn name="codex"        active={tool === 'codex'}  glyph="$" color="var(--neon-purple)" onClick={() => setTool('codex')} />
+                <ToolBtn name="aider"        glyph="✱" color="var(--text-muted)" disabled />
               </div>
             </div>
 
@@ -184,21 +206,86 @@ export function ConceptO({ data }: { data: WBData; reload: () => void }) {
               auto-skill load: <span style={{ color: 'var(--neon-cyan)' }}>{boundSkills.length} of {allSkills.length}</span>
             </span>
             <span style={{ flex: 1 }} />
-            <button className="np-btn ghost"   type="button">save as recipe</button>
-            <button className="np-btn ghost"   type="button">cancel <kbd>esc</kbd></button>
-            <button className="np-btn primary" type="button">▶ dispatch <kbd>⌘↵</kbd></button>
+            <button className="np-btn ghost" type="button" onClick={() => navigate('/')}>cancel <kbd>esc</kbd></button>
+            <button
+              className="np-btn primary"
+              type="button"
+              onClick={dispatchNow}
+              disabled={dispatching || !todo}
+              data-testid="dispatch-now"
+            >
+              {dispatching ? 'dispatching…' : '▶ dispatch'} <kbd>⌘↵</kbd>
+            </button>
           </div>
         </div>
       </div>
+
+      {result && (
+        <div className="td-overlay" onClick={() => setResult(null)} role="presentation" style={{ zIndex: 1005 }}>
+          <div className="ss-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 720 }}>
+            <div className="ss-modal-head">
+              <span style={{ fontSize: '1.6rem', filter: 'drop-shadow(0 0 14px ' + (result.spawned ? 'var(--neon-green)' : 'var(--neon-orange)') + ')' }}>
+                {result.spawned ? '✓' : '⚠'}
+              </span>
+              <div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                  {result.spawned ? 'session started' : 'prompt composed (cli not spawned)'}
+                </div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.1rem', fontWeight: 700 }}>
+                  {result.spawned ? <>pid <code>{result.pid}</code></> : 'copy + run manually'}
+                </div>
+              </div>
+              <button className="td-close" type="button" style={{ marginLeft: 'auto' }} onClick={() => setResult(null)}>✕</button>
+            </div>
+            <div className="ss-section">
+              <label className="ss-label">composed prompt</label>
+              <pre style={{
+                background: 'var(--bg-void)', border: '1px solid var(--border-hair)', borderRadius: 8,
+                padding: '0.75rem', fontFamily: 'var(--font-mono)', fontSize: '0.78rem',
+                color: 'var(--text-primary)', maxHeight: 320, overflow: 'auto', whiteSpace: 'pre-wrap',
+              }}>{result.prompt}</pre>
+            </div>
+            <div className="ss-section">
+              <label className="ss-label">run manually</label>
+              <div className="ss-prompt" style={{ alignItems: 'center' }}>
+                <code style={{ flex: 1, fontFamily: 'var(--font-mono)', fontSize: '0.84rem', color: 'var(--neon-cyan)' }}>{result.suggestedCommand}</code>
+                <button
+                  type="button"
+                  onClick={copySuggestedCommand}
+                  style={{ background: 'rgba(0,255,242,0.08)', border: '1px solid rgba(0,255,242,0.3)', color: 'var(--neon-cyan)', fontFamily: 'inherit', fontSize: '0.74rem', padding: '4px 10px', borderRadius: 4, cursor: 'pointer' }}
+                >📋 copy</button>
+              </div>
+              {result.spawnError && (
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--neon-orange)', marginTop: 6 }}>
+                  spawn error: {result.spawnError}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       <style>{conceptOStyles}</style>
     </div>
   );
 }
 
-function ToolBtn({ name, active, glyph, color }: { name: string; active?: boolean; glyph: string; color: string }) {
+function ToolBtn({ name, active, glyph, color, onClick, disabled }: {
+  name: string;
+  active?: boolean;
+  glyph: string;
+  color: string;
+  onClick?: () => void;
+  disabled?: boolean;
+}) {
   return (
-    <button className={`ss-tool ${active ? 'active' : ''}`} type="button">
+    <button
+      className={`ss-tool ${active ? 'active' : ''}`}
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      style={disabled ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
+    >
       <span style={{ color, fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '1rem' }}>{glyph}</span>
       <span>{name}</span>
     </button>

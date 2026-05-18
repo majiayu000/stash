@@ -10,6 +10,7 @@ import { AreaService } from '../domain/area/service.js';
 import { EvidenceService } from '../domain/evidence/service.js';
 import { BurnService } from '../domain/analytics/burn.js';
 import { BudgetService } from '../domain/budget/service.js';
+import { SessionDispatchService } from '../domain/session-dispatch/service.js';
 import { WeeklyReviewService } from '../domain/analytics/weekly.js';
 import { ProjectKnowledgeService } from '../domain/project-knowledge/service.js';
 import { SkillService } from '../domain/skill/service.js';
@@ -20,6 +21,7 @@ import { createAreasRouter } from './routes/areas.js';
 import { createAgentSessionsRouter } from './routes/agent-sessions.js';
 import { createAnalyticsRouter } from './routes/analytics.js';
 import { createBudgetsRouter } from './routes/budgets.js';
+import { createSessionsRouter } from './routes/sessions.js';
 import { createEvidenceRouter } from './routes/evidence.js';
 import { createOverviewRouter } from './routes/overview.js';
 import {
@@ -49,6 +51,13 @@ export function createApp(ctx: AppContext): Hono {
   const knowledgeService = new ProjectKnowledgeService({ db: ctx.db, clock });
   const journalService = new JournalService({ db: ctx.db, clock });
   const budgetService = new BudgetService({ db: ctx.db, clock });
+  const dispatchService = new SessionDispatchService({
+    workItems: workItemService,
+    areas: areaService,
+    knowledge: knowledgeService,
+    skills: skillService,
+    clock,
+  });
 
   const sources =
     ctx.sourcesOverride ??
@@ -95,6 +104,7 @@ export function createApp(ctx: AppContext): Hono {
   app.route('/api/lessons', createLessonsRouter(knowledgeService));
   app.route('/api/analytics', createAnalyticsRouter(burnService, weeklyService));
   app.route('/api/budgets', createBudgetsRouter(budgetService));
+  app.route('/api/sessions', createSessionsRouter(dispatchService));
 
   return app;
 }
