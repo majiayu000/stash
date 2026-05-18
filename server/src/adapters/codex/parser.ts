@@ -54,6 +54,7 @@ export function parseCodexSession(opts: ParseCodexOptions): AgentSession {
   let lastAssistantContent: string | undefined;
   let lastTool: string | undefined;
   let lastToolInput: string | undefined;
+  let model: string | undefined;
   const filesTouched = new Set<string>();
   let toolCount = 0;
   let messageCount = 0;
@@ -77,6 +78,8 @@ export function parseCodexSession(opts: ParseCodexOptions): AgentSession {
       const payloadTs =
         typeof rec.payload.timestamp === 'string' ? rec.payload.timestamp : undefined;
       if (payloadTs && (!startedAt || payloadTs < startedAt)) startedAt = payloadTs;
+    } else if (rec.type === 'turn_context' && rec.payload && typeof (rec.payload as { model?: unknown }).model === 'string') {
+      model = (rec.payload as { model: string }).model;
     } else if (rec.type === 'response_item' && rec.payload?.type === 'message') {
       const role = rec.payload.role;
       const text = extractText(rec.payload.content);
@@ -126,6 +129,7 @@ export function parseCodexSession(opts: ParseCodexOptions): AgentSession {
     filesTouched: Array.from(filesTouched).slice(0, 20),
     toolCount,
     messageCount,
+    model,
     startedAt,
     lastActiveAt,
   };

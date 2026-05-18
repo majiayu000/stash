@@ -165,7 +165,7 @@ export function adaptToWorkbenchData(input: AdaptInput): WBData {
       sessions: wb.sessions.length,
       tokens24h: wb.sessions.reduce((acc, s) => acc + (s.toolCount + s.messageCount) * 80, 0),
       cost24h: wb.sessions.length * 0.05,
-      lastModel: wb.sessions[0]?.provider === 'codex' ? 'codex-1' : 'sonnet-4.5',
+      lastModel: wb.sessions[0]?.model ?? (wb.sessions[0]?.provider === 'codex' ? 'codex' : wb.sessions[0]?.provider === 'claude' ? 'claude' : '—'),
       lastTouched: wb.sessions[0] ? new Date(wb.sessions[0].lastActiveAt).getTime() : Date.now() - 3600_000,
     };
   });
@@ -175,7 +175,7 @@ export function adaptToWorkbenchData(input: AdaptInput): WBData {
     id: s.id,
     provider: s.provider,
     project: s.projectId ?? s.cwd,
-    model: s.provider === 'codex' ? 'codex-1' : 'sonnet-4.5',
+    model: s.model ?? (s.provider === 'codex' ? 'codex' : 'claude'),
     tool: s.provider === 'codex' ? 'codex' : 'claude-code',
     state: sessionState(s),
     title: s.title,

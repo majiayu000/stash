@@ -77,6 +77,7 @@ export function parseClaudeSession(opts: ParseClaudeOptions): ClaudeSessionSumma
   let lastTool: string | undefined;
   let lastToolInput: string | undefined;
   let aiTitle: string | undefined;
+  let model: string | undefined;
   const filesTouched = new Set<string>();
   let toolCount = 0;
   let messageCount = 0;
@@ -108,6 +109,7 @@ export function parseClaudeSession(opts: ParseClaudeOptions): ClaudeSessionSumma
       messageCount++;
       const text = extractText(rec.message.content);
       if (text) lastUserOrAssistant = text;
+      if (rec.message.model) model = rec.message.model;
       const tools = extractToolUses(rec.message.content);
       for (const t of tools) {
         toolCount++;
@@ -140,6 +142,7 @@ export function parseClaudeSession(opts: ParseClaudeOptions): ClaudeSessionSumma
     filesTouched: Array.from(filesTouched).slice(0, 20),
     toolCount,
     messageCount,
+    model,
     startedAt: firstTimestamp,
     lastActiveAt,
   };

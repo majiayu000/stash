@@ -23,6 +23,8 @@ export interface AgentSession {
   filesTouched: string[];
   toolCount: number;
   messageCount: number;
+  /** Latest model the session ran on, parsed from JSONL (Claude: message.model, Codex: turn_context.model). */
+  model?: string;
   startedAt?: string;
   lastActiveAt: string;
 }
