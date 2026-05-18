@@ -57,8 +57,8 @@ matches what you're doing:
 | `/`              | E — capture & board | default; daily triage |
 | `/c/a`           | A — card wall | project-first browse |
 | `/c/b`           | B — multi-project board | drag work across projects |
-| `/c/c`           | C — calendar | what's due when |
-| `/c/d`           | D — terminal feed | low-latency log of activity |
+| `/c/c`           | C — hero + stream | one project in focus, live agent feed on the right |
+| `/c/d`           | D — constellation | all projects as glowing nodes, click to inspect |
 | `/c/e`           | E — inbox & 4-col board | same as `/` |
 | `/c/f`           | F — file picker | jump by file path |
 | `/c/g/:provider/:sessionId` | G — session detail | what the agent did |
@@ -69,7 +69,7 @@ matches what you're doing:
 | `/c/l/:workItemId`| L — todo detail | edit anything, link sessions |
 | `/c/m`           | M — skills library | install + bind skills to projects |
 | `/c/n`           | N — settings | themes, projects CRUD, notifications |
-| `/c/o`           | O — start session dispatcher | (UI scaffolded; subprocess launch is future) |
+| `/c/o`           | O — start session dispatcher | composes prompt + spawns claude / codex |
 | `/c/prd`         | PRD | product requirements |
 
 Use the floating switcher (top-right) to jump between concepts.
@@ -128,29 +128,38 @@ The pre-commit hook (VibeGuard) runs guards inline; no setup needed beyond
 
 ## What ships vs what's deferred
 
-**Shipped today** (0.1.10):
+**Shipped today** (0.1.12):
 - All 16 concept pages render from real backend data
 - Quick Capture + CLI capture with token grammar
 - Inbox triage keyboard layer with multi-select + undo + help overlay (`?`)
 - Global search (`Cmd+K`) + smart-lists chip row (`` ` ``)
 - Today list with manual pin + auto-promote, drag-reorder via fractional `sortOrder`
+- Cross-column drag between Inbox / Today / Doing / Later
 - Recurrence engine (RRULE-lite + Things-style `after_completion`) with picker
 - Reminder timestamps + browser notifications (opt-in)
 - Project workbench: editable intent / milestones / decisions / notes / lessons
-- Skills library: install/uninstall + per-project bindings
+  (now with ✎ edit on decisions and lessons + cross-project toggle)
+- Project CRUD UI: scaffold-new and edit-existing with description + review cadence
+- Todo detail: inline checklist (✓/✗ steps inside one todo) alongside subtasks
+- Inferred completion evidence: scan, accept (✓ done), or reject from the agent trace
+- Skills library: search + tabs filter, install/uninstall, per-project bindings,
+  new-skill creation, delete with binding cleanup, install command copy
 - Session detail: real transcript / tool-call summary / files-touched
 - Decision candidate extraction from JSONL (accept/ignore inline)
+- Real ConceptO dispatcher: composes a prompt, spawns Claude / Codex subprocess
 - Analytics: 30-day burn (daily spend / hourly heatmap / model mix / per-project)
+  with Codex token-usage extracted from rollout JSONLs
 - Weekly review snapshot (WoW pairs, focus hours, done-by-project, stale digest)
 - Settings: 7 themes, project CRUD, notifications opt-in
+- Persisted budgets (scope × period uniqueness, 409 on conflict)
 
 **Deferred** (real new features, not wiring):
-- ConceptO actually starting Claude/Codex subprocesses
 - Voice capture (Whisper local)
 - Browser extension / native global hotkey
 - Multi-device sync (CRDT or Tailscale)
-- Persisted budgets + alerts (currently labelled stubs)
 - Daily-plan generation a la Motion / Sunsama
+- Real "calendar" / "terminal feed" concepts (the current ConceptC/D are
+  hero+stream and constellation — repurpose or add new letters)
 
 See [`docs/SPEC_v0.3.md`](./docs/SPEC_v0.3.md) for the most recent SPEC and
 [`docs/SPEC_v0.2.md`](./docs/SPEC_v0.2.md) for the original workbench design.
