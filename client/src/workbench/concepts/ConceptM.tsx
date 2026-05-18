@@ -207,11 +207,10 @@ export function ConceptM({ data }: { data: WBData; reload: () => void }) {
         </div>
 
         {/* Stats strip */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem', marginBottom: '1.25rem' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', marginBottom: '1.25rem' }}>
           <StatTile label="installed"        value={installedCount} foot={<span>of {skills.length} known</span>} />
           <StatTile label="project bindings" tone="purple" value={activeBindings} foot={<span>across {Object.keys(projectSkills).length} projects</span>} />
-          <StatTile label="used · 7d"        tone="green"  value={184}            foot={<span><span className="up">↑ 23%</span> vs prior 7d</span>} />
-          <StatTile label="favorites"        tone="orange" value={3}              foot={<span>auto-load on new project</span>} />
+          <StatTile label="cross-bound"      tone="green"  value={skills.filter((s) => bindingsFor(s.id).length > 1).length} foot={<span>used by 2+ projects</span>} />
         </div>
 
         {/* Main */}
@@ -379,21 +378,24 @@ function SkillDetail({ s, bindings, allProjects, projectSkills, onToggleBinding,
 
       <div className="surface" style={{ padding: '1rem' }}>
         <div className="sec-head" style={{ marginBottom: '0.6rem' }}>
-          <span className="prompt">&gt;</span> recent uses <span className="count">— stub · last 7d</span>
+          <span className="prompt">&gt;</span> bound projects <span className="count">— {bindings.length}</span>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {bindings.slice(0, 3).map((p, i) => (
-            <div key={p.id} style={{ display: 'grid', gridTemplateColumns: 'auto 1fr auto', gap: 6, padding: '5px 8px', background: 'rgba(255,255,255,0.025)', border: '1px solid var(--border-hair)', borderRadius: 'var(--radius-sm)', fontFamily: 'var(--font-mono)', fontSize: '0.72rem', alignItems: 'center' }}>
-              <span style={{ fontSize: '0.95rem' }}>{p.emoji}</span>
-              <div style={{ minWidth: 0 }}>
-                <div style={{ color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{['patched session.ts (+24 -3)', 'audit log schema review', 'oauth provider scaffolding'][i] ?? 'recent use'}</div>
-                <div style={{ color: 'var(--text-muted)', fontSize: '0.65rem' }}>{p.name} · {fmt.ago(p.lastTouched - i * 86400_000)}</div>
-              </div>
-              <span style={{ color: 'var(--neon-cyan)', fontSize: '0.66rem' }}>↗ s{i + 1}</span>
+          {bindings.length === 0 ? (
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+              not bound to any project. toggle a row above to bind.
             </div>
-          ))}
-          {bindings.length === 0 && (
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)' }}>(no recent uses — bind to a project first)</div>
+          ) : (
+            bindings.map((p) => (
+              <div key={p.id} style={{ display: 'grid', gridTemplateColumns: 'auto 1fr auto', gap: 6, padding: '5px 8px', background: 'rgba(255,255,255,0.025)', border: '1px solid var(--border-hair)', borderRadius: 'var(--radius-sm)', fontFamily: 'var(--font-mono)', fontSize: '0.72rem', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.95rem' }}>{p.emoji}</span>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</div>
+                  <div style={{ color: 'var(--text-muted)', fontSize: '0.65rem' }}>last touched {fmt.ago(p.lastTouched)}</div>
+                </div>
+                <span style={{ color: 'var(--text-muted)', fontSize: '0.66rem' }}>auto-load</span>
+              </div>
+            ))
           )}
         </div>
       </div>
