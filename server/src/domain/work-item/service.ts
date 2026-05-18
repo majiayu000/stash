@@ -78,7 +78,6 @@ export class WorkItemService {
       checklist: input.checklist ?? [],
       estimateMinutes: input.estimateMinutes,
       reminderAt: input.reminderAt,
-      repeatRule: input.repeatRule,
       blockedBy: input.blockedBy?.trim() || undefined,
       waitingOn: input.waitingOn?.trim() || undefined,
       links: input.links ?? [],

@@ -30,7 +30,6 @@ interface WorkItemRow {
   context: string | null;
   estimate_minutes: number | null;
   reminder_at: string | null;
-  repeat_rule: string | null;
   blocked_by: string | null;
   waiting_on: string | null;
   links_json: string;
@@ -90,7 +89,6 @@ function rowToWorkItem(row: WorkItemRow): WorkItem {
     context: row.context ?? undefined,
     estimateMinutes: row.estimate_minutes ?? undefined,
     reminderAt: row.reminder_at ?? undefined,
-    repeatRule: row.repeat_rule ?? undefined,
     blockedBy: row.blocked_by ?? undefined,
     waitingOn: row.waiting_on ?? undefined,
     links: parseJsonArray<string>(row.links_json, []),
@@ -139,11 +137,11 @@ export class WorkItemRepository {
         `insert into work_items(
           id, project_id, area_id, parent_id, title, description, kind, status, priority,
           source, confidence, assignee, labels_json, checklist_json, outcome, context,
-          estimate_minutes, reminder_at, repeat_rule, blocked_by, waiting_on, links_json,
+          estimate_minutes, reminder_at, blocked_by, waiting_on, links_json,
           review_at, start_at, due_at, scheduled_for,
           today_pinned, sort_order, recurrence_json, raw_input,
           created_at, updated_at, completed_at
-        ) values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        ) values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       )
       .run(
         item.id,
@@ -164,7 +162,6 @@ export class WorkItemRepository {
         item.context ?? null,
         item.estimateMinutes ?? null,
         item.reminderAt ?? null,
-        item.repeatRule ?? null,
         item.blockedBy ?? null,
         item.waitingOn ?? null,
         JSON.stringify(item.links),
@@ -271,7 +268,7 @@ export class WorkItemRepository {
           project_id = ?, area_id = ?, parent_id = ?, title = ?, description = ?,
           kind = ?, status = ?, priority = ?, source = ?, confidence = ?, assignee = ?,
           labels_json = ?, checklist_json = ?, outcome = ?, context = ?,
-          estimate_minutes = ?, reminder_at = ?, repeat_rule = ?, blocked_by = ?,
+          estimate_minutes = ?, reminder_at = ?, blocked_by = ?,
           waiting_on = ?, links_json = ?, review_at = ?, start_at = ?, due_at = ?,
           scheduled_for = ?, today_pinned = ?, sort_order = ?, recurrence_json = ?,
           raw_input = ?, updated_at = ?, completed_at = ?
@@ -295,7 +292,6 @@ export class WorkItemRepository {
         item.context ?? null,
         item.estimateMinutes ?? null,
         item.reminderAt ?? null,
-        item.repeatRule ?? null,
         item.blockedBy ?? null,
         item.waitingOn ?? null,
         JSON.stringify(item.links),

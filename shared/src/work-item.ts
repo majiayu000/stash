@@ -74,7 +74,6 @@ export interface WorkItem {
   checklist: ChecklistItem[];
   estimateMinutes?: number;
   reminderAt?: string;
-  repeatRule?: string;
   blockedBy?: string;
   waitingOn?: string;
   links: string[];
@@ -114,7 +113,6 @@ export interface CreateWorkItemInput {
   checklist?: ChecklistItem[];
   estimateMinutes?: number;
   reminderAt?: string;
-  repeatRule?: string;
   blockedBy?: string;
   waitingOn?: string;
   links?: string[];

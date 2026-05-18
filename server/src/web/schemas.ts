@@ -75,7 +75,6 @@ export const CreateWorkItemBody = z.object({
   checklist: z.array(ChecklistItem).optional(),
   estimateMinutes: z.number().int().nonnegative().optional(),
   reminderAt: z.string().optional(),
-  repeatRule: z.string().optional(),
   blockedBy: z.string().optional(),
   waitingOn: z.string().optional(),
   links: z.array(z.string()).optional(),
