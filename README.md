@@ -128,7 +128,7 @@ The pre-commit hook (VibeGuard) runs guards inline; no setup needed beyond
 
 ## What ships vs what's deferred
 
-**Shipped today** (v0.6):
+**Shipped today** (0.1.10):
 - All 16 concept pages render from real backend data
 - Quick Capture + CLI capture with token grammar
 - Inbox triage keyboard layer with multi-select + undo + help overlay (`?`)

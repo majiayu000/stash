@@ -86,7 +86,7 @@ export function createApp(ctx: AppContext): Hono {
   app.use('*', cors());
 
   app.get('/health', (c) =>
-    c.json({ ok: true, service: 'stash', version: '0.0.1', time: clock.nowIso() }),
+    c.json({ ok: true, service: 'stash', version: '0.1.10', time: clock.nowIso() }),
   );
 
   app.route('/api/areas', createAreasRouter(areaService));
