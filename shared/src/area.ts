@@ -4,6 +4,7 @@ export interface Area {
   id: string;
   name: string;
   description?: string;
+  emoji?: string;
   reviewCadence: ReviewCadence;
   createdAt: string;
   updatedAt: string;
@@ -12,6 +13,7 @@ export interface Area {
 export interface CreateAreaInput {
   name: string;
   description?: string;
+  emoji?: string;
   reviewCadence?: ReviewCadence;
 }
 

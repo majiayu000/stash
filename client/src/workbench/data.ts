@@ -152,7 +152,7 @@ export function adaptToWorkbenchData(input: AdaptInput): WBData {
     return {
       id: wb.projectId,
       name: areasById.get(wb.projectId)?.name ?? basename(wb.projectId),
-      emoji: emojiFor(wb.projectId, idx),
+      emoji: areasById.get(wb.projectId)?.emoji || emojiFor(wb.projectId, idx),
       branch: 'main',
       progress,
       status,

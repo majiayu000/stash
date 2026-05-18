@@ -91,6 +91,7 @@ function NewProjectPanel({ onCreated, onError }: {
 }) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  const [emoji, setEmoji] = useState('🚀');
   const [cadence, setCadence] = useState<ReviewCadence>('weekly');
   const [submitting, setSubmitting] = useState(false);
 
@@ -102,10 +103,12 @@ function NewProjectPanel({ onCreated, onError }: {
       const a = await createArea({
         name: n,
         description: description.trim() || undefined,
+        emoji: emoji.trim() || undefined,
         reviewCadence: cadence,
       });
       setName('');
       setDescription('');
+      setEmoji('🚀');
       setCadence('weekly');
       onCreated(a);
     } catch (e) {
@@ -118,6 +121,7 @@ function NewProjectPanel({ onCreated, onError }: {
   function clear() {
     setName('');
     setDescription('');
+    setEmoji('🚀');
     setCadence('weekly');
   }
 
@@ -142,7 +146,7 @@ function NewProjectPanel({ onCreated, onError }: {
         <div className="np-field">
           <label>name</label>
           <div className="np-input">
-            <span className="np-emoji-pick">🚀</span>
+            <EmojiPicker value={emoji} onPick={setEmoji} />
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -240,12 +244,14 @@ function EditProjectPanel({ p, area, allProjects, onPick, onSaved, onDeleted, on
 }) {
   const [name, setName] = useState(area.name);
   const [description, setDescription] = useState(area.description ?? '');
+  const [emoji, setEmoji] = useState(area.emoji ?? '');
   const [cadence, setCadence] = useState<ReviewCadence>(area.reviewCadence);
   const [saving, setSaving] = useState(false);
 
   const dirty =
     name !== area.name ||
     (description || undefined) !== (area.description || undefined) ||
+    (emoji || undefined) !== (area.emoji || undefined) ||
     cadence !== area.reviewCadence;
 
   const featPct = p.features.length === 0 ? [{ name: '(no features)', status: 'todo' as const, progress: 0 }] : p.features;
@@ -261,6 +267,7 @@ function EditProjectPanel({ p, area, allProjects, onPick, onSaved, onDeleted, on
       const updated = await updateArea(area.id, {
         name: trimmed,
         description: description.trim() || undefined,
+        emoji: emoji.trim() || undefined,
         reviewCadence: cadence,
       });
       onSaved(updated);
@@ -284,6 +291,7 @@ function EditProjectPanel({ p, area, allProjects, onPick, onSaved, onDeleted, on
   function reset() {
     setName(area.name);
     setDescription(area.description ?? '');
+    setEmoji(area.emoji ?? '');
     setCadence(area.reviewCadence);
   }
 
@@ -305,12 +313,22 @@ function EditProjectPanel({ p, area, allProjects, onPick, onSaved, onDeleted, on
 
       <div className="surface">
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem' }}>
-          <span style={{ fontSize: '2rem', filter: 'drop-shadow(0 0 14px var(--neon-cyan))' }}>{p.emoji}</span>
+          <span style={{ fontSize: '2rem', filter: 'drop-shadow(0 0 14px var(--neon-cyan))' }}>{emoji || p.emoji}</span>
           <div style={{ flex: 1 }}>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.05rem', fontWeight: 700, color: 'var(--neon-cyan)' }}>{area.name}</div>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)' }}>{area.id.slice(0, 12)}… · ⎇ {p.branch ?? 'main'}</div>
           </div>
           <button className="np-btn ghost small danger" type="button" onClick={remove} data-testid="cf-delete">delete</button>
+        </div>
+
+        <div className="ep-section">
+          <label>emoji</label>
+          <div className="np-input" style={{ gap: 8 }}>
+            <EmojiPicker value={emoji || area.emoji || p.emoji} onPick={setEmoji} />
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+              {emoji ? 'custom' : area.emoji ? 'persisted' : 'auto (from id hash) — pick to persist'}
+            </span>
+          </div>
         </div>
 
         <div className="ep-section">
@@ -406,6 +424,73 @@ function EditProjectPanel({ p, area, allProjects, onPick, onSaved, onDeleted, on
           >{saving ? 'saving…' : 'save changes'}</button>
         </div>
       </div>
+    </div>
+  );
+}
+
+const PROJECT_EMOJI_OPTIONS = ['🌌', '🎨', '🤖', '🧭', '📚', '👻', '🔮', '⚡', '🚀', '🛸', '🎯', '📦', '🧪', '🔥', '💎', '🪄'];
+
+function EmojiPicker({ value, onPick }: { value: string; onPick: (next: string) => void }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ position: 'relative' }}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="np-emoji-pick"
+        style={{ border: 0, cursor: 'pointer' }}
+        data-testid="cf-emoji-trigger"
+        aria-label="pick emoji"
+      >{value || '·'}</button>
+      {open && (
+        <div
+          role="dialog"
+          aria-label="emoji picker"
+          style={{
+            position: 'absolute', top: 'calc(100% + 4px)', left: 0,
+            background: 'var(--bg-elevated)',
+            border: '1px solid var(--border-glow)',
+            borderRadius: 'var(--radius-md)',
+            padding: '0.4rem', zIndex: 20,
+            boxShadow: '0 12px 32px rgba(0,0,0,0.5)',
+            display: 'flex', flexDirection: 'column', gap: 6,
+            minWidth: 220,
+          }}
+          onMouseLeave={() => setOpen(false)}
+        >
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', gap: 3 }}>
+            {PROJECT_EMOJI_OPTIONS.map((e) => (
+              <button
+                key={e}
+                type="button"
+                onClick={() => { onPick(e); setOpen(false); }}
+                style={{
+                  background: value === e ? 'rgba(0,255,242,0.15)' : 'transparent',
+                  border: '1px solid ' + (value === e ? 'var(--neon-cyan)' : 'transparent'),
+                  borderRadius: 4, padding: 4, fontSize: '1.1rem', cursor: 'pointer',
+                }}
+                data-testid={`cf-emoji-${e}`}
+              >{e}</button>
+            ))}
+          </div>
+          <input
+            value={value}
+            onChange={(ev) => onPick(ev.target.value.slice(0, 4))}
+            placeholder="custom (paste any emoji)"
+            data-testid="cf-emoji-custom"
+            style={{
+              background: 'var(--bg-void)',
+              border: '1px solid var(--border-subtle)',
+              borderRadius: 4,
+              padding: '4px 8px',
+              fontFamily: 'var(--font-mono)',
+              fontSize: '0.78rem',
+              color: 'var(--text-primary)',
+              outline: 'none',
+            }}
+          />
+        </div>
+      )}
     </div>
   );
 }

@@ -5,6 +5,7 @@ interface AreaRow {
   id: string;
   name: string;
   description: string | null;
+  emoji: string | null;
   review_cadence: string;
   created_at: string;
   updated_at: string;
@@ -15,6 +16,7 @@ function rowToArea(row: AreaRow): Area {
     id: row.id,
     name: row.name,
     description: row.description ?? undefined,
+    emoji: row.emoji ?? undefined,
     reviewCadence: row.review_cadence as ReviewCadence,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -27,13 +29,14 @@ export class AreaRepository {
   insert(area: Area): Area {
     this.db
       .prepare(
-        `insert into areas(id, name, description, review_cadence, created_at, updated_at)
-         values (?, ?, ?, ?, ?, ?)`,
+        `insert into areas(id, name, description, emoji, review_cadence, created_at, updated_at)
+         values (?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         area.id,
         area.name,
         area.description ?? null,
+        area.emoji ?? null,
         area.reviewCadence,
         area.createdAt,
         area.updatedAt,
@@ -73,12 +76,13 @@ export class AreaRepository {
     this.db
       .prepare(
         `update areas
-            set name = ?, description = ?, review_cadence = ?, updated_at = ?
+            set name = ?, description = ?, emoji = ?, review_cadence = ?, updated_at = ?
           where id = ?`,
       )
       .run(
         merged.name,
         merged.description ?? null,
+        merged.emoji ?? null,
         merged.reviewCadence,
         merged.updatedAt,
         id,

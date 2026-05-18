@@ -49,6 +49,7 @@ export class AreaService {
       id: ulid(this.clock.now()),
       name,
       description: input.description?.trim() || undefined,
+      emoji: input.emoji?.trim() || undefined,
       reviewCadence: input.reviewCadence ?? 'weekly',
       createdAt: now,
       updatedAt: now,
@@ -68,6 +69,7 @@ export class AreaService {
     const updated = this.repo.update(id, {
       name: input.name?.trim() ?? existing.name,
       description: input.description?.trim() ?? existing.description,
+      emoji: input.emoji !== undefined ? (input.emoji.trim() || undefined) : existing.emoji,
       reviewCadence: (input.reviewCadence ?? existing.reviewCadence) as ReviewCadence,
       updatedAt: this.clock.nowIso(),
     });

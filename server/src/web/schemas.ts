@@ -48,12 +48,14 @@ const Recurrence = z.object({
 export const CreateAreaBody = z.object({
   name: z.string().min(1),
   description: z.string().optional(),
+  emoji: z.string().max(8).optional(),
   reviewCadence: ReviewCadence.optional(),
 });
 
 export const UpdateAreaBody = z.object({
   name: z.string().min(1).optional(),
   description: z.string().optional(),
+  emoji: z.string().max(8).optional(),
   reviewCadence: ReviewCadence.optional(),
 });
 
