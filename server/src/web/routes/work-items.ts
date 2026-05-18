@@ -4,6 +4,7 @@ import { z } from 'zod';
 import type { AreaService } from '../../domain/area/service.js';
 import { parseCaptureInput } from '../../domain/capture/parser.js';
 import type { EvidenceService } from '../../domain/evidence/service.js';
+import type { JournalService } from '../../domain/work-item/journal.js';
 import type { WorkItemService } from '../../domain/work-item/service.js';
 import type { WorkItemSessionService } from '../../domain/work-item-session/service.js';
 import { handleError } from '../errors.js';
@@ -24,6 +25,7 @@ const LinkSessionBody = z.object({
 
 export interface WorkItemsRouterDeps {
   areaService?: AreaService;
+  journal?: JournalService;
   clock?: Clock;
 }
 
@@ -152,6 +154,33 @@ export function createWorkItemsRouter(
       return handleError(c, e);
     }
   });
+
+  // v0.8 — per-todo journal (only mounted if deps.journal is provided).
+  if (deps.journal) {
+    const j = deps.journal;
+    r.get('/:id/journal', (c) => {
+      try {
+        if (!service.get(c.req.param('id'))) return c.json({ error: { code: 'NOT_FOUND', message: 'work item not found' } }, 404);
+        const entries = j.list(c.req.param('id'));
+        return c.json({ data: entries, count: entries.length });
+      } catch (e) { return handleError(c, e); }
+    });
+    r.post('/:id/journal', async (c) => {
+      try {
+        if (!service.get(c.req.param('id'))) return c.json({ error: { code: 'NOT_FOUND', message: 'work item not found' } }, 404);
+        const body = z.object({ body: z.string().min(1) }).parse(await c.req.json());
+        const entry = j.append(c.req.param('id'), body);
+        return c.json({ data: entry }, 201);
+      } catch (e) { return handleError(c, e); }
+    });
+    r.delete('/:id/journal/:entryId', (c) => {
+      try {
+        const ok = j.delete(c.req.param('entryId'));
+        if (!ok) return c.json({ error: { code: 'NOT_FOUND', message: 'entry not found' } }, 404);
+        return c.body(null, 204);
+      } catch (e) { return handleError(c, e); }
+    });
+  }
 
   /** SPEC v0.3 §3e — triage shortcuts: today_pinned toggle. */
   r.post('/:id/today-pin', async (c) => {

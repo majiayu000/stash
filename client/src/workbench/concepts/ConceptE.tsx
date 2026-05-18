@@ -148,6 +148,17 @@ export function ConceptE({ data, reload }: { data: WBData; reload: () => void })
   );
 }
 
+// Map BoardCol name → defaults for a new work item dropped into that column.
+function colCreateOpts(col: string): Partial<Parameters<typeof createWorkItem>[0]> {
+  switch (col) {
+    case 'inbox':  return { kind: 'idea', status: 'inbox' };
+    case 'today':  return { kind: 'task', status: 'planned', todayPinned: true, scheduledFor: new Date().toISOString().slice(0, 10) };
+    case 'doing':  return { kind: 'task', status: 'active' };
+    case 'later':  return { kind: 'task', status: 'planned' };
+    default:       return { kind: 'task', status: 'inbox' };
+  }
+}
+
 function emptyCopyFor(col: string): string {
   // SPEC v0.3 §3i — actionable empty states, no fake data.
   switch (col) {
@@ -162,6 +173,20 @@ function emptyCopyFor(col: string): string {
 function BoardCol({ icon, name, tone, hint, items, count, live, projects }: { icon: string; name: string; tone: 'orange' | 'cyan' | 'green' | 'purple'; hint: string; items: WBTodo[]; count?: number; live?: boolean; projects: WBProject[] }) {
   const c = count ?? items.length;
   const draggable = name === 'today';
+
+  async function addToCol() {
+    const title = window.prompt(`new todo in ${name}`);
+    if (!title?.trim()) return;
+    try {
+      // Map each column to the right starting status / today-pin combo.
+      const opts = colCreateOpts(name);
+      await createWorkItem({ title: title.trim(), ...opts });
+      window.dispatchEvent(new CustomEvent('stash:captured'));
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : String(e));
+    }
+  }
+
   return (
     <div className={`board-col tone-${tone}`} data-testid={`board-col-${name}`}>
       <div className="board-col-head">
@@ -179,7 +204,7 @@ function BoardCol({ icon, name, tone, hint, items, count, live, projects }: { ic
         ) : (
           items.map((t) => <TodoItem key={t.id} t={t} projects={projects} />)
         )}
-        <button className="todo-add">+ add</button>
+        <button className="todo-add" type="button" onClick={addToCol}>+ add</button>
       </div>
     </div>
   );

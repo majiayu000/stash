@@ -157,6 +157,18 @@ export const WORK_ITEM_STATUSES: readonly WorkItemStatus[] = [
 
 export const PRIORITIES: readonly Priority[] = ['p0', 'p1', 'p2', 'p3'] as const;
 
+/** v0.8 — append-only dated journal entry on a work item. */
+export interface JournalEntry {
+  id: string;
+  workItemId: string;
+  body: string;
+  createdAt: string;
+}
+
+export interface CreateJournalEntryInput {
+  body: string;
+}
+
 // Allowed status transitions (SPEC §10).
 export const STATUS_TRANSITIONS: Readonly<Record<WorkItemStatus, readonly WorkItemStatus[]>> = {
   inbox: ['planned', 'active', 'someday', 'dropped', 'done'],

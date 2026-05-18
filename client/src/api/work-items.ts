@@ -1,4 +1,4 @@
-import type { CreateWorkItemInput, Priority, UpdateWorkItemInput, WorkItem, WorkItemStatus } from '@stash/shared';
+import type { CreateWorkItemInput, JournalEntry, Priority, UpdateWorkItemInput, WorkItem, WorkItemStatus } from '@stash/shared';
 import { apiDelete, apiGet, apiPatch, apiPost } from './client';
 
 interface CaptureResponse {
@@ -125,4 +125,19 @@ export async function togglePin(id: string, pinned: boolean): Promise<WorkItem> 
 export async function setPriority(id: string, priority: Priority): Promise<WorkItem> {
   const res = await apiPost<ItemResponse>(`/work-items/${id}/priority`, { priority });
   return res.data;
+}
+
+/** v0.8 — per-todo journal. */
+export async function listJournal(workItemId: string): Promise<JournalEntry[]> {
+  const res = await apiGet<{ data: JournalEntry[] }>(`/work-items/${workItemId}/journal`);
+  return res.data;
+}
+
+export async function appendJournal(workItemId: string, body: string): Promise<JournalEntry> {
+  const res = await apiPost<{ data: JournalEntry }>(`/work-items/${workItemId}/journal`, { body });
+  return res.data;
+}
+
+export async function deleteJournalEntry(workItemId: string, entryId: string): Promise<void> {
+  await apiDelete<void>(`/work-items/${workItemId}/journal/${entryId}`);
 }

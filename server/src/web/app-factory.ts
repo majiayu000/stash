@@ -12,6 +12,7 @@ import { BurnService } from '../domain/analytics/burn.js';
 import { WeeklyReviewService } from '../domain/analytics/weekly.js';
 import { ProjectKnowledgeService } from '../domain/project-knowledge/service.js';
 import { SkillService } from '../domain/skill/service.js';
+import { JournalService } from '../domain/work-item/journal.js';
 import { WorkItemService } from '../domain/work-item/service.js';
 import { WorkItemSessionService } from '../domain/work-item-session/service.js';
 import { createAreasRouter } from './routes/areas.js';
@@ -44,6 +45,7 @@ export function createApp(ctx: AppContext): Hono {
   const evidenceService = new EvidenceService({ db: ctx.db, clock });
   const skillService = new SkillService({ db: ctx.db, clock });
   const knowledgeService = new ProjectKnowledgeService({ db: ctx.db, clock });
+  const journalService = new JournalService({ db: ctx.db, clock });
 
   const sources =
     ctx.sourcesOverride ??
@@ -78,7 +80,7 @@ export function createApp(ctx: AppContext): Hono {
   app.route('/api/areas', createAreasRouter(areaService));
   app.route(
     '/api/work-items',
-    createWorkItemsRouter(workItemService, sessionLinks, evidenceService, { areaService, clock }),
+    createWorkItemsRouter(workItemService, sessionLinks, evidenceService, { areaService, journal: journalService, clock }),
   );
   app.route('/api/overview', createOverviewRouter(workItemService, clock));
   app.route('/api/agent-sessions', createAgentSessionsRouter(aggregator, sessionLinks));

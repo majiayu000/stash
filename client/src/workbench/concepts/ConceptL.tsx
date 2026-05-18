@@ -1,12 +1,22 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import type { Lesson, Priority, WorkItem, WorkItemStatus } from '@stash/shared';
+import type { JournalEntry, Lesson, Priority, WorkItem, WorkItemStatus } from '@stash/shared';
 import { apiGet } from '../../api/client';
 import { linkSession, listLinkedSessions, unlinkSession, type LinkedSessionEdge } from '../../api/agent-sessions';
-import { createWorkItem, getWorkItem, updateWorkItem } from '../../api/work-items';
+import { createArea } from '../../api/areas';
+import { createLesson } from '../../api/project-knowledge';
+import {
+  appendJournal,
+  createWorkItem,
+  deleteJournalEntry,
+  getWorkItem,
+  listJournal,
+  updateWorkItem,
+} from '../../api/work-items';
 import { fmt, type WBData, type WBTodo } from '../data';
 import { Topbar } from '../shared';
 import { conceptLStyles } from './conceptL.styles';
+import { slugify, stubLinkedSessions, stubSubTasks } from './conceptL.stubs';
 
 /**
  * Concept L — Todo Detail / Split / Promote modal.
@@ -156,6 +166,34 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
     await save('dueAt', value || undefined);
   }
 
+  // v0.8 — real journal: append + delete with reload.
+  // (todoId is captured further below for use in async closures.)
+  const journalTodoId = todo.id;
+  const [journalEntries, setJournalEntries] = useState<JournalEntry[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    listJournal(journalTodoId).then((rows) => { if (!cancelled) setJournalEntries(rows); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [journalTodoId]);
+
+  async function addJournal() {
+    const body = window.prompt('journal entry (markdown ok)');
+    if (!body?.trim()) return;
+    try {
+      const entry = await appendJournal(journalTodoId, body);
+      setJournalEntries((cur) => [entry, ...cur]);
+      flashSaved('+ journal');
+    } catch (e) { flashSaved(`✕ ${e instanceof Error ? e.message : String(e)}`); }
+  }
+
+  async function removeJournal(entry: JournalEntry) {
+    if (!window.confirm('delete this journal entry?')) return;
+    try {
+      await deleteJournalEntry(journalTodoId, entry.id);
+      setJournalEntries((cur) => cur.filter((e) => e.id !== entry.id));
+    } catch { /* swallow */ }
+  }
+
   async function setProjectField(projectId: string | undefined) {
     if (!item) return;
     const optimistic = { ...item, projectId, areaId: projectId };
@@ -212,10 +250,54 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
     } catch { /* swallow */ }
   }
 
+  // ─── Promote handlers ─────────────────────────────────────────────────────
+
+  async function promoteToFeature() {
+    if (!item) return;
+    if (item.kind === 'feature') { window.alert('already a feature.'); return; }
+    await save('priority', item.priority);              // touch to refresh updatedAt
+    try {
+      const updated = await updateWorkItem(todoId, { kind: 'feature' });
+      setItem(updated);
+      flashSaved('✓ promoted to feature');
+      reload();
+    } catch (e) { flashSaved(`✕ ${e instanceof Error ? e.message : String(e)}`); }
+  }
+
+  async function promoteToNewProject() {
+    if (!item) return;
+    const suggestion = slugify(item.title);
+    const name = window.prompt('new project name', suggestion);
+    if (!name?.trim()) return;
+    try {
+      const area = await createArea({ name: name.trim() });
+      const updated = await updateWorkItem(todoId, { projectId: area.id, areaId: area.id, kind: 'feature' });
+      setItem(updated);
+      flashSaved(`✓ project #${area.name} created`);
+      reload();
+      navigate(`/c/k/${area.id}`);
+    } catch (e) { flashSaved(`✕ ${e instanceof Error ? e.message : String(e)}`); }
+  }
+
+  async function promoteToLesson() {
+    if (!item) return;
+    try {
+      await createLesson({
+        title: item.title,
+        body: item.description ?? '',
+        projectId: item.projectId,
+        tags: item.labels,
+      });
+      // Soft-drop the original; the lesson now carries its essence.
+      await updateWorkItem(todoId, { status: 'dropped' });
+      flashSaved('✓ saved as lesson, original dropped');
+      reload();
+      navigate(item.projectId ? `/c/k/${item.projectId}` : '/');
+    } catch (e) { flashSaved(`✕ ${e instanceof Error ? e.message : String(e)}`); }
+  }
+
   // Stub fallback only for layout continuity if we have nothing yet.
   const linked = stubLinkedSessions(todo);
-  // Stub journal — Phase 3b notes / lessons
-  const journal = stubJournal(todo);
 
   return (
     <div className="dashboard-canvas" style={{ position: 'relative' }}>
@@ -392,16 +474,32 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
 
               <div className="td-section">
                 <div className="td-section-label">
-                  <span>journal · scratch</span>
-                  <span style={{ color: 'var(--text-muted)' }}>markdown</span>
+                  <span>journal</span>
+                  <button
+                    type="button"
+                    onClick={addJournal}
+                    style={{ background: 'transparent', border: 0, color: 'var(--neon-cyan)', cursor: 'pointer', fontFamily: 'inherit', fontSize: '0.72rem' }}
+                  >+ entry</button>
                 </div>
                 <div className="td-journal">
-                  {journal.map((j, i) => (
-                    <div key={i} className="td-journal-entry">
-                      <span className="td-journal-date">{j.date}</span>
-                      {j.body}
+                  {journalEntries.length === 0 ? (
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                      no journal entries — press <code>+ entry</code> to log a thought.
                     </div>
-                  ))}
+                  ) : (
+                    journalEntries.map((j) => (
+                      <div key={j.id} className="td-journal-entry" style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                        <span className="td-journal-date" title={j.createdAt}>{fmt.ago(Date.parse(j.createdAt))}</span>
+                        <span style={{ flex: 1, whiteSpace: 'pre-wrap' }}>{j.body}</span>
+                        <button
+                          type="button"
+                          onClick={() => removeJournal(j)}
+                          style={{ background: 'transparent', border: 0, color: 'var(--text-muted)', cursor: 'pointer', fontSize: '0.85rem' }}
+                          title="delete entry"
+                        >×</button>
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
             </div>
@@ -410,9 +508,27 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
             <div className="td-modal-meta">
               <div className="td-promote">
                 <div className="td-section-label" style={{ color: 'var(--neon-purple)' }}>💎 promote this {todo.kind}</div>
-                <PromoteBtn icon="🌌" title="into a feature" sub="attach to existing project" />
-                <PromoteBtn icon="📁" title="into a new project" sub={`scaffold "${slugify(todo.text)}"`} />
-                <PromoteBtn icon="📑" title="into a lesson" sub="save as cross-project knowledge" />
+                <PromoteBtn
+                  icon="🌌"
+                  title="into a feature"
+                  sub={item?.kind === 'feature' ? 'already a feature' : 'switch kind=feature'}
+                  onClick={promoteToFeature}
+                  disabled={!item || item.kind === 'feature'}
+                />
+                <PromoteBtn
+                  icon="📁"
+                  title="into a new project"
+                  sub={`scaffold "${slugify(todo.text)}"`}
+                  onClick={promoteToNewProject}
+                  disabled={!item}
+                />
+                <PromoteBtn
+                  icon="📑"
+                  title="into a lesson"
+                  sub="save as cross-project knowledge, drop the source"
+                  onClick={promoteToLesson}
+                  disabled={!item}
+                />
               </div>
 
               <div className="td-meta-block">
@@ -608,9 +724,19 @@ function MetaRow({ k, v, editable }: { k: string; v: ReactNode; editable?: boole
   );
 }
 
-function PromoteBtn({ icon, title, sub }: { icon: string; title: string; sub: string }) {
+function PromoteBtn({ icon, title, sub, onClick, disabled }: {
+  icon: string; title: string; sub: string;
+  onClick?: () => void | Promise<void>;
+  disabled?: boolean;
+}) {
   return (
-    <button className="td-promote-btn" type="button">
+    <button
+      className="td-promote-btn"
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      style={disabled ? { opacity: 0.5, cursor: 'default' } : undefined}
+    >
       <span style={{ fontSize: '1.1rem' }}>{icon}</span>
       <div style={{ flex: 1, textAlign: 'left' }}>
         <div className="td-promote-title">{title}</div>
@@ -651,43 +777,5 @@ function toLocalDateTime(iso: string): string {
   if (Number.isNaN(d.getTime())) return '';
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
-function slugify(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'untitled';
-}
-
-function stubSubTasks(t: WBTodo): { done: boolean; text: string }[] {
-  // 3-5 sub-tasks derived from title hash so output is stable per todo.
-  const base = [
-    'sketch the smallest viable version',
-    'list the unknowns first',
-    'pick the riskiest assumption + test it',
-    'wire the smallest end-to-end path',
-    'decide cut points (what to defer)',
-  ];
-  const n = 3 + (hash(t.id) % 3);
-  return base.slice(0, n).map((text, i) => ({ done: i < Math.min(2, n - 1), text }));
-}
-
-function stubLinkedSessions(t: WBTodo): { id: string; who: string; title: string; at: string }[] {
-  if (!t.project) return [];
-  return [
-    { id: 's4', who: t.project + ' · sonnet-4.5', title: 'recent edit related to this todo', at: fmt.ago(Date.now() - 1000 * 60 * 42) },
-    { id: 's8', who: t.project + ' · codex-1',    title: 'investigation pass for the same area', at: fmt.ago(Date.now() - 1000 * 60 * 60 * 4) },
-  ];
-}
-
-function stubJournal(t: WBTodo): { date: string; body: ReactNode }[] {
-  return [
-    { date: 'today', body: <>captured from {t.kind === 'idea' ? 'the inbox' : 'the board'}. priority sits at <code className="md-code">{t.priority}</code> — revisit when scope is clearer.</> },
-    { date: '−2d',   body: <>noted that this overlaps with the active workboard cycle; tagged for next refinement pass.</> },
-  ];
-}
-
-function hash(s: string): number {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
-  return Math.abs(h);
 }
 
