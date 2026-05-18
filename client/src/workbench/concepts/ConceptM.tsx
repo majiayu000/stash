@@ -1,6 +1,8 @@
-import { useEffect, useState } from 'react';
-import type { Skill } from '@stash/shared';
+import { useEffect, useMemo, useState } from 'react';
+import type { Skill, SkillSource } from '@stash/shared';
 import {
+  createSkill,
+  deleteSkill,
   listProjectSkills,
   listSkills,
   toggleProjectSkill,
@@ -8,6 +10,7 @@ import {
 } from '../../api/skills';
 import { fmt, type WBData, type WBProject } from '../data';
 import { StatTile, Topbar } from '../shared';
+import { slugify } from './conceptL.stubs';
 
 /**
  * Concept M — Skills library. Search + tabs + 2-col grid of skill cards on
@@ -60,7 +63,73 @@ export function ConceptM({ data }: { data: WBData; reload: () => void }) {
     setSkills((cur) => cur.map((s) => (s.id === next.id ? next : s)));
   }
 
-  const selected = skills.find((s) => s.id === selectedId) ?? skills[0];
+  type Tab = 'all' | 'installed' | 'bound' | 'official' | 'community';
+  const [search, setSearch] = useState('');
+  const [tab, setTab] = useState<Tab>('all');
+
+  const boundSkillIds = useMemo(() => {
+    const s = new Set<string>();
+    for (const ids of Object.values(projectSkills)) ids.forEach((id) => s.add(id));
+    return s;
+  }, [projectSkills]);
+
+  async function handleCreateSkill() {
+    const name = window.prompt('skill name (display)');
+    if (!name?.trim()) return;
+    const id = window.prompt('skill id (lowercase-with-dashes)', slugify(name));
+    if (!id?.trim()) return;
+    const emoji = window.prompt('emoji', '🧩') ?? '🧩';
+    const description = window.prompt('one-line description (optional)') ?? '';
+    try {
+      const created = await createSkill({
+        id: id.trim(),
+        name: name.trim(),
+        emoji: emoji.trim() || '🧩',
+        description: description.trim() || undefined,
+        source: 'community',
+        installed: true,
+      });
+      setSkills((cur) => [...cur, created]);
+      setSelectedId(created.id);
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function handleDeleteSkill(skill: Skill) {
+    if (!window.confirm(`delete skill "${skill.name}"? all project bindings will be removed.`)) return;
+    try {
+      await deleteSkill(skill.id);
+      setSkills((cur) => cur.filter((s) => s.id !== skill.id));
+      setProjectSkills((cur) => {
+        const next: Record<string, string[]> = {};
+        for (const [pid, ids] of Object.entries(cur)) next[pid] = ids.filter((id) => id !== skill.id);
+        return next;
+      });
+      if (selectedId === skill.id) setSelectedId('');
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return skills.filter((s) => {
+      if (q && !s.name.toLowerCase().includes(q) && !(s.description ?? '').toLowerCase().includes(q) && !s.id.toLowerCase().includes(q)) return false;
+      switch (tab) {
+        case 'installed':  return s.installed;
+        case 'bound':      return boundSkillIds.has(s.id);
+        case 'official':   return s.source === 'official';
+        case 'community':  return s.source === 'community';
+        default:           return true;
+      }
+    });
+  }, [skills, search, tab, boundSkillIds]);
+
+  const selected = filtered.find((s) => s.id === selectedId)
+    ?? skills.find((s) => s.id === selectedId)
+    ?? filtered[0]
+    ?? skills[0];
   const bindingsFor = (skillId: string): WBProject[] =>
     projects.filter((p) => projectSkills[p.id]?.includes(skillId));
 
@@ -95,19 +164,46 @@ export function ConceptM({ data }: { data: WBData; reload: () => void }) {
         <div className="sk-bar">
           <div className="sk-search">
             <span style={{ color: 'var(--neon-cyan)', fontFamily: 'var(--font-mono)', fontWeight: 700 }}>🔍</span>
-            <span style={{ flex: 1, fontFamily: 'var(--font-mono)', fontSize: '0.9rem', color: 'var(--text-primary)' }}>
-              browse skills<span style={{ color: 'var(--neon-cyan)', animation: 'blink 1s steps(1) infinite' }}>▎</span>
-            </span>
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', color: 'var(--text-muted)', background: 'var(--bg-elevated)', padding: '2px 6px', borderRadius: 3 }}>/</span>
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="filter by name, id, or description"
+              data-testid="cm-search"
+              style={{ flex: 1, fontFamily: 'var(--font-mono)', fontSize: '0.9rem', color: 'var(--text-primary)', background: 'transparent', border: 0, outline: 'none' }}
+            />
+            {search && (
+              <button
+                type="button"
+                onClick={() => setSearch('')}
+                style={{ background: 'transparent', border: 0, color: 'var(--text-muted)', cursor: 'pointer', fontSize: '0.8rem' }}
+                title="clear"
+              >×</button>
+            )}
           </div>
           <div className="sk-tabs">
-            <button className="sk-tab active" type="button">all <span>{skills.length}</span></button>
-            <button className="sk-tab" type="button">installed <span>{installedCount}</span></button>
-            <button className="sk-tab" type="button">bound <span>{activeBindings}</span></button>
-            <button className="sk-tab" type="button">official ✓</button>
-            <button className="sk-tab" type="button">community</button>
+            {([
+              ['all',       'all',       skills.length],
+              ['installed', 'installed', installedCount],
+              ['bound',     'bound',     activeBindings],
+              ['official',  'official ✓', undefined],
+              ['community', 'community', undefined],
+            ] as const).map(([key, label, count]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setTab(key as Tab)}
+                className={`sk-tab ${tab === key ? 'active' : ''}`}
+                data-testid={`cm-tab-${key}`}
+              >{label}{count !== undefined && <span>{count}</span>}</button>
+            ))}
           </div>
-          <button className="np-btn primary" type="button" style={{ padding: '0.45rem 0.95rem', fontSize: '0.78rem' }}>+ browse registry</button>
+          <button
+            className="np-btn primary"
+            type="button"
+            onClick={handleCreateSkill}
+            data-testid="cm-create"
+            style={{ padding: '0.45rem 0.95rem', fontSize: '0.78rem' }}
+          >+ new skill</button>
         </div>
 
         {/* Stats strip */}
@@ -123,19 +219,26 @@ export function ConceptM({ data }: { data: WBData; reload: () => void }) {
           {/* Grid */}
           <div style={{ minWidth: 0, overflowY: 'auto', paddingRight: '0.25rem' }}>
             <div className="sec-head">
-              <span className="prompt">&gt;</span> skills <span className="count">— sort: stars · ↓</span>
+              <span className="prompt">&gt;</span> skills
+              <span className="count">— {filtered.length} of {skills.length}{search || tab !== 'all' ? ' (filtered)' : ''}</span>
             </div>
-            <div className="sk-grid">
-              {skills.map((s) => (
-                <SkillCard
-                  key={s.id}
-                  s={s}
-                  selected={s.id === selected.id}
-                  onClick={() => setSelectedId(s.id)}
-                  bindings={bindingsFor(s.id)}
-                />
-              ))}
-            </div>
+            {filtered.length === 0 ? (
+              <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: '0.78rem' }}>
+                no skills match. {search && <button type="button" onClick={() => setSearch('')} style={{ background: 'transparent', border: 0, color: 'var(--neon-cyan)', cursor: 'pointer', textDecoration: 'underline', fontFamily: 'inherit' }}>clear search</button>}
+              </div>
+            ) : (
+              <div className="sk-grid">
+                {filtered.map((s) => (
+                  <SkillCard
+                    key={s.id}
+                    s={s}
+                    selected={s.id === selected.id}
+                    onClick={() => setSelectedId(s.id)}
+                    bindings={bindingsFor(s.id)}
+                  />
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Detail panel */}
@@ -147,6 +250,7 @@ export function ConceptM({ data }: { data: WBData; reload: () => void }) {
               projectSkills={projectSkills}
               onToggleBinding={handleToggleBinding}
               onInstallToggle={handleInstallToggle}
+              onDelete={handleDeleteSkill}
             />
           </div>
         </div>
@@ -192,15 +296,20 @@ function SkillCard({ s, selected, onClick, bindings }: { s: Skill; selected: boo
   );
 }
 
-function SkillDetail({ s, bindings, allProjects, projectSkills, onToggleBinding, onInstallToggle }: {
+function SkillDetail({ s, bindings, allProjects, projectSkills, onToggleBinding, onInstallToggle, onDelete }: {
   s: Skill;
   bindings: WBProject[];
   allProjects: WBProject[];
   projectSkills: Record<string, string[]>;
   onToggleBinding: (projectId: string, skillId: string, enabled: boolean) => Promise<void>;
   onInstallToggle: (skill: Skill) => Promise<void>;
+  onDelete: (skill: Skill) => Promise<void>;
 }) {
   const color = sourceColorFor(s.source);
+  function copyInstall() {
+    const cmd = `sk install ${s.source === 'official' ? '' : s.source + '/'}${s.id}`;
+    navigator.clipboard?.writeText(cmd).catch(() => {});
+  }
   return (
     <>
       <div className="sk-detail-head">
@@ -220,14 +329,19 @@ function SkillDetail({ s, bindings, allProjects, projectSkills, onToggleBinding,
         <div className="install-cmd">
           <span className="install-prefix">$</span>
           <span className="install-text">sk install {s.source === 'official' ? '' : s.source + '/'}{s.id}</span>
-          <button className="copy-btn" type="button">📋</button>
+          <button className="copy-btn" type="button" onClick={copyInstall} title="copy">📋</button>
         </div>
         <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.75rem' }}>
           {s.installed
             ? <button className="np-btn ghost"   type="button" onClick={() => { onInstallToggle(s); }} style={{ padding: '0.45rem 1rem', fontSize: '0.75rem' }}>uninstall</button>
             : <button className="np-btn primary" type="button" onClick={() => { onInstallToggle(s); }} style={{ padding: '0.45rem 1rem', fontSize: '0.75rem' }}>install</button>}
-          <button className="sd-action" type="button">📖 readme</button>
-          <button className="sd-action" type="button">⚙ config</button>
+          <button
+            className="np-btn ghost"
+            type="button"
+            onClick={() => { onDelete(s); }}
+            data-testid="cm-delete"
+            style={{ padding: '0.45rem 1rem', fontSize: '0.75rem', color: 'var(--neon-pink)', marginLeft: 'auto' }}
+          >🗑 delete</button>
         </div>
       </div>
 
