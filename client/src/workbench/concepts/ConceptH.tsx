@@ -4,7 +4,6 @@ import { getBurnSnapshot } from '../../api/analytics';
 import { listBudgets } from '../../api/budgets';
 import { CountUp } from '../../components/effects';
 import { fmt, type WBData } from '../data';
-import { MOCK_ALERTS, type MockAlert } from '../mock';
 import { StatTile, Topbar } from '../shared';
 
 /**
@@ -178,14 +177,6 @@ export function ConceptH({ data }: { data: WBData; reload: () => void }) {
               )}
             </div>
 
-            <div className="surface">
-              <div className="sec-head" style={{ marginBottom: '0.6rem' }}>
-                <span className="prompt">&gt;</span> alerts <span className="count">— stub · {MOCK_ALERTS.length}</span>
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {MOCK_ALERTS.map((a, i) => <AlertItem key={i} a={a} />)}
-              </div>
-            </div>
           </div>
         </div>
       </div>
@@ -339,16 +330,6 @@ function BudgetRow({ b, used }: { b: Budget; used: number }) {
           boxShadow: `0 0 8px ${color}`,
         }} />
       </div>
-    </div>
-  );
-}
-
-function AlertItem({ a }: { a: MockAlert }) {
-  const color = a.tone === 'orange' ? 'var(--neon-orange)' : a.tone === 'pink' ? 'var(--neon-pink)' : 'var(--neon-cyan)';
-  return (
-    <div style={{ display: 'flex', gap: 8, padding: '0.55rem 0.7rem', background: `color-mix(in srgb, ${color} 6%, transparent)`, border: `1px solid color-mix(in srgb, ${color} 25%, transparent)`, borderLeft: `3px solid ${color}`, borderRadius: 'var(--radius-md)', fontFamily: 'var(--font-mono)', fontSize: '0.74rem', color: 'var(--text-secondary)' }}>
-      <span style={{ color }}>{a.tone === 'orange' ? '⚠' : a.tone === 'pink' ? '✕' : 'ⓘ'}</span>
-      <span>{a.text}</span>
     </div>
   );
 }
