@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { CountUp, LiveDot } from '../../components/effects';
-import { fmt, type WBData, type WBProject } from '../data';
+import { fmt, type WBData, type WBProject, type WBSession } from '../data';
 import { ProgressBar, SessionRow, StatusPill, Topbar, TodoItem } from '../shared';
 
 /**
@@ -141,7 +141,7 @@ export function ConceptB({ data }: { data: WBData; reload: () => void }) {
               </div>
               {/* Terminal feed */}
               <div className="ms-terminal">
-                <TerminalFeed active={active} projectSessions={projectSessions.length} />
+                <TerminalFeed active={active} projectSessions={projectSessions} />
               </div>
             </div>
 
@@ -201,16 +201,16 @@ function MeterTile({ label, color, tint, border, children }: { label: string; co
 }
 
 /**
- * Terminal feed — uses live session preview when available, falls back to a
- * canned demo trace that matches the workbench template. Per SPEC §3c, real
- * tool-call events come in Phase 3 (analytics endpoint streaming).
+ * Terminal feed — real recent agent activity for the active project, newest
+ * first. Uses WBSession.preview as the message body and WBSession.state to
+ * decide tone (live = cyan, idle = purple, done = muted).
  */
-function TerminalFeed({ active, projectSessions }: { active: WBProject; projectSessions: number }) {
-  if (projectSessions === 0) {
+function TerminalFeed({ active, projectSessions }: { active: WBProject; projectSessions: WBSession[] }) {
+  if (projectSessions.length === 0) {
     return (
       <>
         <div className="terminal-text"><span className="cmd">$</span> sk tail --project={active.name}</div>
-        <div className="terminal-text muted">(no live agent for this project)</div>
+        <div className="terminal-text muted">(no agent sessions linked to this project yet)</div>
         <div className="terminal-text muted">start a session in Concept O to begin streaming</div>
       </>
     );
@@ -218,15 +218,25 @@ function TerminalFeed({ active, projectSessions }: { active: WBProject; projectS
   return (
     <>
       <div className="terminal-text"><span className="cmd">$</span> sk tail --project={active.name}</div>
-      <div className="terminal-text muted">[12:42:18] session linked · model:{active.lastModel}</div>
-      <div className="terminal-text"><span style={{ color: 'var(--neon-cyan)' }}>{'>'}</span> reading <span style={{ color: 'var(--neon-purple)' }}>src/auth/oauth.ts</span></div>
-      <div className="terminal-text"><span style={{ color: 'var(--neon-cyan)' }}>{'>'}</span> found 3 call sites for <code>SessionStore.set</code></div>
-      <div className="terminal-text muted">[12:42:21] tool_call: read_file</div>
-      <div className="terminal-text"><span style={{ color: 'var(--neon-cyan)' }}>{'>'}</span> proposing Session interface that wraps existing JWT helper</div>
-      <div className="terminal-text muted">[12:42:24] tool_call: edit_file</div>
-      <div className="terminal-text" style={{ color: 'var(--neon-green)' }}>  ✓ patched src/auth/session.ts (+24 -3)</div>
-      <div className="terminal-text muted">[12:42:27] tool_call: run_tests</div>
-      <div className="terminal-text" style={{ color: 'var(--neon-orange)' }}>  ⚠ 2 failing — chasing now…<span style={{ color: 'var(--neon-cyan)', animation: 'blink 1s steps(1) infinite' }}>▎</span></div>
+      {projectSessions.slice(0, 8).map((s) => {
+        const ts = new Date(s.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        const colorByState =
+          s.state === 'live' ? 'var(--neon-cyan)'
+          : s.state === 'idle' ? 'var(--neon-purple)'
+          : s.state === 'error' ? 'var(--neon-pink)'
+          : 'var(--text-muted)';
+        const arrow = s.state === 'done' ? '✓' : s.state === 'error' ? '✕' : '>';
+        return (
+          <div key={`${s.provider}:${s.id}`} className="terminal-text">
+            <span className="muted">[{ts}] </span>
+            <span style={{ color: colorByState }}>{arrow}</span>
+            {' '}
+            <span style={{ color: 'var(--text-secondary)' }}>{s.model || s.tool}</span>
+            {' · '}
+            <span>{(s.preview || s.title || s.id.slice(0, 12)).replace(/\s+/g, ' ').slice(0, 80)}</span>
+          </div>
+        );
+      })}
     </>
   );
 }
