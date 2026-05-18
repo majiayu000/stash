@@ -256,25 +256,47 @@ export function InboxTriage() {
       {help && (
         <div className="tri-help" onClick={() => setHelp(false)}>
           <div className="tri-help-box" onClick={(e) => e.stopPropagation()}>
-            <div className="tri-help-title">inbox triage</div>
+            <div className="tri-help-title">keyboard shortcuts</div>
+
+            <div className="tri-help-section">global</div>
+            <div className="tri-help-grid">
+              <kbd>c</kbd><span>quick capture</span>
+              <kbd>⌘ K</kbd><span>search palette · title / description / labels</span>
+              <kbd>`</kbd><span>smart-lists chip row (overdue / today-pinned / p0 / …)</span>
+              <kbd>⌘ Z</kbd><span>undo last action (while toast is visible)</span>
+              <kbd>?</kbd><span>toggle this help</span>
+            </div>
+
+            <div className="tri-help-section">inbox · cursor on rows</div>
             <div className="tri-help-grid">
               <kbd>j</kbd><span>next item</span>
               <kbd>k</kbd><span>previous item</span>
+              <kbd>Enter</kbd><span>open detail modal</span>
+              <kbd>e</kbd><span>rename row</span>
               <kbd>t</kbd><span>toggle today pin</span>
               <kbd>n</kbd><span>→ planned</span>
               <kbd>s</kbd><span>→ someday</span>
               <kbd>d</kbd><span>→ dropped (undo via toast / ⌘Z)</span>
               <kbd>0–3</kbd><span>set priority</span>
-              <kbd>e</kbd><span>rename row</span>
-              <kbd>Enter</kbd><span>open detail</span>
-              <kbd>c</kbd><span>quick capture</span>
               <kbd>v</kbd><span>toggle select current row</span>
-              <kbd>shift V</kbd><span>select all visible</span>
+              <kbd>shift V</kbd><span>select all visible inbox rows</span>
               <kbd>esc</kbd><span>clear selection / close help</span>
-              <kbd>?</kbd><span>toggle this help</span>
             </div>
+
+            <div className="tri-help-section">today · shift-namespaced</div>
+            <div className="tri-help-grid">
+              <kbd>shift J</kbd><span>next today item</span>
+              <kbd>shift K</kbd><span>previous today item</span>
+              <kbd>shift V</kbd><span>toggle select current today row</span>
+              <kbd>shift A</kbd><span>select all today rows</span>
+              <kbd>shift X</kbd><span>→ done</span>
+              <kbd>shift T</kbd><span>toggle today pin</span>
+              <kbd>shift D</kbd><span>→ dropped</span>
+              <kbd>shift !@#)</kbd><span>set priority (shift+1/2/3/0 on US layout)</span>
+            </div>
+
             <div style={{ marginTop: 12, fontFamily: 'var(--font-mono)', fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-              when ≥1 row is selected, action keys (t / n / s / d / 0–3) apply to the whole selection.
+              when ≥1 inbox row is selected, action keys (t / n / s / d / 0–3) apply to the whole selection. shift-key Today actions work the same way for today selections.
             </div>
           </div>
         </div>
@@ -336,8 +358,16 @@ const triStyles = `
   box-shadow: 0 30px 80px rgba(0,0,0,0.6);
 }
 .tri-help-title { font-family: var(--font-mono); font-size: 0.85rem; color: var(--neon-cyan); margin-bottom: 0.8rem; text-transform: uppercase; letter-spacing: 0.08em; }
+.tri-help-section {
+  font-family: var(--font-mono); font-size: 0.7rem; font-weight: 600;
+  color: var(--neon-purple); text-transform: uppercase; letter-spacing: 0.1em;
+  margin-top: 0.85rem; margin-bottom: 0.4rem;
+  padding-bottom: 0.25rem;
+  border-bottom: 1px solid rgba(191,90,242,0.18);
+}
+.tri-help-box { max-width: 460px; max-height: 80vh; overflow-y: auto; }
 .tri-help-grid {
-  display: grid; grid-template-columns: auto 1fr; gap: 0.5rem 1rem;
+  display: grid; grid-template-columns: auto 1fr; gap: 0.45rem 1rem;
   font-family: var(--font-mono); font-size: 0.78rem;
   color: var(--text-primary, #fff);
 }
