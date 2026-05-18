@@ -171,63 +171,27 @@ export function ConceptO({ data }: { data: WBData; reload: () => void }) {
               <div className="ss-toolrow">
                 <ToolBtn name="claude code" active={tool === 'claude'} glyph=">" color="var(--neon-cyan)"   onClick={() => setTool('claude')} />
                 <ToolBtn name="codex"        active={tool === 'codex'}  glyph="$" color="var(--neon-purple)" onClick={() => setTool('codex')} />
-                <ToolBtn name="aider"        glyph="✱" color="var(--text-muted)" disabled />
               </div>
-            </div>
-
-            <div className="ss-section">
-              <label className="ss-label">model</label>
-              <div className="ss-toolrow">
-                <ModelBtn name="sonnet-4.5" active rate="$3 / Mtok" />
-                <ModelBtn name="haiku-4.5"        rate="$0.80 / Mtok" />
-                <ModelBtn name="opus-4.7"         rate="$15 / Mtok" />
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.66rem', color: 'var(--text-muted)', marginTop: 4 }}>
+                runs <code>{tool}</code> with the prompt piped to stdin. model = CLI default.
               </div>
             </div>
           </div>
 
           <div className="ss-section">
             <label className="ss-label">
-              skills to load
-              <span style={{ color: 'var(--text-muted)', fontWeight: 400, marginLeft: 6 }}>· auto-loaded from project bindings, toggle off any</span>
+              auto-loaded skills
+              <span style={{ color: 'var(--text-muted)', fontWeight: 400, marginLeft: 6 }}>· bound to #{selectedProject?.name ?? 'inbox'} — edit in Concept M</span>
             </label>
-            <div className="ss-skills">
-              {boundSkills.map((s) => <SkillToggle key={s.id} s={s} on />)}
-              <button className="td-tag td-tag-add" type="button" style={{ padding: '4px 9px' }}>+ add skill</button>
-            </div>
-          </div>
-
-          <div className="ss-section">
-            <label className="ss-label">
-              load as context
-              <span style={{ color: 'var(--text-muted)', fontWeight: 400, marginLeft: 6 }}>· auto-included in system prompt</span>
-            </label>
-            <div className="ss-ctx-grid">
-              <ContextRow on  icon="🎯" name="project intent"               sub="1 sentence · ~80 tok" />
-              <ContextRow on  icon="📜" name="decision log · last 5"        sub="4 entries · ~600 tok" />
-              <ContextRow on  icon="📖" name="notes / scratchpad"           sub="full md · ~1.2k tok" />
-              <ContextRow on  icon="💎" name="lessons (cross-proj match)"   sub="2 matched · ~200 tok" />
-              <ContextRow     icon="📂" name="recent diffs (last 24h)"      sub="3 files · ~800 tok" />
-              <ContextRow     icon="🔗" name="linked sessions"              sub="2 sessions · ~3k tok" />
-            </div>
-          </div>
-
-          <div className="ss-grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
-            <div className="ss-section">
-              <label className="ss-label">budget cap</label>
-              <div className="ss-budget">
-                <span className="ss-budget-prefix">$</span>
-                <span className="ss-budget-value">0.50</span>
-                <span className="ss-budget-suffix">stop on overrun</span>
+            {boundSkills.length === 0 ? (
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                no skills bound to this project. they'd surface in the prompt's <code>**Loaded skills**</code> section.
               </div>
-            </div>
-            <div className="ss-section">
-              <label className="ss-label">token cap</label>
-              <div className="ss-budget">
-                <span className="ss-budget-prefix" style={{ color: 'var(--neon-purple)' }}>≤</span>
-                <span className="ss-budget-value">80k</span>
-                <span className="ss-budget-suffix">tool output truncated above</span>
+            ) : (
+              <div className="ss-skills">
+                {boundSkills.map((s) => <SkillToggle key={s.id} s={s} on />)}
               </div>
-            </div>
+            )}
           </div>
 
           <div className="ss-foot">
@@ -328,36 +292,12 @@ function ToolBtn({ name, active, glyph, color, onClick, disabled }: {
   );
 }
 
-function ModelBtn({ name, active, rate }: { name: string; active?: boolean; rate: string }) {
-  return (
-    <button className={`ss-tool ${active ? 'active' : ''}`} type="button">
-      <div style={{ flex: 1, textAlign: 'left', minWidth: 0 }}>
-        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{name}</div>
-        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', color: 'var(--text-muted)', marginTop: 1 }}>{rate}</div>
-      </div>
-    </button>
-  );
-}
-
 function SkillToggle({ s, on }: { s: Skill; on: boolean }) {
   return (
     <button className={`ss-skill ${on ? 'on' : ''}`} type="button">
       <span style={{ fontSize: '0.95rem', filter: on ? 'drop-shadow(0 0 6px var(--neon-cyan))' : 'grayscale(1) opacity(0.6)' }}>{s.emoji}</span>
       <span>{s.name}</span>
     </button>
-  );
-}
-
-function ContextRow({ on, icon, name, sub }: { on?: boolean; icon: string; name: string; sub: string }) {
-  return (
-    <label className={`ss-ctx ${on ? 'on' : ''}`}>
-      <span style={{ fontSize: '1.1rem', flexShrink: 0, opacity: on ? 1 : 0.5 }}>{icon}</span>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', color: on ? 'var(--text-primary)' : 'var(--text-secondary)', fontWeight: on ? 600 : 400, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{name}</div>
-        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.65rem', color: 'var(--text-muted)' }}>{sub}</div>
-      </div>
-      <span className={`kw-skill-toggle ${on ? 'on' : ''}`}><span className="kw-skill-toggle-knob" /></span>
-    </label>
   );
 }
 
