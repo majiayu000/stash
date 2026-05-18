@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { ProgressEvidence, WorkItem } from '@stash/shared';
 import {
   acceptCompletion,
+  createEvidence,
   inferEvidence,
   listEvidence,
   rejectCompletion,
@@ -20,6 +21,7 @@ export interface PendingEvidenceState {
   scan: () => Promise<void>;
   accept: () => Promise<void>;
   reject: () => Promise<void>;
+  addManual: (text: string) => Promise<void>;
 }
 
 /**
@@ -77,11 +79,36 @@ export function usePendingEvidence(args: UsePendingEvidenceArgs): PendingEvidenc
     }
   }
 
-  return { evidence, scanning, scan, accept, reject };
+  async function addManual(text: string) {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    try {
+      const row = await createEvidence({
+        workItemId,
+        kind: 'manual_note',
+        text: trimmed,
+        pendingAcceptance: true,
+      });
+      setEvidence((cur) => [...cur, row]);
+      onFlash('+ manual note');
+    } catch (e) {
+      onFlash(`✕ ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  return { evidence, scanning, scan, accept, reject, addManual };
 }
 
 export function EvidencePanel({ state }: { state: PendingEvidenceState }) {
-  const { evidence, scanning, scan, accept, reject } = state;
+  const { evidence, scanning, scan, accept, reject, addManual } = state;
+  const [draft, setDraft] = useState('');
+
+  async function submit() {
+    const t = draft.trim();
+    if (!t) return;
+    await addManual(t);
+    setDraft('');
+  }
 
   return (
     <div className="td-section">
@@ -115,15 +142,15 @@ export function EvidencePanel({ state }: { state: PendingEvidenceState }) {
                 key={e.id}
                 style={{
                   padding: '6px 8px',
-                  background: 'rgba(0,255,242,0.04)',
-                  border: '1px solid rgba(0,255,242,0.15)',
+                  background: e.kind === 'manual_note' ? 'rgba(191,90,242,0.05)' : 'rgba(0,255,242,0.04)',
+                  border: `1px solid ${e.kind === 'manual_note' ? 'rgba(191,90,242,0.2)' : 'rgba(0,255,242,0.15)'}`,
                   borderRadius: 4,
                   fontFamily: 'var(--font-mono)',
                   fontSize: '0.74rem',
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
-                  <span style={{ fontSize: '0.62rem', color: 'var(--neon-cyan)', textTransform: 'uppercase' }}>{e.kind}</span>
+                  <span style={{ fontSize: '0.62rem', color: e.kind === 'manual_note' ? 'var(--neon-purple)' : 'var(--neon-cyan)', textTransform: 'uppercase' }}>{e.kind}</span>
                   {e.provider && (
                     <span style={{ fontSize: '0.62rem', color: 'var(--text-muted)' }}>{e.provider}</span>
                   )}
@@ -152,6 +179,42 @@ export function EvidencePanel({ state }: { state: PendingEvidenceState }) {
           </div>
         </>
       )}
+      <div style={{ display: 'flex', gap: 4, marginTop: 8 }}>
+        <input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } }}
+          placeholder="+ log a manual completion note…"
+          data-testid="td-evidence-manual"
+          style={{
+            flex: 1,
+            background: 'transparent',
+            border: '1px dashed var(--border-subtle)',
+            borderRadius: 4,
+            padding: '4px 8px',
+            fontFamily: 'var(--font-mono)',
+            fontSize: '0.74rem',
+            color: 'var(--text-primary)',
+            outline: 'none',
+          }}
+        />
+        {draft.trim() && (
+          <button
+            type="button"
+            onClick={submit}
+            style={{
+              background: 'transparent',
+              border: '1px solid var(--neon-purple)',
+              color: 'var(--neon-purple)',
+              fontFamily: 'var(--font-mono)',
+              fontSize: '0.7rem',
+              padding: '2px 10px',
+              borderRadius: 4,
+              cursor: 'pointer',
+            }}
+          >+ log</button>
+        )}
+      </div>
     </div>
   );
 }
