@@ -6,3 +6,4 @@
 {"timestamp":"2026-05-14T08:00:10.000Z","type":"response_item","payload":{"type":"function_call","name":"apply_patch","arguments":{"path":"/Users/test/demo-codex/src/cache.ts","patch":"..."}}}
 {"timestamp":"2026-05-14T08:00:20.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"text","text":"Applied the patch and verified cache no longer leaks."}]}}
 {"timestamp":"2026-05-14T08:00:30.000Z","type":"event_msg","payload":{"type":"task_completed","turn_id":"t1"}}
+{"timestamp":"2026-05-14T08:00:30.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":1800,"output_tokens":420,"cached_input_tokens":3200,"reasoning_output_tokens":0,"total_tokens":5420}}}}

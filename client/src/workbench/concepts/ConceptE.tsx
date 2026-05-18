@@ -173,22 +173,40 @@ function emptyCopyFor(col: string): string {
 function BoardCol({ icon, name, tone, hint, items, count, live, projects }: { icon: string; name: string; tone: 'orange' | 'cyan' | 'green' | 'purple'; hint: string; items: WBTodo[]; count?: number; live?: boolean; projects: WBProject[] }) {
   const c = count ?? items.length;
   const draggable = name === 'today';
+  const [dragOver, setDragOver] = useState(false);
 
   async function addToCol() {
     const title = window.prompt(`new todo in ${name}`);
     if (!title?.trim()) return;
     try {
-      // Map each column to the right starting status / today-pin combo.
       const opts = colCreateOpts(name);
       await createWorkItem({ title: title.trim(), ...opts });
       window.dispatchEvent(new CustomEvent('stash:captured'));
-    } catch (e) {
-      window.alert(e instanceof Error ? e.message : String(e));
-    }
+    } catch (e) { window.alert(e instanceof Error ? e.message : String(e)); }
+  }
+
+  function onDragOver(e: React.DragEvent) {
+    // Only accept drops from a stash todo row.
+    if (!e.dataTransfer.types.includes('application/stash-todo')) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setDragOver(true);
+  }
+
+  async function onDrop(e: React.DragEvent) {
+    e.preventDefault();
+    setDragOver(false);
+    const id = e.dataTransfer.getData('application/stash-todo');
+    if (!id) return;
+    const opts = colMoveOpts(name);
+    try {
+      await updateWorkItem(id, opts);
+      window.dispatchEvent(new CustomEvent('stash:captured'));
+    } catch (err) { window.alert(err instanceof Error ? err.message : String(err)); }
   }
 
   return (
-    <div className={`board-col tone-${tone}`} data-testid={`board-col-${name}`}>
+    <div className={`board-col tone-${tone} ${dragOver ? 'drag-over' : ''}`} data-testid={`board-col-${name}`}>
       <div className="board-col-head">
         <span style={{ fontSize: '1rem' }}>{icon}</span>
         <span className="board-col-name">{name}</span>
@@ -196,16 +214,54 @@ function BoardCol({ icon, name, tone, hint, items, count, live, projects }: { ic
         <span className="board-col-count">{c}</span>
       </div>
       <div className="board-col-hint">{hint}</div>
-      <div className="board-col-body">
+      <div
+        className="board-col-body"
+        onDragOver={onDragOver}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={onDrop}
+      >
         {items.length === 0 ? (
           <div className="board-col-empty">{emptyCopyFor(name)}</div>
         ) : draggable ? (
           <DraggableList items={items} projects={projects} />
         ) : (
-          items.map((t) => <TodoItem key={t.id} t={t} projects={projects} />)
+          items.map((t) => <DraggableRow key={t.id} t={t} projects={projects} />)
         )}
         <button className="todo-add" type="button" onClick={addToCol}>+ add</button>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Map a target column → the status/pin transition to apply when a row is
+ * dropped on it. Mirror of colCreateOpts but for existing items.
+ */
+function colMoveOpts(col: string): Parameters<typeof updateWorkItem>[1] {
+  switch (col) {
+    case 'inbox':  return { status: 'inbox',   todayPinned: false };
+    case 'today':  return { status: 'planned', todayPinned: true, scheduledFor: new Date().toISOString().slice(0, 10) };
+    case 'doing':  return { status: 'active',  todayPinned: false };
+    case 'later':  return { status: 'planned', todayPinned: false };
+    default:       return {};
+  }
+}
+
+/** Wrap a TodoItem in an outer <div> that supports HTML5 drag for cross-column moves. */
+function DraggableRow({ t, projects }: { t: WBTodo; projects: WBProject[] }) {
+  const [dragging, setDragging] = useState(false);
+  return (
+    <div
+      draggable
+      onDragStart={(e) => {
+        setDragging(true);
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('application/stash-todo', t.id);
+      }}
+      onDragEnd={() => setDragging(false)}
+      style={{ opacity: dragging ? 0.4 : 1, cursor: 'grab' }}
+    >
+      <TodoItem t={t} projects={projects} />
     </div>
   );
 }
@@ -228,21 +284,26 @@ function DraggableList({ items, projects }: { items: WBTodo[]; projects: WBProje
   function onDragStart(e: React.DragEvent, id: string) {
     setDraggingId(id);
     e.dataTransfer.effectAllowed = 'move';
+    // Use both: stash-todo so cross-column drops see it; text/plain for compat.
+    e.dataTransfer.setData('application/stash-todo', id);
     e.dataTransfer.setData('text/plain', id);
   }
   function onDragOver(e: React.DragEvent) {
+    if (!e.dataTransfer.types.includes('application/stash-todo')) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
   }
   async function onDrop(e: React.DragEvent, targetId: string) {
-    e.preventDefault();
-    const movedId = draggingId ?? e.dataTransfer.getData('text/plain');
+    const movedId = draggingId ?? e.dataTransfer.getData('application/stash-todo') ?? e.dataTransfer.getData('text/plain');
     setDraggingId(null);
     if (!movedId || movedId === targetId) return;
 
     const from = order.findIndex((it) => it.id === movedId);
     const to = order.findIndex((it) => it.id === targetId);
+    // Foreign drop (e.g. from inbox onto a Today row) — let the column body handle it.
     if (from < 0 || to < 0) return;
+    e.preventDefault();
+    e.stopPropagation();
 
     const next = [...order];
     const [moved] = next.splice(from, 1);
@@ -424,6 +485,11 @@ const conceptEStyles = `
 .board-col.tone-cyan::before   { background: linear-gradient(90deg, var(--neon-cyan), var(--neon-blue)); }
 .board-col.tone-green::before  { background: var(--gradient-success); }
 .board-col.tone-purple::before { background: linear-gradient(90deg, var(--neon-purple), var(--neon-magenta)); }
+.board-col.drag-over {
+  outline: 2px dashed var(--neon-cyan);
+  outline-offset: -2px;
+  background: rgba(0,255,242,0.05);
+}
 .board-col-head { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 4px; }
 .board-col-name {
   font-family: var(--font-mono); font-size: 0.85rem; font-weight: 600;

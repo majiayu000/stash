@@ -1,5 +1,5 @@
 import { readFileSync } from 'fs';
-import type { AgentSession, AgentSessionEvent, AgentSessionStatus } from '@stash/shared';
+import type { AgentSession, AgentSessionEvent, AgentSessionStatus, UsageEvent } from '@stash/shared';
 
 interface RawRecord {
   timestamp?: string;
@@ -163,6 +163,63 @@ export function parseCodexEvents(sourcePath: string, limit = 200): AgentSessionE
     }
   }
   return out;
+}
+
+/**
+ * Scan a Codex rollout JSONL for `token_count` events and emit a single
+ * UsageEvent at the session's most recent count.
+ *
+ * Codex emits `event_msg.token_count` events whose payload carries the
+ * **cumulative** `total_token_usage` for the session so far. Each subsequent
+ * event replaces the previous. We want a single representative event for
+ * BurnService to bucket, so we take the LAST count we see and emit it at
+ * that event's timestamp.
+ *
+ * The `model` is pulled from the most recent `turn_context` (which arrives
+ * before the message that consumes those tokens). If we never see a
+ * turn_context, we fall back to 'codex-1' so the rate table still has
+ * something to match (DEFAULT_MODEL_RATES doesn't yet ship Codex rates by
+ * model name — falling back yields cost = 0 which is correct until rates
+ * land).
+ */
+export function parseCodexUsage(sourcePath: string): UsageEvent[] {
+  const raw = readFileSync(sourcePath, 'utf8');
+  const lines = raw.split(/\n+/).filter(Boolean);
+
+  let model: string | undefined;
+  let lastTs: string | undefined;
+  let lastInput = 0;
+  let lastOutput = 0;
+  let lastCached = 0;
+
+  for (const line of lines) {
+    let rec: RawRecord;
+    try { rec = JSON.parse(line); } catch { continue; }
+
+    if (rec.type === 'turn_context' && rec.payload?.model && typeof rec.payload.model === 'string') {
+      model = rec.payload.model;
+    }
+
+    if (rec.type === 'event_msg' && rec.payload?.type === 'token_count') {
+      const info = (rec.payload as { info?: Record<string, unknown> }).info;
+      const total = info?.total_token_usage as Record<string, unknown> | undefined;
+      if (!total) continue;
+      lastInput  = typeof total.input_tokens         === 'number' ? total.input_tokens         : lastInput;
+      lastOutput = typeof total.output_tokens        === 'number' ? total.output_tokens        : lastOutput;
+      lastCached = typeof total.cached_input_tokens  === 'number' ? total.cached_input_tokens  : lastCached;
+      if (rec.timestamp) lastTs = rec.timestamp;
+    }
+  }
+
+  if (!lastTs || (lastInput === 0 && lastOutput === 0)) return [];
+  return [{
+    ts: lastTs,
+    model: model ?? 'codex-1',
+    inputTokens: lastInput,
+    outputTokens: lastOutput,
+    cacheReadTokens: lastCached || undefined,
+    sourcePath,
+  }];
 }
 
 function computeStatus(lastActiveAt: string): AgentSessionStatus {

@@ -2,7 +2,7 @@ import { existsSync, readdirSync, statSync } from 'fs';
 import { join } from 'path';
 import type { AgentSession, AgentSessionEvent, UsageEvent } from '@stash/shared';
 import type { AgentSource, ScanOptions, SourceParseError, SourceScanResult } from '../source.js';
-import { parseCodexEvents, parseCodexSession } from './parser.js';
+import { parseCodexEvents, parseCodexSession, parseCodexUsage } from './parser.js';
 
 function sessionsDir(root: string): string {
   return join(root, 'sessions');
@@ -70,9 +70,7 @@ export class CodexSource implements AgentSource {
     return parseCodexEvents(sourcePath);
   }
 
-  getUsage(_sourcePath: string): UsageEvent[] {
-    // Codex JSONL rollouts do not currently include per-message token usage.
-    // When upstream starts emitting it, mirror parseClaudeUsage here.
-    return [];
+  getUsage(sourcePath: string): UsageEvent[] {
+    return parseCodexUsage(sourcePath);
   }
 }
