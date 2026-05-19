@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import { logger as honoLogger } from 'hono/logger';
 import type { Database } from 'bun:sqlite';
 import { systemClock, type AgentProvider, type Clock } from '@stash/shared';
 import { AgentSourceAggregator } from '../adapters/aggregator.js';
@@ -39,6 +40,8 @@ export interface AppContext {
   codexRoot?: string;
   /** Test override: replace the default Claude/Codex sources. */
   sourcesOverride?: Map<AgentProvider, { source: AgentSource; root: string }>;
+  /** When set, every request gets logged via Hono's logger middleware. */
+  logger?: (msg: string) => void;
 }
 
 export function createApp(ctx: AppContext): Hono {
@@ -84,9 +87,10 @@ export function createApp(ctx: AppContext): Hono {
 
   const app = new Hono();
   app.use('*', cors());
+  if (ctx.logger) app.use('*', honoLogger(ctx.logger));
 
   app.get('/health', (c) =>
-    c.json({ ok: true, service: 'stash', version: '0.1.10', time: clock.nowIso() }),
+    c.json({ ok: true, service: 'stash', version: '0.1.12', time: clock.nowIso() }),
   );
 
   app.route('/api/areas', createAreasRouter(areaService));
