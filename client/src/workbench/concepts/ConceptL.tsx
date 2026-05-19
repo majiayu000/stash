@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import type { JournalEntry, Lesson, Priority, WorkItem, WorkItemStatus } from '@stash/shared';
 import { apiGet } from '../../api/client';
 import { ChecklistPanel, useChecklist } from './conceptL.checklist';
+import { useEscToClose } from './conceptL.hooks';
 import { EvidencePanel, usePendingEvidence } from './conceptL.evidence';
 import { linkSession, listLinkedSessions, unlinkSession, type LinkedSessionEdge } from '../../api/agent-sessions';
 import { createArea } from '../../api/areas';
@@ -85,6 +86,8 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
 
     return () => { cancelled = true; };
   }, [todo.id]);
+
+  useEscToClose(() => navigate(-1));
 
   async function save<K extends 'title' | 'description' | 'priority' | 'status' | 'dueAt' | 'projectId' | 'areaId' | 'labels' | 'recurrence' | 'reminderAt'>(field: K, value: WorkItem[K]) {
     if (!item) return;
@@ -326,8 +329,8 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
       </div>
 
       {/* Modal */}
-      <div className="td-overlay">
-        <div className="td-modal">
+      <div className="td-overlay" onClick={(e) => { if (e.target === e.currentTarget) navigate(-1); }}>
+        <div className="td-modal" onClick={(e) => e.stopPropagation()}>
           {/* Header */}
           <div className="td-modal-head">
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.4rem' }}>
