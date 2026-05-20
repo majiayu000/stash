@@ -61,11 +61,14 @@ matches what you're doing:
 | `/c/d`           | D — constellation | all projects as glowing nodes, click to inspect |
 | `/c/e`           | E — inbox & 4-col board | same as `/` |
 | `/c/f`           | F — file picker | jump by file path |
+| `/c/g`           | G — session detail | latest / first available agent session |
 | `/c/g/:sessionId` | G — session detail | what the agent did |
 | `/c/h`           | H — cost & burn | spend per project / model / day |
 | `/c/i`           | I — ⌘K palette | global search |
 | `/c/j`           | J — weekly review | what shipped, what's stale |
+| `/c/k`           | K — project workbench | first available project |
 | `/c/k/:projectId`| K — project workbench | intent / milestones / decisions / notes / lessons |
+| `/c/l`           | L — todo detail | first available todo |
 | `/c/l/:workItemId`| L — todo detail | edit anything, link sessions |
 | `/c/m`           | M — skills library | install + bind skills to projects |
 | `/c/n`           | N — settings | themes, projects CRUD, notifications |
@@ -104,7 +107,7 @@ client/   React + Vite + 7-theme system
           • workbench/   the shell + concepts/ (16 files) + shared widgets
           • api/         one wrapper per backend domain
 tools/    stash CLI binary (POSTs to /api/work-items/capture)
-docs/     SPEC v0.1 / v0.2 / v0.3 (workbench-design + friction-zero release)
+docs/     specs, release checklist, PRD, and product mockups
 ```
 
 The DB is one SQLite file (default `~/Library/Application Support/stash/app.db`
@@ -165,8 +168,9 @@ Release and first-user verification steps live in `docs/RELEASE_CHECKLIST.md`.
 - Real "calendar" / "terminal feed" concepts (the current ConceptC/D are
   hero+stream and constellation — repurpose or add new letters)
 
-See [`docs/SPEC_v0.4.md`](./docs/SPEC_v0.4.md) for the current access, route,
-verification, and production-readiness SPEC. See
+See [`docs/SPEC_v0.5.md`](./docs/SPEC_v0.5.md) for the production polish plan
+and next issue/PR sequence. See [`docs/SPEC_v0.4.md`](./docs/SPEC_v0.4.md) for
+the current access, route, verification, and production-readiness SPEC. See
 [`docs/SPEC_v0.3.md`](./docs/SPEC_v0.3.md) for the friction-zero feature SPEC and
 [`docs/SPEC_v0.2.md`](./docs/SPEC_v0.2.md) for the original workbench design.
 
