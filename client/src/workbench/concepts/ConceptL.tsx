@@ -71,11 +71,16 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
 
     getWorkItem(todo.id)
       .then((w) => { if (!cancelled) setItem(w); })
-      .catch(() => {});
+      .catch((error) => { if (!cancelled) reportAsyncError('load todo detail', error); });
 
     apiGet<{ data: WorkItem[] }>(`/work-items/${todo.id}/subtasks`)
       .then((res) => { if (!cancelled) setRealSubs(res.data); })
-      .catch(() => { if (!cancelled) setRealSubs([]); });
+      .catch((error) => {
+        if (!cancelled) {
+          setRealSubs([]);
+          reportAsyncError('load subtasks', error);
+        }
+      });
 
     const params = new URLSearchParams();
     if (todo.project) params.set('projectId', todo.project);
@@ -83,7 +88,12 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
     params.set('limit', '3');
     apiGet<{ data: Lesson[] }>(`/lessons/relevant?${params.toString()}`)
       .then((res) => { if (!cancelled) setLessons(res.data); })
-      .catch(() => { if (!cancelled) setLessons([]); });
+      .catch((error) => {
+        if (!cancelled) {
+          setLessons([]);
+          reportAsyncError('load relevant lessons', error);
+        }
+      });
 
     return () => { cancelled = true; };
   }, [todo.id]);

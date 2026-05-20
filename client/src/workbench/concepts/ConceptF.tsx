@@ -3,6 +3,7 @@ import type { Area, ReviewCadence } from '@stash/shared';
 import { CountUp, ShinyText } from '../../components/effects';
 import { createArea, deleteArea, listAreas, updateArea } from '../../api/areas';
 import { fmt, type WBData, type WBProject } from '../data';
+import { reportAsyncError } from '../reportAsyncError';
 import { ProgressBar, Topbar } from '../shared';
 import { slugify } from './conceptL.stubs';
 
@@ -22,7 +23,10 @@ export function ConceptF({ data, reload }: { data: WBData; reload: () => void })
   const [flash, setFlash] = useState<string | null>(null);
 
   useEffect(() => {
-    listAreas().then(setAreas).catch(() => setAreas([]));
+    listAreas().then(setAreas).catch((error) => {
+      setAreas([]);
+      reportAsyncError('load project areas', error);
+    });
   }, [projects.length]);
 
   function flashMsg(m: string) {

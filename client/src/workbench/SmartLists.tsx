@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { WorkItem } from '@stash/shared';
 import { listWorkItems, type WorkItemFilter } from '../api/work-items';
+import { reportAsyncError } from './reportAsyncError';
 
 /**
  * v0.6 — Smart Lists. Quick filter chips for the hot queries every todo user
@@ -86,7 +87,10 @@ export function SmartLists() {
         try {
           const rows = await listWorkItems(resolveFilter(l.filter));
           if (!cancelled) next[l.id] = rows.length;
-        } catch { next[l.id] = 0; }
+        } catch (error) {
+          next[l.id] = 0;
+          reportAsyncError(`load smart list count ${l.label}`, error);
+        }
       }));
       if (!cancelled) setCounts(next);
     }
@@ -102,7 +106,12 @@ export function SmartLists() {
     let cancelled = false;
     listWorkItems(resolveFilter(active.filter))
       .then((rows) => { if (!cancelled) setResults(rows); })
-      .catch(() => { if (!cancelled) setResults([]); });
+      .catch((error) => {
+        if (!cancelled) {
+          setResults([]);
+          reportAsyncError(`load smart list ${active.label}`, error);
+        }
+      });
     return () => { cancelled = true; };
   }, [active]);
 

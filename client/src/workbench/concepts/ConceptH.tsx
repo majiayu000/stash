@@ -4,7 +4,7 @@ import { getBurnSnapshot } from '../../api/analytics';
 import { listBudgets } from '../../api/budgets';
 import { CountUp } from '../../components/effects';
 import { fmt, type WBData } from '../data';
-import { StatTile, Topbar } from '../shared';
+import { LoadErrorPanel, StatTile, Topbar, toError } from '../shared';
 
 /**
  * Concept H — Cost & Burn Analytics.
@@ -27,27 +27,67 @@ export function ConceptH({ data }: { data: WBData; reload: () => void }) {
   const [snap, setSnap] = useState<BurnSnapshot | null>(null);
   const [budgets, setBudgets] = useState<Budget[]>([]);
   const [loading, setLoading] = useState(true);
+  const [analyticsError, setAnalyticsError] = useState<Error | null>(null);
+  const [budgetsError, setBudgetsError] = useState<Error | null>(null);
+  const [retryTick, setRetryTick] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
-    listBudgets().then((rows) => { if (!cancelled) setBudgets(rows); }).catch(() => {});
-    function onChange() { listBudgets().then((rows) => { if (!cancelled) setBudgets(rows); }).catch(() => {}); }
+    function refreshBudgets() {
+      listBudgets()
+        .then((rows) => {
+          if (!cancelled) {
+            setBudgets(rows);
+            setBudgetsError(null);
+          }
+        })
+        .catch((e: unknown) => { if (!cancelled) setBudgetsError(toError(e)); });
+    }
+    refreshBudgets();
+    function onChange() { refreshBudgets(); }
     window.addEventListener('stash:captured', onChange);
     return () => { cancelled = true; window.removeEventListener('stash:captured', onChange); };
-  }, []);
+  }, [retryTick]);
 
   useEffect(() => {
     let cancelled = false;
+    setLoading(true);
+    setAnalyticsError(null);
     getBurnSnapshot(30)
-      .then((s) => { if (!cancelled) { setSnap(s); setLoading(false); } })
-      .catch(() => { if (!cancelled) setLoading(false); });
+      .then((s) => {
+        if (!cancelled) {
+          setSnap(s);
+          setLoading(false);
+        }
+      })
+      .catch((e: unknown) => {
+        if (!cancelled) {
+          setAnalyticsError(toError(e));
+          setLoading(false);
+        }
+      });
     return () => { cancelled = true; };
-  }, []);
+  }, [retryTick]);
 
   if (loading) {
     return (
       <div className="dashboard-canvas">
         <div className="inner"><Topbar data={data} /><div style={{ padding: '4rem', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>loading analytics…</div></div>
+      </div>
+    );
+  }
+  if (analyticsError) {
+    return (
+      <div className="dashboard-canvas">
+        <div className="inner">
+          <Topbar data={data} />
+          <LoadErrorPanel
+            title="analytics failed to load"
+            endpoint="/api/analytics/burn?days=30"
+            error={analyticsError}
+            onRetry={() => setRetryTick((t) => t + 1)}
+          />
+        </div>
       </div>
     );
   }
@@ -160,7 +200,15 @@ export function ConceptH({ data }: { data: WBData; reload: () => void }) {
                 <span className="prompt">&gt;</span> budgets <span className="count">— {budgets.length}</span>
                 <span className="right" style={{ color: 'var(--text-muted)', fontSize: '0.7rem' }}>edit in settings</span>
               </div>
-              {budgets.length === 0 ? (
+              {budgetsError ? (
+                <LoadErrorPanel
+                  title="budgets failed to load"
+                  endpoint="/api/budgets"
+                  error={budgetsError}
+                  onRetry={() => setRetryTick((t) => t + 1)}
+                  compact
+                />
+              ) : budgets.length === 0 ? (
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
                   no budgets yet. set one in <code>settings → 💰 budgets</code>.
                 </div>

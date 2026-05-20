@@ -4,6 +4,7 @@ import { CursorGlow, LiveDot, ParticleField, Typewriter } from '../../components
 import { getBurnSnapshot } from '../../api/analytics';
 import { createWorkItem } from '../../api/work-items';
 import { fmt, type WBData } from '../data';
+import { reportAsyncError } from '../reportAsyncError';
 import { ProjectCardFull, SessionRow, Sparkline, StatTile, Topbar, TodoItem } from '../shared';
 
 const MODEL_COLORS = ['var(--neon-cyan)', 'var(--neon-purple)', 'var(--neon-green)', 'var(--neon-orange)', 'var(--neon-pink)'];
@@ -24,7 +25,9 @@ export function ConceptA({ data, reload }: { data: WBData; reload: () => void })
   const [burn, setBurn] = useState<BurnSnapshot | null>(null);
   useEffect(() => {
     let cancelled = false;
-    getBurnSnapshot(12).then((s) => { if (!cancelled) setBurn(s); }).catch(() => {});
+    getBurnSnapshot(12)
+      .then((s) => { if (!cancelled) setBurn(s); })
+      .catch((error) => { if (!cancelled) reportAsyncError('load card wall analytics', error); });
     return () => { cancelled = true; };
   }, []);
 
