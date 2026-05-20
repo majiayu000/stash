@@ -110,7 +110,7 @@ tools/    stash CLI binary (POSTs to /api/work-items/capture)
 docs/     specs, release checklist, PRD, and product mockups
 ```
 
-The DB is one SQLite file (default `~/Library/Application Support/stash/app.db`
+The DB is one SQLite file (default `~/Library/Application Support/stash/stash.db`
 on macOS). Override with `STASH_DB_PATH`.
 
 Claude/Codex JSONL roots: `CLAUDE_ROOT` (default `~/.claude`), `CODEX_ROOT`
@@ -126,6 +126,8 @@ bun run client:build     # production Vite build
 bun run client:e2e       # 12 Playwright golden paths + route smokes
 bun run test:all
 bun run doctor           # local install / paths / port checks
+bun run doctor --strict  # fail on missing first-run state or unreachable dev servers
+./tools/stash doctor     # CLI/server reachability check
 ```
 
 The pre-commit hook (VibeGuard) runs guards inline; no setup needed beyond

@@ -10,7 +10,9 @@ bun run doctor
 ```
 
 `doctor` checks the Bun version, resolved DB path, Claude/Codex roots, and the
-default server/client ports.
+default server/client ports. Non-strict mode prints next-step guidance for
+warnings. Strict mode is part of verification after the DB, server, and client
+are running.
 
 ## Seed And Run
 
@@ -33,6 +35,7 @@ Direct routes:
 ## Verify
 
 ```sh
+bun run doctor --strict
 bun run typecheck
 bun run server:test
 bun run client:test
@@ -48,6 +51,8 @@ bun run client:e2e
 
 ```sh
 bun run doctor
+bun run doctor --strict
+./tools/stash doctor
 ```
 
 Common warnings:

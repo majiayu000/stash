@@ -15,10 +15,38 @@ const args = process.argv.slice(2);
 if (args.length === 0 || args[0] === '-h' || args[0] === '--help') {
   process.stdout.write(
     `usage: stash "<text with optional tokens>"\n` +
+      `       stash doctor\n` +
       `tokens: #project @tag ^p1 !today !!due-fri *45m\n` +
       `env:    STASH_BASE_URL=${BASE}\n`,
   );
   process.exit(args.length === 0 ? 1 : 0);
+}
+
+if (args[0] === 'doctor') {
+  try {
+    const res = await fetch(`${BASE}/health`, { signal: AbortSignal.timeout(3000) });
+    if (!res.ok) {
+      process.stderr.write(`stash doctor: ${BASE}/health returned ${res.status}\n`);
+      process.exit(1);
+    }
+    const captureUrl = `${BASE}/api/work-items/capture`;
+    const capture = await fetch(captureUrl, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ raw: '' }),
+      signal: AbortSignal.timeout(3000),
+    });
+    if (capture.status !== 400) {
+      process.stderr.write(`stash doctor: ${captureUrl} returned ${capture.status}; expected empty capture to be rejected with 400\n`);
+      process.exit(1);
+    }
+    process.stdout.write(`OK server: ${BASE}\nOK capture endpoint: ${captureUrl} rejects empty input as expected\n`);
+    process.exit(0);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    process.stderr.write(`stash doctor: failed to reach ${BASE} — is the server running?\n${msg}\n`);
+    process.exit(1);
+  }
 }
 
 const raw = args.join(' ');

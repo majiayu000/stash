@@ -18,6 +18,9 @@ function envPath(name: string, fallback: string): string {
 
 const home = homedir();
 const xdgData = process.env.XDG_DATA_HOME ?? join(home, '.local', 'share');
+const defaultDataRoot = process.platform === 'darwin'
+  ? join(home, 'Library', 'Application Support')
+  : xdgData;
 
 export interface Config {
   port: number;
@@ -31,7 +34,7 @@ export interface Config {
 export function loadConfig(overrides: Partial<Config> = {}): Config {
   return {
     port: envInt('PORT', 4174),
-    dbPath: envPath('STASH_DB_PATH', join(xdgData, 'stash', 'stash.db')),
+    dbPath: envPath('STASH_DB_PATH', join(defaultDataRoot, 'stash', 'stash.db')),
     claudeRoot: envPath('CLAUDE_ROOT', join(home, '.claude')),
     codexRoot: envPath('CODEX_ROOT', join(home, '.codex')),
     inMemoryDb: process.env.STASH_IN_MEMORY === '1',

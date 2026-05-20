@@ -44,7 +44,7 @@ Open:
 
 - Client: `http://localhost:5173/`
 - Server health: `http://localhost:4174/health`
-- Default local SQLite path: `~/Library/Application Support/stash/app.db`
+- Default local SQLite path: `~/Library/Application Support/stash/stash.db`
 - Override DB path: `STASH_DB_PATH=/absolute/path/to/stash.db`
 - Override agent roots: `CLAUDE_ROOT=/path/to/claude`, `CODEX_ROOT=/path/to/codex`
 
@@ -56,7 +56,8 @@ bun run doctor
 
 `doctor` reports local install state, resolved DB paths, Claude/Codex roots, and
 whether the expected server/client ports are reachable. Missing optional local
-paths are warnings; hard environment failures should be failures.
+paths are warnings; hard environment failures should be failures. Use
+`bun run doctor --strict` when validating a real handoff or local release.
 
 ## 3. Route Contract
 
