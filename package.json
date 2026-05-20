@@ -14,6 +14,7 @@
     "client:test": "cd client && bun run test",
     "client:e2e": "cd client && bun run e2e",
     "client:typecheck": "cd client && bun x tsc --noEmit",
+    "install:cli": "bun run tools/install-cli.ts",
     "typecheck": "bun run server:typecheck && bun run client:typecheck",
     "test:all": "bun run server:test && bun run client:test",
     "seed": "bun run server/fixtures/seed.ts",

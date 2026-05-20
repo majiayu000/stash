@@ -1,59 +1,159 @@
 #!/usr/bin/env bun
 /**
- * stash add — CLI capture binary. SPEC v0.3 §3g.
+ * stash — CLI capture binary. SPEC v0.3 §3g.
  *
  * Usage:
  *   stash "buy milk"
- *   stash "fix login #aurora ^p1 !tomorrow @auth *45m"
+ *   stash add "fix login #aurora ^p1 !tomorrow @auth *45m"
+ *   stash doctor
  *
- * Reads STASH_BASE_URL (default http://localhost:4174). POSTs the raw string
- * to /api/work-items/capture so the server handles token parsing.
+ * Reads STASH_BASE_URL (default http://localhost:4174). Capture POSTs the raw
+ * string to /api/work-items/capture; doctor probes /health for reachability.
  */
 const BASE = process.env.STASH_BASE_URL ?? 'http://localhost:4174';
 const args = process.argv.slice(2);
 
-if (args.length === 0 || args[0] === '-h' || args[0] === '--help') {
+type JsonRecord = Record<string, unknown>;
+
+function isRecord(value: unknown): value is JsonRecord {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function stringValue(record: JsonRecord, key: string): string | undefined {
+  const value = record[key];
+  return typeof value === 'string' ? value : undefined;
+}
+
+function endpoint(path: string): string {
+  return new URL(path, BASE.endsWith('/') ? BASE : `${BASE}/`).toString();
+}
+
+function printUsage(exitCode: number): never {
   process.stdout.write(
     `usage: stash "<text with optional tokens>"\n` +
+      `       stash add "<text with optional tokens>"\n` +
+      `       stash doctor\n` +
       `tokens: #project @tag ^p1 !today !!due-fri *45m\n` +
       `env:    STASH_BASE_URL=${BASE}\n`,
   );
-  process.exit(args.length === 0 ? 1 : 0);
+  process.exit(exitCode);
 }
 
-const raw = args.join(' ');
-
-try {
-  const res = await fetch(`${BASE}/api/work-items/capture`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ raw }),
-    signal: AbortSignal.timeout(5000),
-  });
-  if (!res.ok) {
-    const body = await res.text();
-    process.stderr.write(`stash: server returned ${res.status}\n${body}\n`);
-    process.exit(1);
-  }
-  const json = (await res.json()) as { data: { id: string; title: string }; parsed: Record<string, unknown> };
-  const item = json.data;
-  const p = json.parsed;
-  const bits: string[] = [`✓ ${item.title}`];
-  if (p.projectName) bits.push(`#${p.projectName}`);
-  else if (p.projectId) bits.push(`#${String(p.projectId).slice(-8)}`);
-  if (Array.isArray(p.labels) && p.labels.length) bits.push(p.labels.map((l) => `@${l}`).join(' '));
-  if (p.priority) bits.push(`^${p.priority}`);
-  if (p.scheduledFor) bits.push(`!${p.scheduledFor}`);
-  if (p.dueAt) bits.push(`!!${p.dueAt}`);
-  if (p.estimateMinutes) bits.push(`*${p.estimateMinutes}m`);
-  process.stdout.write(bits.join(' ') + ` [${item.id.slice(-8)}]\n`);
-} catch (e) {
+function writeReachabilityError(e: unknown): never {
   const isTimeout = e instanceof Error && e.name === 'TimeoutError';
   const msg = e instanceof Error ? e.message : String(e);
   process.stderr.write(
     isTimeout
-      ? `stash: timed out reaching ${BASE} after 5s — is the server running?\n`
-      : `stash: failed to reach ${BASE} — is the server running?\n${msg}\n`,
+      ? `stash: timed out reaching ${BASE} after 5s - is the server running?\n`
+      : `stash: failed to reach ${BASE} - is the server running?\n${msg}\n`,
   );
   process.exit(1);
 }
+
+async function doctor(): Promise<never> {
+  const url = endpoint('/health');
+  const started = performance.now();
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
+    const body = await res.text();
+    if (!res.ok) {
+      process.stderr.write(`stash: health check returned ${res.status}\n${body}\n`);
+      process.exit(1);
+    }
+
+    let payload: unknown;
+    try {
+      payload = JSON.parse(body);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      process.stderr.write(`stash: invalid health response from ${url}\n${msg}\n`);
+      process.exit(1);
+    }
+    if (!isRecord(payload) || payload.ok !== true) {
+      process.stderr.write(`stash: unexpected health response from ${url}\n${body}\n`);
+      process.exit(1);
+    }
+
+    const elapsed = Math.round(performance.now() - started);
+    const service = stringValue(payload, 'service') ?? 'stash';
+    const version = stringValue(payload, 'version');
+    const time = stringValue(payload, 'time');
+    const suffix = [version ? `v${version}` : undefined, time].filter(Boolean).join(' · ');
+    process.stdout.write(`stash: ${service} reachable at ${BASE} (${elapsed}ms)${suffix ? ` - ${suffix}` : ''}\n`);
+    process.exit(0);
+  } catch (e) {
+    writeReachabilityError(e);
+  }
+}
+
+async function capture(raw: string): Promise<never> {
+  try {
+    const res = await fetch(endpoint('/api/work-items/capture'), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ raw }),
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) {
+      const body = await res.text();
+      process.stderr.write(`stash: server returned ${res.status}\n${body}\n`);
+      process.exit(1);
+    }
+
+    const json = (await res.json()) as unknown;
+    if (!isRecord(json) || !isRecord(json.data)) {
+      process.stderr.write('stash: capture response did not include a work item\n');
+      process.exit(1);
+    }
+    const item = json.data;
+    const parsed = isRecord(json.parsed) ? json.parsed : {};
+    const title = stringValue(item, 'title') ?? '(untitled)';
+    const id = stringValue(item, 'id') ?? '';
+    const bits: string[] = [`✓ ${title}`];
+    const projectName = stringValue(parsed, 'projectName');
+    const projectId = stringValue(parsed, 'projectId');
+    const labels = parsed.labels;
+    if (projectName) bits.push(`#${projectName}`);
+    else if (projectId) bits.push(`#${projectId.slice(-8)}`);
+    if (Array.isArray(labels) && labels.length) {
+      const safeLabels = labels.filter((l): l is string => typeof l === 'string');
+      if (safeLabels.length) bits.push(safeLabels.map((l) => `@${l}`).join(' '));
+    }
+    for (const key of ['priority', 'scheduledFor', 'dueAt', 'estimateMinutes']) {
+      const value = parsed[key];
+      if (key === 'priority' && typeof value === 'string') bits.push(`^${value}`);
+      if (key === 'scheduledFor' && typeof value === 'string') bits.push(`!${value}`);
+      if (key === 'dueAt' && typeof value === 'string') bits.push(`!!${value}`);
+      if (key === 'estimateMinutes' && typeof value === 'number') bits.push(`*${value}m`);
+    }
+    process.stdout.write(bits.join(' ') + (id ? ` [${id.slice(-8)}]\n` : '\n'));
+    process.exit(0);
+  } catch (e) {
+    writeReachabilityError(e);
+  }
+}
+
+if (args.length === 0) printUsage(1);
+
+const [command, ...rest] = args;
+if (command === '-h' || command === '--help' || command === 'help') printUsage(0);
+if (command === 'doctor' || command === '--doctor') {
+  if (rest.length > 0) {
+    process.stderr.write('stash: doctor does not accept capture text\n');
+    process.exit(1);
+  }
+  await doctor();
+}
+
+if (command?.startsWith('-')) {
+  process.stderr.write(`stash: unknown option ${command}\n`);
+  printUsage(1);
+}
+
+const captureArgs = command === 'add' ? rest : args;
+const raw = captureArgs.join(' ').trim();
+if (!raw) {
+  process.stderr.write(command === 'add' ? 'stash: add requires capture text\n' : 'stash: capture text is required\n');
+  process.exit(1);
+}
+await capture(raw);
