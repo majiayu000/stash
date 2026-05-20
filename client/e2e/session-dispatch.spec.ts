@@ -1,6 +1,5 @@
 import { test, expect } from '@playwright/test';
-
-const API = 'http://localhost:4174/api';
+import { API } from './api';
 
 /**
  * v1.0 — Concept O dispatch button composes a real prompt and either spawns

@@ -35,6 +35,16 @@ Direct routes:
 ## Verify
 
 ```sh
+bun run verify
+```
+
+`verify` runs strict diagnostics first, so use it after the demo DB, server, and
+client are running. CI uses `bun run verify:ci`, where Playwright starts isolated
+server/client processes.
+
+Expanded gates:
+
+```sh
 bun run doctor --strict
 bun run typecheck
 bun run server:test

@@ -1,6 +1,5 @@
 import { test, expect } from '@playwright/test';
-
-const API = 'http://localhost:4174/api';
+import { API } from './api';
 
 /**
  * v0.4 — verify the real editing surface in ConceptL works end-to-end.

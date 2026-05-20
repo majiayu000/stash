@@ -127,6 +127,8 @@ bun run client:e2e       # 12 Playwright golden paths + route smokes
 bun run test:all
 bun run doctor           # local install / paths / port checks
 bun run doctor --strict  # fail on missing first-run state or unreachable dev servers
+bun run verify           # strict handoff gate; run with server/client already started
+bun run verify:ci        # CI-safe gate; Playwright starts isolated services
 ./tools/stash doctor     # CLI/server reachability check
 ```
 
