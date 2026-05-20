@@ -21,10 +21,16 @@ import { ModelBadge, Tile, TodoItem, ToolBadge, Topbar } from '../shared';
  */
 export function ConceptG({ data }: { data: WBData; reload: () => void }) {
   const { projects, sessions, todos } = data;
-  const { projectId: sessionId } = useParams<{ projectId?: string }>(); // route reuses :projectId param slot
+  const {
+    projectId,
+    provider,
+    sessionId: providerQualifiedSessionId,
+  } = useParams<{ projectId?: string; provider?: string; sessionId?: string }>();
+  const routeSessionId = providerQualifiedSessionId ?? projectId;
 
-  const session = sessionId
-    ? sessions.find((s) => s.id === sessionId)
+  const session = routeSessionId
+    ? sessions.find((s) => s.id === routeSessionId && (!provider || s.provider === provider))
+      ?? sessions.find((s) => s.id === routeSessionId)
     : sessions.find((s) => s.state === 'live') ?? sessions[0];
 
   // SPEC v0.3 §9d — real session events from /api/agent-sessions/:provider/:id/events.

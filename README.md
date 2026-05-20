@@ -19,6 +19,8 @@ context surfaces itself.
 ```sh
 # 1) Install
 bun install
+cd server && bun install && cd ..
+cd client && bun install && cd ..
 
 # 2) Seed a believable demo (areas, todos, projects, milestones, decisions, lessons,
 #    plus one fake Claude JSONL so analytics has data to chew on)
@@ -61,7 +63,8 @@ matches what you're doing:
 | `/c/d`           | D — constellation | all projects as glowing nodes, click to inspect |
 | `/c/e`           | E — inbox & 4-col board | same as `/` |
 | `/c/f`           | F — file picker | jump by file path |
-| `/c/g/:provider/:sessionId` | G — session detail | what the agent did |
+| `/c/g/:sessionId` | G — session detail | what the agent did |
+| `/c/g/:provider/:sessionId` | G — session detail compatibility | provider-qualified deep link |
 | `/c/h`           | H — cost & burn | spend per project / model / day |
 | `/c/i`           | I — ⌘K palette | global search |
 | `/c/j`           | J — weekly review | what shipped, what's stale |
@@ -107,19 +110,30 @@ tools/    stash CLI binary (POSTs to /api/work-items/capture)
 docs/     SPEC v0.1 / v0.2 / v0.3 (workbench-design + friction-zero release)
 ```
 
-The DB is one SQLite file (default `~/Library/Application Support/stash/app.db`
-on macOS). Override with `STASH_DB_PATH`.
+The DB is one SQLite file (default `~/.local/share/stash/stash.db`). Override
+with `STASH_DB_PATH`.
 
 Claude/Codex JSONL roots: `CLAUDE_ROOT` (default `~/.claude`), `CODEX_ROOT`
 (default `~/.codex`).
+
+## Doctor / release checklist
+
+```sh
+bun run doctor
+```
+
+The doctor checks the Bun version, SQLite DB path, Claude/Codex roots, server
+port `4174`, and client port `5173`. See
+[`docs/RELEASE_DOCTOR.md`](./docs/RELEASE_DOCTOR.md) for the clean-user install,
+seed, run, test, and diagnosis checklist.
 
 ## Tests
 
 ```sh
 bun run typecheck        # server + client TypeScript
-bun run server:test      # 185 domain + route tests
-bun run client:test      # 2 vitest hook tests
-bun run client:e2e       # 8 Playwright golden paths
+bun run server:test      # server domain + route tests
+bun run client:test      # Vitest hook tests
+bun run client:e2e       # Playwright golden paths + every README concept route
 bun run test:all
 ```
 
