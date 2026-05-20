@@ -30,6 +30,15 @@ function envLoopbackHost(name: string, fallback: string): string {
   return host;
 }
 
+export type SessionSpawnMode = 'real' | 'disabled';
+
+function envSessionSpawnMode(name: string, fallback: SessionSpawnMode): SessionSpawnMode {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  if (raw === 'real' || raw === 'disabled') return raw;
+  throw new Error(`env ${name} must be one of real, disabled, got ${raw}`);
+}
+
 const home = homedir();
 const xdgData = process.env.XDG_DATA_HOME ?? join(home, '.local', 'share');
 const defaultDataRoot = process.platform === 'darwin'
@@ -45,6 +54,8 @@ export interface Config {
   allowedOrigins: string[];
   // When true, the connection layer creates an in-memory DB for tests.
   inMemoryDb: boolean;
+  // Controls whether /api/sessions/start may spawn a real agent CLI.
+  sessionSpawnMode: SessionSpawnMode;
 }
 
 export function loadConfig(overrides: Partial<Config> = {}): Config {
@@ -56,6 +67,7 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     codexRoot: envPath('CODEX_ROOT', join(home, '.codex')),
     allowedOrigins: envList('STASH_ALLOWED_ORIGINS'),
     inMemoryDb: process.env.STASH_IN_MEMORY === '1',
+    sessionSpawnMode: envSessionSpawnMode('STASH_SESSION_SPAWN_MODE', 'real'),
     ...overrides,
   };
 }

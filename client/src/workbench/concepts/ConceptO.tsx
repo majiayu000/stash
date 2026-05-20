@@ -301,7 +301,7 @@ export function ConceptO({ data }: { data: WBData; reload: () => void }) {
                 background: 'var(--bg-void)', border: '1px solid var(--border-hair)', borderRadius: 8,
                 padding: '0.75rem', fontFamily: 'var(--font-mono)', fontSize: '0.78rem',
                 color: 'var(--text-primary)', maxHeight: 320, overflow: 'auto', whiteSpace: 'pre-wrap',
-              }}>{result.prompt}</pre>
+              }} data-testid="dispatch-result-prompt">{result.prompt}</pre>
             </div>
             <div className="ss-section">
               <label className="ss-label">run manually</label>
