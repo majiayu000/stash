@@ -1,4 +1,5 @@
 import type { AgentProvider, AgentSession, AgentSessionEvent } from '@stash/shared';
+import type { DecisionCandidateRecord } from '@stash/shared';
 import { apiDelete, apiGet, apiPost } from './client';
 
 export interface AgentSessionWithLinks extends AgentSession {
@@ -34,19 +35,30 @@ export async function getAgentSessionEvents(
   return res.data;
 }
 
-/** SPEC v0.3 §3h — regex-extracted decision candidates from a session's JSONL. */
-export interface DecisionCandidate {
-  raw: string;
-  title: string;
-  timestamp: string;
-}
-
 export async function getDecisionCandidates(
   provider: AgentProvider,
   id: string,
-): Promise<DecisionCandidate[]> {
-  const res = await apiGet<{ data: DecisionCandidate[] }>(
+  projectId?: string,
+): Promise<DecisionCandidateRecord[]> {
+  const res = await apiGet<{ data: DecisionCandidateRecord[] }>(
     `/agent-sessions/${provider}/${encodeURIComponent(id)}/decision-candidates`,
+    { projectId },
+  );
+  return res.data;
+}
+
+export async function acceptDecisionCandidate(candidateId: string, decisionId: string): Promise<DecisionCandidateRecord> {
+  const res = await apiPost<{ data: DecisionCandidateRecord }>(
+    `/agent-sessions/decision-candidates/${encodeURIComponent(candidateId)}/accept`,
+    { decisionId },
+  );
+  return res.data;
+}
+
+export async function ignoreDecisionCandidate(candidateId: string): Promise<DecisionCandidateRecord> {
+  const res = await apiPost<{ data: DecisionCandidateRecord }>(
+    `/agent-sessions/decision-candidates/${encodeURIComponent(candidateId)}/ignore`,
+    {},
   );
   return res.data;
 }

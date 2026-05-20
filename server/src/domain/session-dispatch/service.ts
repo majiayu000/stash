@@ -1,15 +1,18 @@
+import { createHash } from 'crypto';
 import { mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import {
   systemClock,
   ulid,
+  type DispatchRun,
   type Clock,
 } from '@stash/shared';
 import type { AreaService } from '../area/service.js';
 import type { ProjectKnowledgeService } from '../project-knowledge/service.js';
 import type { SkillService } from '../skill/service.js';
 import type { WorkItemService } from '../work-item/service.js';
+import type { DispatchRunService } from './runs.js';
 
 /**
  * v1.0 — compose a real Claude/Codex starter prompt from a work item, plus
@@ -48,6 +51,8 @@ export interface DispatchResult {
   pid?: number;
   /** Diagnostic when spawned===false (binary missing, etc.). */
   spawnError?: string;
+  /** Persisted lifecycle record for this dispatch attempt. */
+  run: DispatchRun;
 }
 
 export interface ComposeResult {
@@ -62,6 +67,8 @@ export interface SessionDispatchServiceDeps {
   knowledge: ProjectKnowledgeService;
   skills: SkillService;
   clock?: Clock;
+  runs?: DispatchRunService;
+  cwd?: string;
   /** Injection seam — test harnesses can stub spawn / write. */
   spawnImpl?: (cmd: string, args: string[], stdin: string) => { pid?: number; error?: string };
   writeFileImpl?: (path: string, contents: string) => void;
@@ -69,8 +76,10 @@ export interface SessionDispatchServiceDeps {
 
 export class SessionDispatchService {
   private readonly clock: Clock;
+  private readonly cwd: string;
   constructor(private readonly deps: SessionDispatchServiceDeps) {
     this.clock = deps.clock ?? systemClock;
+    this.cwd = deps.cwd ?? process.cwd();
   }
 
   /**
@@ -99,12 +108,24 @@ export class SessionDispatchService {
   dispatch(input: DispatchInput): DispatchResult {
     const composed = this.compose(input);
     const cmd = input.tool === 'claude' ? 'claude' : 'codex';
+    const pendingRun = this.deps.runs?.create({
+      workItemId: input.workItemId,
+      provider: input.tool,
+      cwd: this.cwd,
+      promptFile: composed.promptFile,
+      promptHash: createHash('sha256').update(composed.prompt).digest('hex'),
+      spawnCommand: composed.suggestedCommand,
+    });
     const { pid, error } = (this.deps.spawnImpl ?? defaultSpawn)(cmd, [], composed.prompt);
+    const run = pendingRun
+      ? this.deps.runs!.recordSpawnResult(pendingRun.id, { pid, error })
+      : fallbackRun(input, composed, this.cwd, pid, error, this.clock.nowIso());
     return {
       ...composed,
       spawned: pid !== undefined,
       pid,
       spawnError: error,
+      run,
     };
   }
 
@@ -218,4 +239,28 @@ function defaultSpawn(cmd: string, args: string[], stdin: string): { pid?: numbe
 
 function shellEscape(s: string): string {
   return `'${s.replace(/'/g, `'\\''`)}'`;
+}
+
+function fallbackRun(
+  input: DispatchInput,
+  composed: ComposeResult,
+  cwd: string,
+  pid: number | undefined,
+  error: string | undefined,
+  now: string,
+): DispatchRun {
+  return {
+    id: 'unpersisted',
+    workItemId: input.workItemId,
+    provider: input.tool,
+    cwd,
+    promptFile: composed.promptFile,
+    promptHash: createHash('sha256').update(composed.prompt).digest('hex'),
+    spawnCommand: composed.suggestedCommand,
+    pid,
+    status: pid !== undefined ? 'spawned' : 'failed',
+    error,
+    createdAt: now,
+    updatedAt: now,
+  };
 }
