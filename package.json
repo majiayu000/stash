@@ -20,6 +20,8 @@
     "doctor": "bun run scripts/doctor.ts",
     "db:backup": "bun run server/scripts/db-backup.ts",
     "db:restore": "bun run server/scripts/db-restore.ts",
+    "verify": "bun run typecheck && bun run test:all && bun run client:build && bun run client:e2e",
+    "verify:ci": "CI=1 bun run verify",
     "seed": "bun run server/fixtures/seed.ts",
     "seed:rich": "bun run server/fixtures/seed-rich.ts",
     "seed:rich:sessions": "bun run server/fixtures/seed-rich.ts --with-sessions"

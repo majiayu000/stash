@@ -8,6 +8,8 @@ const CODEX_FIXTURE_ROOT = resolve(here, '../server/src/adapters/codex/fixtures'
 
 const CLIENT_PORT = 5173;
 const SERVER_PORT = 4174;
+const E2E_DB_PATH = resolve(here, '.playwright/stash-e2e.db');
+const RESET_E2E_DB_COMMAND = `bun -e "import { rmSync } from 'fs'; for (const suffix of ['', '-journal', '-shm', '-wal']) rmSync(process.env.STASH_DB_PATH + suffix, { force: true });"`;
 
 export default defineConfig({
   testDir: './e2e',
@@ -26,11 +28,11 @@ export default defineConfig({
   ],
   webServer: [
     {
-      command: 'bun run start',
+      command: `${RESET_E2E_DB_COMMAND} && bun run start`,
       cwd: '../server',
       port: SERVER_PORT,
       env: {
-        STASH_DB_PATH: '/tmp/stash-e2e.db',
+        STASH_DB_PATH: E2E_DB_PATH,
         PORT: String(SERVER_PORT),
         CLAUDE_ROOT: CLAUDE_FIXTURE_ROOT,
         CODEX_ROOT: CODEX_FIXTURE_ROOT,
