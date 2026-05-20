@@ -9,7 +9,7 @@ import {
   updateSkill,
 } from '../../api/skills';
 import { fmt, type WBData, type WBProject } from '../data';
-import { StatTile, Topbar } from '../shared';
+import { LoadErrorPanel, StatTile, Topbar, toError } from '../shared';
 import { slugify } from './conceptL.stubs';
 
 /**
@@ -24,10 +24,14 @@ export function ConceptM({ data }: { data: WBData; reload: () => void }) {
   const [projectSkills, setProjectSkills] = useState<Record<string, string[]>>({});
   const [selectedId, setSelectedId] = useState<string>('');
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<Error | null>(null);
+  const [retryTick, setRetryTick] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
     async function load() {
+      setLoading(true);
+      setLoadError(null);
       const fetched = await listSkills();
       if (cancelled) return;
       setSkills(fetched);
@@ -43,11 +47,16 @@ export function ConceptM({ data }: { data: WBData; reload: () => void }) {
       setProjectSkills(Object.fromEntries(entries));
       setLoading(false);
     }
-    load().catch(() => setLoading(false));
+    load().catch((e: unknown) => {
+      if (!cancelled) {
+        setLoadError(toError(e));
+        setLoading(false);
+      }
+    });
     return () => { cancelled = true; };
     // projects is loaded once with WBData; selectedId start only on first paint.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projects.length]);
+  }, [projects.length, retryTick]);
 
   async function handleToggleBinding(projectId: string, skillId: string, enabled: boolean) {
     await toggleProjectSkill(projectId, skillId, enabled);
@@ -135,6 +144,23 @@ export function ConceptM({ data }: { data: WBData; reload: () => void }) {
 
   const installedCount = skills.filter((s) => s.installed).length;
   const activeBindings = Object.values(projectSkills).reduce((sum, ids) => sum + ids.length, 0);
+
+  if (!loading && loadError) {
+    return (
+      <div className="dashboard-canvas">
+        <div className="inner" style={{ overflow: 'hidden', height: '100%' }}>
+          <Topbar data={data} />
+          <LoadErrorPanel
+            title="skills failed to load"
+            endpoint="/api/skills + /api/projects/:id/skills"
+            error={loadError}
+            onRetry={() => setRetryTick((t) => t + 1)}
+          />
+        </div>
+        <style>{conceptMStyles}</style>
+      </div>
+    );
+  }
 
   if (!loading && skills.length === 0) {
     return (

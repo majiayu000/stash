@@ -149,6 +149,56 @@ export function Topbar({ data, right }: { data: WBData; right?: ReactNode }) {
   );
 }
 
+export function toError(error: unknown): Error {
+  return error instanceof Error ? error : new Error(String(error));
+}
+
+export function LoadErrorPanel({
+  title,
+  endpoint,
+  error,
+  onRetry,
+  compact,
+}: {
+  title: string;
+  endpoint: string;
+  error: Error;
+  onRetry?: () => void;
+  compact?: boolean;
+}) {
+  return (
+    <div
+      className="surface"
+      role="alert"
+      data-testid="load-error-panel"
+      style={{
+        padding: compact ? '0.9rem' : '1.5rem',
+        borderColor: 'rgba(255,55,95,0.35)',
+        boxShadow: '0 0 0 1px rgba(255,55,95,0.08), 0 18px 40px rgba(255,55,95,0.08)',
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '1rem' }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: compact ? '0.76rem' : '0.9rem', color: 'var(--neon-pink)', fontWeight: 700 }}>
+            {title}
+          </div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 6, wordBreak: 'break-word' }}>
+            {endpoint}
+          </div>
+          <div style={{ fontFamily: 'var(--font-body)', fontSize: compact ? '0.78rem' : '0.9rem', color: 'var(--text-secondary)', marginTop: 8, lineHeight: 1.5 }}>
+            {error.message}
+          </div>
+        </div>
+        {onRetry && (
+          <button className="np-btn ghost" type="button" onClick={onRetry} style={{ flexShrink: 0, padding: compact ? '0.35rem 0.7rem' : '0.45rem 0.9rem' }}>
+            retry
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function ProgressBar({ value, thin, fat }: { value: number; thin?: boolean; fat?: boolean }) {
   const cls = ['pbar', thin && 'thin', fat && 'fat'].filter(Boolean).join(' ');
   return (
