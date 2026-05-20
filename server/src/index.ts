@@ -13,6 +13,7 @@ const app = createApp({
   db,
   claudeRoot: config.claudeRoot,
   codexRoot: config.codexRoot,
+  sessionSpawnMode: config.sessionSpawnMode,
   logger: (msg) => process.stderr.write(`${msg}\n`),
 });
 

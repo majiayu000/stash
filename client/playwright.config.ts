@@ -34,6 +34,7 @@ export default defineConfig({
         PORT: String(SERVER_PORT),
         CLAUDE_ROOT: CLAUDE_FIXTURE_ROOT,
         CODEX_ROOT: CODEX_FIXTURE_ROOT,
+        STASH_SESSION_SPAWN_MODE: 'disabled',
       },
       reuseExistingServer: false,
       timeout: 30_000,
