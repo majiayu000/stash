@@ -22,12 +22,21 @@ bun run client:dev
 
 Open `http://localhost:5173/`.
 
+Direct routes:
+
+- `/` or `/c/e`: Capture & Plan
+- `/c/a` through `/c/o`, plus `/c/prd`: concept pages
+- `/c/g/:sessionId`: session detail
+- `/c/k/:projectId`: project workbench
+- `/c/l/:workItemId`: todo detail
+
 ## Verify
 
 ```sh
 bun run typecheck
 bun run server:test
 bun run client:test
+bun run client:build
 bun run client:e2e
 ```
 

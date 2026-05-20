@@ -61,7 +61,7 @@ matches what you're doing:
 | `/c/d`           | D — constellation | all projects as glowing nodes, click to inspect |
 | `/c/e`           | E — inbox & 4-col board | same as `/` |
 | `/c/f`           | F — file picker | jump by file path |
-| `/c/g/:provider/:sessionId` | G — session detail | what the agent did |
+| `/c/g/:sessionId` | G — session detail | what the agent did |
 | `/c/h`           | H — cost & burn | spend per project / model / day |
 | `/c/i`           | I — ⌘K palette | global search |
 | `/c/j`           | J — weekly review | what shipped, what's stale |
@@ -117,8 +117,9 @@ Claude/Codex JSONL roots: `CLAUDE_ROOT` (default `~/.claude`), `CODEX_ROOT`
 
 ```sh
 bun run typecheck        # server + client TypeScript
-bun run server:test      # 185 domain + route tests
+bun run server:test      # 204 domain + route tests
 bun run client:test      # 2 vitest hook tests
+bun run client:build     # production Vite build
 bun run client:e2e       # 12 Playwright golden paths + route smokes
 bun run test:all
 bun run doctor           # local install / paths / port checks
@@ -164,7 +165,9 @@ Release and first-user verification steps live in `docs/RELEASE_CHECKLIST.md`.
 - Real "calendar" / "terminal feed" concepts (the current ConceptC/D are
   hero+stream and constellation — repurpose or add new letters)
 
-See [`docs/SPEC_v0.3.md`](./docs/SPEC_v0.3.md) for the most recent SPEC and
+See [`docs/SPEC_v0.4.md`](./docs/SPEC_v0.4.md) for the current access, route,
+verification, and production-readiness SPEC. See
+[`docs/SPEC_v0.3.md`](./docs/SPEC_v0.3.md) for the friction-zero feature SPEC and
 [`docs/SPEC_v0.2.md`](./docs/SPEC_v0.2.md) for the original workbench design.
 
 ## License

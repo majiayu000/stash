@@ -23,7 +23,7 @@ import { findConcept, type ConceptId } from './registry';
  * Concept lookup table. Adding a new concept now only requires:
  *   1) create `ConceptX.tsx` in this folder,
  *   2) import + add a `<id>: ConceptX` line below,
- *   3) flip `built: true` in registry.ts.
+ *   3) add/update the metadata row in registry.ts.
  *
  * Lookup is data-driven (map index) instead of switch dispatch, so adding a
  * concept does not balloon the function body. Future ports only touch this

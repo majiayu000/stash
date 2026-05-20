@@ -25,10 +25,10 @@ Steps:
    - Extract from `shared.tsx` + `ConceptE.tsx`. Drop dead code.
 2. Add `ConceptSwitcher.tsx` floating pill (top-right, next to ThemeSwitcher).
 3. Refactor `Workbench.tsx` to be the layout host; route content comes from `<Outlet />`.
-4. Add routes in `App.tsx`: `/`, `/c/:id`, `/c/k/:projectId`, `/c/g/:provider/:sessionId`, `/c/l/:workItemId`, `/c/prd`, fallback.
-5. Verify: `bunx tsc --noEmit`, `bunx vitest run`, manual click-through all switcher entries (404 for unbuilt concepts is fine).
+4. Add routes in `App.tsx`: `/`, `/c/:id`, `/c/k/:projectId`, `/c/g/:sessionId`, `/c/l/:workItemId`, `/c/prd`, fallback.
+5. Verify: `bunx tsc --noEmit`, `bunx vitest run`, manual click-through all switcher entries.
 
-**Done when**: switcher shows 16 entries; clicking each loads a placeholder or built concept without console errors; Concept E continues to function on `/`.
+**Done when**: switcher shows 16 entries; clicking each loads a connected concept without console errors; Concept E continues to function on `/`.
 
 ---
 
