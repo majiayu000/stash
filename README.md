@@ -119,12 +119,15 @@ Claude/Codex JSONL roots: `CLAUDE_ROOT` (default `~/.claude`), `CODEX_ROOT`
 bun run typecheck        # server + client TypeScript
 bun run server:test      # 185 domain + route tests
 bun run client:test      # 2 vitest hook tests
-bun run client:e2e       # 8 Playwright golden paths
+bun run client:e2e       # 12 Playwright golden paths + route smokes
 bun run test:all
+bun run doctor           # local install / paths / port checks
 ```
 
 The pre-commit hook (VibeGuard) runs guards inline; no setup needed beyond
 `bun install`.
+
+Release and first-user verification steps live in `docs/RELEASE_CHECKLIST.md`.
 
 ## What ships vs what's deferred
 

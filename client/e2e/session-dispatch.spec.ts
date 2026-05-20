@@ -26,5 +26,5 @@ test('Concept O dispatch composes a prompt from a real todo', async ({ page, req
 
   // Result modal renders the composed prompt — assertion proves the
   // /api/sessions/start round-trip succeeded.
-  await expect(page.locator('pre').filter({ hasText: `# Task: e2e-dispatch-${stamp}` })).toBeVisible({ timeout: 5000 });
+  await expect(page.locator('pre').filter({ hasText: `# Task: e2e-dispatch-${stamp}` }).last()).toBeVisible({ timeout: 5000 });
 });
