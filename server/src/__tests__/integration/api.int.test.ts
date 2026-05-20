@@ -41,6 +41,35 @@ describe('GET /health', () => {
   });
 });
 
+describe('browser origin guard', () => {
+  test('rejects a non-allowlisted Origin before reaching routes', async () => {
+    const { app } = setupApp();
+    const res = await app.request('/api/sessions/start', {
+      method: 'POST',
+      headers: {
+        origin: 'https://evil.example',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ workItemId: 'wi-1', tool: 'codex' }),
+    });
+
+    expect(res.status).toBe(403);
+    expect(res.headers.get('access-control-allow-origin')).toBeNull();
+    const body = (await res.json()) as any;
+    expect(body.error.code).toBe('FORBIDDEN_ORIGIN');
+  });
+
+  test('allows the local Vite client origin', async () => {
+    const { app } = setupApp();
+    const res = await app.request('/health', {
+      headers: { origin: 'http://localhost:5173' },
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('access-control-allow-origin')).toBe('http://localhost:5173');
+  });
+});
+
 describe('areas API', () => {
   test('POST creates, GET lists, PATCH updates, DELETE removes', async () => {
     const { app } = setupApp();

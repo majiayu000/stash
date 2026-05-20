@@ -16,10 +16,20 @@ function envPath(name: string, fallback: string): string {
   return raw && raw.length > 0 ? raw : fallback;
 }
 
+function envLoopbackHost(name: string, fallback: string): string {
+  const raw = process.env[name];
+  const host = raw && raw.length > 0 ? raw : fallback;
+  if (!['127.0.0.1', '::1'].includes(host)) {
+    throw new Error(`env ${name} must be a loopback host, got ${host}`);
+  }
+  return host;
+}
+
 const home = homedir();
 const xdgData = process.env.XDG_DATA_HOME ?? join(home, '.local', 'share');
 
 export interface Config {
+  host: string;
   port: number;
   dbPath: string;
   claudeRoot: string;
@@ -30,6 +40,7 @@ export interface Config {
 
 export function loadConfig(overrides: Partial<Config> = {}): Config {
   return {
+    host: envLoopbackHost('STASH_HOST', '127.0.0.1'),
     port: envInt('PORT', 4174),
     dbPath: envPath('STASH_DB_PATH', join(xdgData, 'stash', 'stash.db')),
     claudeRoot: envPath('CLAUDE_ROOT', join(home, '.claude')),

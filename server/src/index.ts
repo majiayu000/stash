@@ -16,12 +16,15 @@ const app = createApp({
   logger: (msg) => process.stderr.write(`${msg}\n`),
 });
 
-process.stderr.write(`[stash] listening on http://localhost:${config.port}\n`);
+const hostForUrl = config.host.includes(':') ? `[${config.host}]` : config.host;
+
+process.stderr.write(`[stash] listening on http://${hostForUrl}:${config.port}\n`);
 process.stderr.write(`[stash] db: ${config.inMemoryDb ? ':memory:' : config.dbPath}\n`);
 
 export { app, db, config };
 
 export default {
+  hostname: config.host,
   port: config.port,
   fetch: app.fetch,
 };

@@ -1,4 +1,4 @@
-import { Hono } from 'hono';
+import { Hono, type MiddlewareHandler } from 'hono';
 import { cors } from 'hono/cors';
 import { logger as honoLogger } from 'hono/logger';
 import type { Database } from 'bun:sqlite';
@@ -32,6 +32,25 @@ import {
 import { createProjectSkillsRouter, createSkillsRouter } from './routes/skills.js';
 import { createWorkItemsRouter } from './routes/work-items.js';
 import { createWorkboardRouter } from './routes/workboard.js';
+import { apiError } from './errors.js';
+
+export const LOCAL_CLIENT_ORIGINS = [
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+  'http://[::1]:5173',
+] as const;
+
+const allowedOrigins = new Set<string>(LOCAL_CLIENT_ORIGINS);
+
+function rejectUntrustedBrowserOrigins(): MiddlewareHandler {
+  return async (c, next) => {
+    const origin = c.req.header('origin');
+    if (origin && !allowedOrigins.has(origin)) {
+      return c.json(apiError('FORBIDDEN_ORIGIN', 'origin is not allowed'), 403);
+    }
+    await next();
+  };
+}
 
 export interface AppContext {
   db: Database;
@@ -86,7 +105,8 @@ export function createApp(ctx: AppContext): Hono {
   });
 
   const app = new Hono();
-  app.use('*', cors());
+  app.use('*', rejectUntrustedBrowserOrigins());
+  app.use('*', cors({ origin: Array.from(LOCAL_CLIENT_ORIGINS) }));
   if (ctx.logger) app.use('*', honoLogger(ctx.logger));
 
   app.get('/health', (c) =>
