@@ -3,6 +3,7 @@ import { API } from './api';
 
 test('Quick Capture dialog traps focus and closes with Escape', async ({ page }) => {
   await page.goto('/');
+  await expect(page.getByTestId('concept-e')).toBeVisible({ timeout: 10_000 });
 
   await page.keyboard.press('c');
   const dialog = page.getByRole('dialog', { name: 'quick capture' });
