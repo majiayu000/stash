@@ -26,8 +26,11 @@ Direct routes:
 
 - `/` or `/c/e`: Capture & Plan
 - `/c/a` through `/c/o`, plus `/c/prd`: concept pages
+- `/c/g`: latest or first available session detail shell
 - `/c/g/:sessionId`: session detail
+- `/c/k`: first available project workbench
 - `/c/k/:projectId`: project workbench
+- `/c/l`: first available todo detail
 - `/c/l/:workItemId`: todo detail
 
 ## Verify

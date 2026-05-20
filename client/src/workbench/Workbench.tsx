@@ -70,7 +70,19 @@ export function Workbench() {
       </div>
     );
   }
-  if (!data || !entry) return null;
+  if (!entry) {
+    return (
+      <div className="workbench-shell">
+        <div className="workbench-floating">
+          <ConceptSwitcher />
+          <ThemeSwitcher />
+        </div>
+        <UnknownConceptState conceptId={params.id ?? '(missing)'} />
+        <WorkbenchLayoutStyles />
+      </div>
+    );
+  }
+  if (!data) return null;
 
   const content = renderConcept(entry.id, data, reload);
 
@@ -88,33 +100,62 @@ export function Workbench() {
       <TodayTriage />
       {content}
 
-      <style>{`
-        .workbench-shell {
-          min-height: 100vh;
-          padding: 1.5rem;
-          position: relative;
-        }
-        .workbench-floating {
-          position: fixed;
-          top: 16px;
-          right: 24px;
-          z-index: 50;
-          display: flex;
-          flex-direction: column;
-          align-items: flex-end;
-          gap: 8px;
-        }
-        .dashboard-canvas {
-          min-height: calc(100vh - 3rem);
-          height: auto;
-        }
-        .dashboard-canvas .inner {
-          height: auto !important;
-          min-height: calc(100vh - 3rem);
-          display: flex;
-          flex-direction: column;
-        }
-      `}</style>
+      <WorkbenchLayoutStyles />
     </div>
+  );
+}
+
+function UnknownConceptState({ conceptId }: { conceptId: string }) {
+  return (
+    <div className="dashboard-canvas" data-testid="unknown-concept">
+      <div className="inner" style={{ minHeight: 'calc(100vh - 3rem)', display: 'grid', placeItems: 'center' }}>
+        <div className="surface" style={{ maxWidth: 520, padding: '2rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', textAlign: 'center' }}>
+          <div style={{ color: 'var(--neon-pink)', fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '0.75rem' }}>
+            unknown concept
+          </div>
+          <div style={{ color: 'var(--text-primary)', fontSize: '1.1rem', marginBottom: '0.6rem' }}>
+            /c/{conceptId} is not a workbench page
+          </div>
+          <div style={{ marginBottom: '1rem' }}>
+            Use the switcher or return to the daily home.
+          </div>
+          <a className="sd-action" href="/" style={{ display: 'inline-flex', textDecoration: 'none' }}>
+            open daily home
+          </a>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function WorkbenchLayoutStyles() {
+  return (
+    <style>{`
+      .workbench-shell {
+        min-height: 100vh;
+        padding: 1.5rem;
+        position: relative;
+      }
+      .workbench-floating {
+        position: fixed;
+        top: 16px;
+        right: 24px;
+        z-index: 50;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 8px;
+      }
+      .dashboard-canvas {
+        min-height: calc(100vh - 3rem);
+        height: auto;
+      }
+      .dashboard-canvas .inner {
+        height: auto !important;
+        min-height: calc(100vh - 3rem);
+        display: flex;
+        flex-direction: column;
+      }
+    `}</style>
   );
 }

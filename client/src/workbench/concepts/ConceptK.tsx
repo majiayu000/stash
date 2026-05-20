@@ -42,8 +42,9 @@ interface ProjectKnowledgeView {
  */
 export function ConceptK({ data }: { data: WBData; reload: () => void }) {
   const { projects, todos, sessions } = data;
-  const { projectId } = useParams<{ projectId?: string }>();
-  const p = projects.find((x) => x.id === projectId) ?? projects[0];
+  const { detailId: projectId } = useParams<{ detailId?: string }>();
+  const requestedProject = projectId ? projects.find((x) => x.id === projectId) : undefined;
+  const p = projectId ? requestedProject : projects[0];
 
   const [kb, setKb] = useState<ProjectKnowledgeView | null>(null);
   const [mySkills, setMySkills] = useState<Skill[]>([]);
@@ -127,11 +128,14 @@ export function ConceptK({ data }: { data: WBData; reload: () => void }) {
   }
 
   if (!p) {
+    const message = projectId
+      ? `project ${projectId} not found — open /c/k to inspect available projects`
+      : 'no projects available';
     return (
       <div className="dashboard-canvas">
         <div className="inner" style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <div className="surface" style={{ padding: '2rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-            no projects available
+            {message}
           </div>
         </div>
       </div>
@@ -451,4 +455,3 @@ function renderInline(s: string): React.ReactNode[] {
       : <Fragment key={i}>{p}</Fragment>
   );
 }
-

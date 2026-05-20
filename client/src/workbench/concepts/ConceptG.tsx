@@ -21,7 +21,7 @@ import { ModelBadge, Tile, TodoItem, ToolBadge, Topbar } from '../shared';
  */
 export function ConceptG({ data }: { data: WBData; reload: () => void }) {
   const { projects, sessions, todos } = data;
-  const { projectId: sessionId } = useParams<{ projectId?: string }>(); // route reuses :projectId param slot
+  const { detailId: sessionId } = useParams<{ detailId?: string }>();
 
   const session = sessionId
     ? sessions.find((s) => s.id === sessionId)
@@ -39,11 +39,14 @@ export function ConceptG({ data }: { data: WBData; reload: () => void }) {
   }, [session?.id, session?.provider]);
 
   if (!session) {
+    const message = sessionId
+      ? `session ${sessionId} not found — open /c/g to inspect available sessions`
+      : 'no sessions available — start one via Concept O';
     return (
       <div className="dashboard-canvas">
         <div className="inner" style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <div className="surface" style={{ padding: '2rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-            no sessions available — start one via Concept O
+            {message}
           </div>
         </div>
       </div>

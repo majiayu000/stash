@@ -35,7 +35,7 @@ import { slugify, stubSubTasks } from './conceptL.stubs';
  */
 export function ConceptL({ data, reload }: { data: WBData; reload: () => void }) {
   const { projects, todos } = data;
-  const { projectId: workItemId } = useParams<{ projectId?: string }>();
+  const { detailId: workItemId } = useParams<{ detailId?: string }>();
   const navigate = useNavigate();
 
   // Pick the todo from URL, or default to first idea/inbox, else first todo.
@@ -44,11 +44,14 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
     : todos.find((t) => t.kind === 'idea' && !t.done) ?? todos.find((t) => !t.done) ?? todos[0];
 
   if (!todo) {
+    const message = workItemId
+      ? `todo ${workItemId} not found — open /c/l to inspect available todos`
+      : 'no todos to inspect — capture one from Concept E first';
     return (
       <div className="dashboard-canvas">
         <div className="inner" style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <div className="surface" style={{ padding: '2rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-            no todos to inspect — capture one from Concept E first
+            {message}
           </div>
         </div>
       </div>
@@ -789,4 +792,3 @@ function toLocalDateTime(iso: string): string {
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
-
