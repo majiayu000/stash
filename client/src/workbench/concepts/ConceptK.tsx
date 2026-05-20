@@ -25,7 +25,7 @@ import { listProjectSkills, listSkills } from '../../api/skills';
 import { CountUp } from '../../components/effects';
 import { fmt, type WBData, type WBProject } from '../data';
 import { reportAsyncError } from '../reportAsyncError';
-import { ModelBadge, ProgressBar, SessionRow, StatusPill, Tile, Topbar, TodoItem } from '../shared';
+import { LoadErrorPanel, ModelBadge, ProgressBar, SessionRow, StatusPill, Tile, Topbar, TodoItem, toError } from '../shared';
 import { conceptKStyles } from './conceptK.styles';
 
 interface ProjectKnowledgeView {
@@ -53,11 +53,18 @@ export function ConceptK({ data }: { data: WBData; reload: () => void }) {
   const [kb, setKb] = useState<ProjectKnowledgeView | null>(null);
   const [mySkills, setMySkills] = useState<Skill[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<Error | null>(null);
+  const [retryTick, setRetryTick] = useState(0);
   // SPEC v0.3 §3h — regex'd decision candidates from this project's recent sessions.
   const [candidates, setCandidates] = useState<DecisionCandidateRecord[]>([]);
 
   async function loadKb() {
-    if (!p) return;
+    if (!p) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setLoadError(null);
     try {
       const [intent, milestones, decisions, notes, lessons, bindings, allSkills] = await Promise.all([
         getProjectIntent(p.id),
@@ -80,11 +87,12 @@ export function ConceptK({ data }: { data: WBData; reload: () => void }) {
       setLoading(false);
     } catch (error) {
       reportAsyncError('load project knowledge', error);
+      setLoadError(toError(error));
       setLoading(false);
     }
   }
 
-  useEffect(() => { setLoading(true); loadKb(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [p?.id]);
+  useEffect(() => { loadKb(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [p?.id, retryTick]);
 
   // Pull decision candidates from this project's most recent 3 sessions.
   useEffect(() => {
@@ -95,7 +103,10 @@ export function ConceptK({ data }: { data: WBData; reload: () => void }) {
     Promise.all(
       projectSessions.map((s) =>
         getDecisionCandidates(s.provider, s.id, p.id)
-          .catch(() => [] as DecisionCandidateRecord[]),
+          .catch((error) => {
+            reportAsyncError('load decision candidates', error);
+            return [] as DecisionCandidateRecord[];
+          }),
       ),
     ).then((all) => {
       if (cancelled) return;
@@ -155,10 +166,25 @@ export function ConceptK({ data }: { data: WBData; reload: () => void }) {
   const myTodos = todos.filter((t) => t.project === p.id);
   const mySessions = sessions.filter((s) => s.project === p.id);
 
-  if (loading || !kb) {
+  if (loading) {
     return (
       <div className="dashboard-canvas">
         <div className="inner"><Topbar data={data} /><div style={{ padding: '3rem', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>loading project knowledge…</div></div>
+      </div>
+    );
+  }
+  if (loadError || !kb) {
+    return (
+      <div className="dashboard-canvas">
+        <div className="inner">
+          <Topbar data={data} />
+          <LoadErrorPanel
+            title="project knowledge failed to load"
+            endpoint={`/api/projects/${p.id}/{intent,milestones,decisions,notes,lessons} + /api/projects/${p.id}/skills + /api/skills`}
+            error={loadError ?? new Error('project knowledge returned no data')}
+            onRetry={() => setRetryTick((t) => t + 1)}
+          />
+        </div>
       </div>
     );
   }

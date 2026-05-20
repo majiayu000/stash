@@ -4,7 +4,7 @@ import type { AgentSessionEvent } from '@stash/shared';
 import { getAgentSessionEvents } from '../../api/agent-sessions';
 import { LiveDot } from '../../components/effects';
 import { fmt, type WBData, type WBSession } from '../data';
-import { ModelBadge, Tile, TodoItem, ToolBadge, Topbar } from '../shared';
+import { LoadErrorPanel, ModelBadge, Tile, TodoItem, ToolBadge, Topbar, toError } from '../shared';
 
 /**
  * Concept G — Session Detail.
@@ -29,14 +29,23 @@ export function ConceptG({ data }: { data: WBData; reload: () => void }) {
 
   // SPEC v0.3 §9d — real session events from /api/agent-sessions/:provider/:id/events.
   const [events, setEvents] = useState<AgentSessionEvent[] | null>(null);
+  const [eventsError, setEventsError] = useState<Error | null>(null);
+  const [retryTick, setRetryTick] = useState(0);
   useEffect(() => {
     if (!session) return;
     let cancelled = false;
+    setEvents(null);
+    setEventsError(null);
     getAgentSessionEvents(session.provider, session.id)
       .then((res) => { if (!cancelled) setEvents(res); })
-      .catch(() => { if (!cancelled) setEvents([]); });
+      .catch((error) => {
+        if (!cancelled) {
+          setEventsError(toError(error));
+          setEvents([]);
+        }
+      });
     return () => { cancelled = true; };
-  }, [session?.id, session?.provider]);
+  }, [session?.id, session?.provider, retryTick]);
 
   if (!session) {
     return (
@@ -101,7 +110,15 @@ export function ConceptG({ data }: { data: WBData; reload: () => void }) {
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: '1.25rem', flex: 1, minHeight: 0 }}>
           {/* TRANSCRIPT */}
           <div className="transcript" style={{ minWidth: 0, overflowY: 'auto' }}>
-            {events === null ? (
+            {eventsError ? (
+              <LoadErrorPanel
+                title="session events failed to load"
+                endpoint={`/api/agent-sessions/${session.provider}/${session.id}/events`}
+                error={eventsError}
+                onRetry={() => setRetryTick((t) => t + 1)}
+                compact
+              />
+            ) : events === null ? (
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.74rem', color: 'var(--text-muted)', padding: '1rem' }}>loading events…</div>
             ) : events.length === 0 ? (
               <TranscriptSkeleton session={session} />
