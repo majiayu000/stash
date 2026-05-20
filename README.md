@@ -30,11 +30,20 @@ STASH_DB_PATH=/tmp/stash-demo.db CLAUDE_ROOT=/tmp/stash-rich-claude \
 
 # 4) Start the client (in another shell)
 bun run client:dev            # http://localhost:5173
+
+# 5) Link the shell capture command (optional, but recommended)
+bun run install:cli
+stash doctor
+stash "try shell capture @demo ^p2 !today *15m"
 ```
 
 Open `http://localhost:5173` and press `?` for the keyboard cheatsheet.
 
 ## Daily flow
+
+First-user path: open Home (`/`), capture into Inbox, open a Todo detail, attach
+project/session/evidence context, then visit Settings (`/c/n`) for themes,
+projects, and notifications.
 
 ```
 Capture:        press  c  →  type "fix login #aurora ^p1 !tomorrow @auth *45m"  →  enter
@@ -121,7 +130,7 @@ Claude/Codex JSONL roots: `CLAUDE_ROOT` (default `~/.claude`), `CODEX_ROOT`
 ```sh
 bun run typecheck        # server + client TypeScript
 bun run server:test      # 204 domain + route tests
-bun run client:test      # 2 vitest hook tests
+bun run client:test      # 8 focused Vitest tests
 bun run client:build     # production Vite build
 bun run client:e2e       # 12 Playwright golden paths + route smokes
 bun run test:all
@@ -129,6 +138,7 @@ bun run doctor           # local install / paths / port checks
 bun run doctor --strict  # fail on missing first-run state or unreachable dev servers
 bun run verify           # strict handoff gate; run with server/client already started
 bun run verify:ci        # CI-safe gate; Playwright starts isolated services
+bun run install:cli      # links tools/stash into ~/.local/bin/stash
 ./tools/stash doctor     # CLI/server reachability check
 ```
 

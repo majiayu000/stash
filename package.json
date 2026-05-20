@@ -19,6 +19,7 @@
     "doctor": "bun run scripts/doctor.ts",
     "verify": "bun run scripts/verify.ts",
     "verify:ci": "bun run scripts/verify.ts --ci",
+    "install:cli": "bun run scripts/install-cli.ts",
     "seed": "bun run server/fixtures/seed.ts",
     "seed:rich": "bun run server/fixtures/seed-rich.ts",
     "seed:rich:sessions": "bun run server/fixtures/seed-rich.ts --with-sessions"

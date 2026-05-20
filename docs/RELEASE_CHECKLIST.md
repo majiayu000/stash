@@ -24,6 +24,14 @@ bun run client:dev
 
 Open `http://localhost:5173/`.
 
+First-user smoke:
+
+1. Press `c`, enter `try UI capture @demo ^p2 !today *15m`, and confirm the
+   item appears in Inbox.
+2. Run `bun run install:cli`, then `stash doctor`.
+3. Run `stash "try shell capture @demo ^p2 !today *15m"` and confirm the item
+   appears in the UI after refresh.
+
 Direct routes:
 
 - `/` or `/c/e`: Capture & Plan
@@ -62,6 +70,7 @@ bun run client:e2e
 ```sh
 bun run doctor
 bun run doctor --strict
+bun run install:cli
 ./tools/stash doctor
 ```
 
