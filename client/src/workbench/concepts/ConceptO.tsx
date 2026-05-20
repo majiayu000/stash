@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import type { Skill, WorkItem } from '@stash/shared';
+import type { DispatchRun, Skill, WorkItem } from '@stash/shared';
 import { DEFAULT_MODEL_RATES } from '@stash/shared';
 import { listProjectSkills, listSkills } from '../../api/skills';
-import { composeSession, startSession, type DispatchResult } from '../../api/sessions';
+import { closeDispatchRun, composeSession, listDispatchRuns, startSession, type DispatchResult } from '../../api/sessions';
 import { getWorkItem } from '../../api/work-items';
 import { ShinyText } from '../../components/effects';
 import type { WBData } from '../data';
+import { reportAsyncError } from '../reportAsyncError';
 import { Topbar } from '../shared';
 
 /**
@@ -28,7 +29,14 @@ export function ConceptO({ data }: { data: WBData; reload: () => void }) {
   useEffect(() => {
     if (!todoId) { setTodo(null); return; }
     let cancelled = false;
-    getWorkItem(todoId).then((it) => { if (!cancelled) setTodo(it); }).catch(() => { if (!cancelled) setTodo(null); });
+    getWorkItem(todoId)
+      .then((it) => { if (!cancelled) setTodo(it); })
+      .catch((error) => {
+        if (!cancelled) {
+          setTodo(null);
+          reportAsyncError('load dispatch todo', error);
+        }
+      });
     return () => { cancelled = true; };
   }, [todoId]);
 
@@ -39,6 +47,7 @@ export function ConceptO({ data }: { data: WBData; reload: () => void }) {
   const [tool, setTool] = useState<'claude' | 'codex'>('claude');
   const [dispatching, setDispatching] = useState(false);
   const [result, setResult] = useState<DispatchResult | null>(null);
+  const [runs, setRuns] = useState<DispatchRun[]>([]);
   const [composedPrompt, setComposedPrompt] = useState<string>('');
   const [composing, setComposing] = useState(false);
 
@@ -49,10 +58,24 @@ export function ConceptO({ data }: { data: WBData; reload: () => void }) {
     setComposing(true);
     composeSession({ workItemId: todo.id, tool })
       .then((res) => { if (!cancelled) setComposedPrompt(res.prompt); })
-      .catch(() => { if (!cancelled) setComposedPrompt(''); })
+      .catch((error) => {
+        if (!cancelled) {
+          setComposedPrompt('');
+          reportAsyncError('compose dispatch prompt', error);
+        }
+      })
       .finally(() => { if (!cancelled) setComposing(false); });
     return () => { cancelled = true; };
   }, [todo?.id, tool]);
+
+  useEffect(() => {
+    if (!todo) { setRuns([]); return; }
+    let cancelled = false;
+    listDispatchRuns(todo.id)
+      .then((next) => { if (!cancelled) setRuns(next); })
+      .catch((error) => { if (!cancelled) reportAsyncError('load dispatch runs', error); });
+    return () => { cancelled = true; };
+  }, [todo?.id]);
 
   // Token estimate ≈ char/4. Cost ≈ tokens × input rate of the picked model
   // (assistant output adds ~1-2× more, but we don't predict that).
@@ -67,6 +90,7 @@ export function ConceptO({ data }: { data: WBData; reload: () => void }) {
     try {
       const res = await startSession({ workItemId: todo.id, tool });
       setResult(res);
+      setRuns((cur) => [res.run, ...cur.filter((r) => r.id !== res.run.id)]);
     } catch (e) {
       window.alert(e instanceof Error ? e.message : String(e));
     } finally {
@@ -81,7 +105,9 @@ export function ConceptO({ data }: { data: WBData; reload: () => void }) {
 
   useEffect(() => {
     let cancelled = false;
-    listSkills().then((all) => { if (!cancelled) setAllSkills(all); }).catch(() => {});
+    listSkills().then((all) => { if (!cancelled) setAllSkills(all); }).catch((error) => {
+      if (!cancelled) reportAsyncError('load skills', error);
+    });
     if (!selectedProject) return;
     listProjectSkills(selectedProject.id)
       .then((bindings) => {
@@ -90,11 +116,20 @@ export function ConceptO({ data }: { data: WBData; reload: () => void }) {
         listSkills().then((all) => {
           if (cancelled) return;
           setBoundSkills(all.filter((s) => enabledIds.has(s.id)));
-        }).catch(() => {});
+        }).catch((error) => { if (!cancelled) reportAsyncError('load bound skills', error); });
       })
-      .catch(() => {});
+      .catch((error) => { if (!cancelled) reportAsyncError('load project skill bindings', error); });
     return () => { cancelled = true; };
   }, [selectedProject?.id]);
+
+  async function closeRun(run: DispatchRun) {
+    try {
+      const closed = await closeDispatchRun(run.id);
+      setRuns((cur) => cur.map((r) => (r.id === closed.id ? closed : r)));
+    } catch (error) {
+      reportAsyncError('close dispatch run', error);
+    }
+  }
 
   return (
     <div className="dashboard-canvas" style={{ position: 'relative' }}>
@@ -194,6 +229,29 @@ export function ConceptO({ data }: { data: WBData; reload: () => void }) {
             )}
           </div>
 
+          {runs.length > 0 && (
+            <div className="ss-section">
+              <label className="ss-label">dispatch runs</label>
+              <div className="ss-runs" data-testid="dispatch-runs">
+                {runs.slice(0, 5).map((run) => (
+                  <div key={run.id} className="ss-run">
+                    <RunBadge status={run.status} />
+                    <div className="ss-run-main">
+                      <span>{run.provider}</span>
+                      <code>{run.promptHash.slice(0, 10)}</code>
+                      {run.pid !== undefined && <span>pid {run.pid}</span>}
+                      {run.matchedSessionId && <span>matched {run.matchedSessionId.slice(-8)}</span>}
+                      {run.error && <em>{run.error}</em>}
+                    </div>
+                    {run.status !== 'closed' && (
+                      <button type="button" onClick={() => closeRun(run)}>close</button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="ss-foot">
             <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
               {composedPrompt ? (
@@ -232,7 +290,7 @@ export function ConceptO({ data }: { data: WBData; reload: () => void }) {
                   {result.spawned ? 'session started' : 'prompt composed (cli not spawned)'}
                 </div>
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.1rem', fontWeight: 700 }}>
-                  {result.spawned ? <>pid <code>{result.pid}</code></> : 'copy + run manually'}
+                  {result.spawned ? <>pid <code>{result.pid}</code> · run <code>{result.run.status}</code></> : <>run <code>{result.run.status}</code> · copy + run manually</>}
                 </div>
               </div>
               <button className="td-close" type="button" style={{ marginLeft: 'auto' }} onClick={() => setResult(null)}>✕</button>
@@ -299,6 +357,16 @@ function SkillToggle({ s, on }: { s: Skill; on: boolean }) {
       <span>{s.name}</span>
     </button>
   );
+}
+
+function RunBadge({ status }: { status: DispatchRun['status'] }) {
+  const color =
+    status === 'spawned' ? 'var(--neon-green)' :
+    status === 'failed' ? 'var(--neon-orange)' :
+    status === 'matched' ? 'var(--neon-cyan)' :
+    status === 'closed' ? 'var(--text-muted)' :
+    'var(--neon-purple)';
+  return <span className="ss-run-badge" style={{ color, borderColor: color }}>{status}</span>;
 }
 
 const conceptOStyles = `
@@ -410,6 +478,52 @@ const conceptOStyles = `
   border-color: var(--neon-cyan);
   color: var(--neon-cyan);
   background: rgba(0,255,242,0.06);
+}
+
+.ss-runs {
+  display: grid;
+  gap: 0.45rem;
+}
+.ss-run {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--border-hair);
+  border-radius: 8px;
+  background: rgba(255,255,255,0.025);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+}
+.ss-run-badge {
+  border: 1px solid;
+  border-radius: 999px;
+  padding: 1px 7px;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+.ss-run-main {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  min-width: 0;
+  color: var(--text-muted);
+}
+.ss-run-main code { color: var(--text-primary); }
+.ss-run-main em {
+  color: var(--neon-orange);
+  font-style: normal;
+  overflow-wrap: anywhere;
+}
+.ss-run button {
+  border: 1px solid var(--border-hair);
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: 6px;
+  padding: 2px 7px;
+  font: inherit;
+  cursor: pointer;
 }
 
 .ss-ctx-grid {

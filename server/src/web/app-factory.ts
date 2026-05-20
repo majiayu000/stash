@@ -11,6 +11,8 @@ import { AreaService } from '../domain/area/service.js';
 import { EvidenceService } from '../domain/evidence/service.js';
 import { BurnService } from '../domain/analytics/burn.js';
 import { BudgetService } from '../domain/budget/service.js';
+import { DecisionCandidateService } from '../domain/capture/decision-candidates.js';
+import { DispatchRunService } from '../domain/session-dispatch/runs.js';
 import { SessionDispatchService } from '../domain/session-dispatch/service.js';
 import { WeeklyReviewService } from '../domain/analytics/weekly.js';
 import { ProjectKnowledgeService } from '../domain/project-knowledge/service.js';
@@ -54,12 +56,15 @@ export function createApp(ctx: AppContext): Hono {
   const knowledgeService = new ProjectKnowledgeService({ db: ctx.db, clock });
   const journalService = new JournalService({ db: ctx.db, clock });
   const budgetService = new BudgetService({ db: ctx.db, clock });
+  const dispatchRunService = new DispatchRunService({ db: ctx.db, clock });
+  const decisionCandidateService = new DecisionCandidateService({ db: ctx.db, clock });
   const dispatchService = new SessionDispatchService({
     workItems: workItemService,
     areas: areaService,
     knowledge: knowledgeService,
     skills: skillService,
     clock,
+    runs: dispatchRunService,
   });
 
   const sources =
@@ -99,7 +104,7 @@ export function createApp(ctx: AppContext): Hono {
     createWorkItemsRouter(workItemService, sessionLinks, evidenceService, { areaService, journal: journalService, clock }),
   );
   app.route('/api/overview', createOverviewRouter(workItemService, clock));
-  app.route('/api/agent-sessions', createAgentSessionsRouter(aggregator, sessionLinks));
+  app.route('/api/agent-sessions', createAgentSessionsRouter(aggregator, sessionLinks, decisionCandidateService));
   app.route('/api/workboard', createWorkboardRouter(workItemService, sessionLinks, aggregator));
   app.route('/api/evidence', createEvidenceRouter(evidenceService, sessionLinks, aggregator));
   app.route('/api/skills', createSkillsRouter(skillService));
@@ -108,7 +113,7 @@ export function createApp(ctx: AppContext): Hono {
   app.route('/api/lessons', createLessonsRouter(knowledgeService));
   app.route('/api/analytics', createAnalyticsRouter(burnService, weeklyService));
   app.route('/api/budgets', createBudgetsRouter(budgetService));
-  app.route('/api/sessions', createSessionsRouter(dispatchService));
+  app.route('/api/sessions', createSessionsRouter(dispatchService, dispatchRunService));
 
   return app;
 }

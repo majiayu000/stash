@@ -1,7 +1,11 @@
 import { Fragment, useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import type { Decision, Lesson, Milestone, Skill } from '@stash/shared';
-import { getDecisionCandidates, type DecisionCandidate } from '../../api/agent-sessions';
+import type { Decision, DecisionCandidateRecord, Lesson, Milestone, Skill } from '@stash/shared';
+import {
+  acceptDecisionCandidate,
+  getDecisionCandidates,
+  ignoreDecisionCandidate,
+} from '../../api/agent-sessions';
 import {
   createDecision,
   getProjectIntent,
@@ -50,8 +54,7 @@ export function ConceptK({ data }: { data: WBData; reload: () => void }) {
   const [mySkills, setMySkills] = useState<Skill[]>([]);
   const [loading, setLoading] = useState(true);
   // SPEC v0.3 §3h — regex'd decision candidates from this project's recent sessions.
-  const [candidates, setCandidates] = useState<Array<DecisionCandidate & { sessionId: string; provider: 'claude' | 'codex' }>>([]);
-  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+  const [candidates, setCandidates] = useState<DecisionCandidateRecord[]>([]);
 
   async function loadKb() {
     if (!p) return;
@@ -88,9 +91,8 @@ export function ConceptK({ data }: { data: WBData; reload: () => void }) {
     if (projectSessions.length === 0) { setCandidates([]); return; }
     Promise.all(
       projectSessions.map((s) =>
-        getDecisionCandidates(s.provider, s.id)
-          .then((cs) => cs.map((c) => ({ ...c, sessionId: s.id, provider: s.provider })))
-          .catch(() => [] as Array<DecisionCandidate & { sessionId: string; provider: 'claude' | 'codex' }>),
+        getDecisionCandidates(s.provider, s.id, p.id)
+          .catch(() => [] as DecisionCandidateRecord[]),
       ),
     ).then((all) => {
       if (cancelled) return;
@@ -107,16 +109,17 @@ export function ConceptK({ data }: { data: WBData; reload: () => void }) {
     return () => { cancelled = true; };
   }, [p?.id, sessions]);
 
-  async function acceptCandidate(c: DecisionCandidate & { sessionId: string }) {
+  async function acceptCandidate(c: DecisionCandidateRecord) {
     if (!p) return;
     try {
-      await createDecision(p.id, {
+      const decision = await createDecision(p.id, {
         title: c.title,
         body: c.raw,
         sessionId: c.sessionId,
         date: c.timestamp.slice(0, 10),
       });
-      setDismissed((s) => new Set(s).add(c.title));
+      await acceptDecisionCandidate(c.id, decision.id);
+      setCandidates((cur) => cur.map((x) => (x.id === c.id ? { ...x, status: 'accepted', decisionId: decision.id } : x)));
       // Reload decisions so the new one appears in the log.
       const fresh = await listDecisions(p.id);
       setKb((cur) => (cur ? { ...cur, decisions: fresh } : cur));
@@ -125,8 +128,13 @@ export function ConceptK({ data }: { data: WBData; reload: () => void }) {
     }
   }
 
-  function rejectCandidate(c: DecisionCandidate) {
-    setDismissed((s) => new Set(s).add(c.title));
+  async function rejectCandidate(c: DecisionCandidateRecord) {
+    try {
+      const ignored = await ignoreDecisionCandidate(c.id);
+      setCandidates((cur) => cur.map((x) => (x.id === c.id ? ignored : x)));
+    } catch (error) {
+      reportAsyncError('ignore decision candidate', error);
+    }
   }
 
   if (!p) {
@@ -226,15 +234,15 @@ export function ConceptK({ data }: { data: WBData; reload: () => void }) {
             </div>
 
             {/* SPEC v0.3 §3h — proposed decisions from recent sessions, accept/reject inline. */}
-            {candidates.filter((c) => !dismissed.has(c.title)).length > 0 && (
+            {candidates.filter((c) => c.status === 'candidate').length > 0 && (
               <div className="surface">
                 <div className="sec-head" style={{ marginBottom: '0.65rem' }}>
                   <span className="prompt">&gt;</span> 📜 proposed decisions
                   <span className="count">— from recent sessions</span>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                  {candidates.filter((c) => !dismissed.has(c.title)).slice(0, 4).map((c) => (
-                    <div key={c.title} style={{
+                  {candidates.filter((c) => c.status === 'candidate').slice(0, 4).map((c) => (
+                    <div key={c.id} style={{
                       padding: '0.55rem 0.7rem',
                       background: 'rgba(48,209,88,0.04)',
                       border: '1px solid rgba(48,209,88,0.18)',
@@ -245,7 +253,7 @@ export function ConceptK({ data }: { data: WBData; reload: () => void }) {
                         {c.title}
                       </div>
                       <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.64rem', color: 'var(--text-muted)' }}>
-                        {c.timestamp.slice(0, 10)} · session {c.sessionId.slice(-6)}
+                        {c.timestamp.slice(0, 10)} · {c.provider} session {c.sessionId.slice(-6)}
                       </div>
                       <div style={{ display: 'flex', gap: 6, marginTop: 2 }}>
                         <button
