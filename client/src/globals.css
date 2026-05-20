@@ -23,6 +23,12 @@
       animation-duration: 0.001ms !important;
       transition-duration: 0.001ms !important;
     }
+    .particle-field { display: none !important; }
+    .shiny-text,
+    .live-dot,
+    .tw-cursor {
+      animation: none !important;
+    }
   }
 
   ::selection { background: var(--neon-cyan); color: var(--bg-void); }

@@ -11,10 +11,26 @@ export interface AggregateResult {
   errors: SourceParseError[];
 }
 
+interface CacheEntry {
+  at: number;
+  result: AggregateResult;
+}
+
 export class AgentSourceAggregator {
-  constructor(private readonly sources: Map<AgentProvider, { source: AgentSource; root: string }>) {}
+  private readonly cache = new Map<string, CacheEntry>();
+
+  constructor(
+    private readonly sources: Map<AgentProvider, { source: AgentSource; root: string }>,
+    private readonly options: { cacheTtlMs?: number; now?: () => number } = {},
+  ) {}
 
   scan(options: AggregateOptions = {}): AggregateResult {
+    const cacheKey = this.cacheKey(options);
+    const now = this.options.now?.() ?? Date.now();
+    const ttl = this.options.cacheTtlMs ?? 1_000;
+    const cached = ttl > 0 ? this.cache.get(cacheKey) : undefined;
+    if (cached && now - cached.at <= ttl) return cloneResult(cached.result);
+
     const wanted = options.provider && options.provider !== 'all' ? [options.provider] : ['claude', 'codex'] as AgentProvider[];
     const sessions: AgentSession[] = [];
     const errors: SourceParseError[] = [];
@@ -36,7 +52,9 @@ export class AgentSourceAggregator {
     }
 
     sessions.sort((a, b) => (a.lastActiveAt < b.lastActiveAt ? 1 : -1));
-    return { sessions, errors };
+    const result = { sessions, errors };
+    if (ttl > 0) this.cache.set(cacheKey, { at: now, result });
+    return cloneResult(result);
   }
 
   getEvents(provider: AgentProvider, sourcePath: string): AgentSessionEvent[] {
@@ -54,4 +72,18 @@ export class AgentSourceAggregator {
   has(provider: AgentProvider): boolean {
     return this.sources.has(provider);
   }
+
+  private cacheKey(options: AggregateOptions): string {
+    return JSON.stringify({
+      provider: options.provider ?? 'all',
+      limitPerSource: options.limitPerSource ?? 0,
+    });
+  }
+}
+
+function cloneResult(result: AggregateResult): AggregateResult {
+  return {
+    sessions: result.sessions.map((s) => ({ ...s, filesTouched: [...s.filesTouched] })),
+    errors: result.errors.map((e) => ({ ...e })),
+  };
 }

@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { useReducedMotion } from './useReducedMotion';
 
 export interface ParticleFieldProps {
   /** Particles per pixel. 0.00007 ≈ 60 on a 1000×1000 panel. */
@@ -25,6 +26,7 @@ export function ParticleField({
   className = '',
 }: ParticleFieldProps) {
   const ref = useRef<HTMLCanvasElement>(null);
+  const reducedMotion = useReducedMotion();
 
   useEffect(() => {
     const canvas = ref.current;
@@ -56,11 +58,13 @@ export function ParticleField({
       }));
     };
 
-    const tick = () => {
+    const draw = () => {
       ctx.clearRect(0, 0, w, h);
       for (const p of particles) {
-        p.x += p.vx;
-        p.y += p.vy;
+        if (!reducedMotion) {
+          p.x += p.vx;
+          p.y += p.vy;
+        }
         if (p.x < 0 || p.x > w) p.vx *= -1;
         if (p.y < 0 || p.y > h) p.vy *= -1;
         ctx.fillStyle = `rgba(${color},0.7)`;
@@ -85,18 +89,23 @@ export function ParticleField({
           }
         }
       }
+    };
+
+    const tick = () => {
+      draw();
       raf = requestAnimationFrame(tick);
     };
 
     resize();
-    tick();
+    draw();
+    if (!reducedMotion) tick();
     const ro = new ResizeObserver(resize);
     ro.observe(canvas);
     return () => {
       cancelAnimationFrame(raf);
       ro.disconnect();
     };
-  }, [density, color, maxLink]);
+  }, [density, color, maxLink, reducedMotion]);
 
   return <canvas ref={ref} className={`particle-field ${className}`} aria-hidden />;
 }

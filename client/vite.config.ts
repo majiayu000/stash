@@ -21,6 +21,17 @@ export default defineConfig({
       '/health': serverTarget,
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules')) return 'vendor';
+          if (id.includes('/src/workbench/concepts/')) return 'concepts';
+          return undefined;
+        },
+      },
+    },
+  },
   test: {
     environment: 'happy-dom',
     globals: true,

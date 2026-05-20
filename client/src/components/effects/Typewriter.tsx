@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useReducedMotion } from './useReducedMotion';
 
 export interface TypewriterProps {
   phrases: string[];
@@ -18,9 +19,14 @@ export function Typewriter({
   const [idx, setIdx] = useState(0);
   const [text, setText] = useState('');
   const [phase, setPhase] = useState<'type' | 'hold' | 'erase'>('type');
+  const reducedMotion = useReducedMotion();
 
   useEffect(() => {
     if (phrases.length === 0) return;
+    if (reducedMotion) {
+      setText(phrases[0] ?? '');
+      return;
+    }
     const full = phrases[idx % phrases.length]!;
     let t: ReturnType<typeof setTimeout>;
     if (phase === 'type') {
@@ -41,7 +47,7 @@ export function Typewriter({
       }
     }
     return () => clearTimeout(t);
-  }, [text, phase, idx, phrases, speed, pause]);
+  }, [text, phase, idx, phrases, speed, pause, reducedMotion]);
 
   return (
     <span className={className}>
