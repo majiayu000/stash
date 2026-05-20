@@ -2,6 +2,11 @@
 
 Supersedes the v0.1 8-page architecture in `/SPEC.md`. v0.2 ports the full **workbench design template** (15 concepts + PRD page) faithfully — design, colors, and behaviors — onto the existing stash backend, extending it where new domains are required.
 
+Current hardening note: this is a historical design spec. The current production
+readiness plan lives in [`docs/PRODUCTION_READINESS.md`](./PRODUCTION_READINESS.md).
+The current canonical session-detail route is `/c/g/:sessionId`; the older
+provider-qualified route is tracked as a route-contract hardening item.
+
 Authoritative reference: `docs/reference/workbench-explore/` (read-only). Visual fidelity across all 7 themes (Cyber, Matrix, Synthwave, Amber, Glacier, Paper, Mono) is non-negotiable per user feedback.
 
 ---
@@ -102,7 +107,7 @@ Move to `client/src/workbench/shared/`:
 /                                    → concept E (default)
 /c/:id  (id ∈ a..o)                  → corresponding concept
 /c/k/:projectId                      → Concept K bound to a specific project
-/c/g/:provider/:sessionId            → Concept G bound to a session
+/c/g/:sessionId                      → Concept G bound to a session
 /c/l/:workItemId                     → Concept L bound to a work item
 /c/prd                               → PRD page
 *                                    → redirect to /

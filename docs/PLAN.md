@@ -2,6 +2,12 @@
 
 Phased rollout of `docs/SPEC_v0.2.md`. Each phase ends with verification commands before advancing. **No backwards-compat hacks**: delete the v0.1 GitHub-style code path entirely.
 
+Current hardening note: this is the historical v0.2 implementation plan. The
+current production-readiness plan is [`docs/PRODUCTION_READINESS.md`](./PRODUCTION_READINESS.md).
+The current canonical session-detail route is `/c/g/:sessionId`; provider-
+qualified session links are a production hardening item, not the current router
+contract.
+
 ---
 
 ## Phase 0 — Spec & alignment ✅ (this turn)
@@ -25,7 +31,7 @@ Steps:
    - Extract from `shared.tsx` + `ConceptE.tsx`. Drop dead code.
 2. Add `ConceptSwitcher.tsx` floating pill (top-right, next to ThemeSwitcher).
 3. Refactor `Workbench.tsx` to be the layout host; route content comes from `<Outlet />`.
-4. Add routes in `App.tsx`: `/`, `/c/:id`, `/c/k/:projectId`, `/c/g/:provider/:sessionId`, `/c/l/:workItemId`, `/c/prd`, fallback.
+4. Add routes in `App.tsx`: `/`, `/c/:id`, `/c/k/:projectId`, `/c/g/:sessionId`, `/c/l/:workItemId`, `/c/prd`, fallback.
 5. Verify: `bunx tsc --noEmit`, `bunx vitest run`, manual click-through all switcher entries (404 for unbuilt concepts is fine).
 
 **Done when**: switcher shows 16 entries; clicking each loads a placeholder or built concept without console errors; Concept E continues to function on `/`.
