@@ -6,6 +6,7 @@ import { systemClock, type AgentProvider, type Clock } from '@stash/shared';
 import { AgentSourceAggregator } from '../adapters/aggregator.js';
 import { ClaudeSource } from '../adapters/claude/scanner.js';
 import { CodexSource } from '../adapters/codex/scanner.js';
+import { AgentSessionCache } from '../adapters/session-cache.js';
 import type { AgentSource } from '../adapters/source.js';
 import { AreaService } from '../domain/area/service.js';
 import { EvidenceService } from '../domain/evidence/service.js';
@@ -66,11 +67,12 @@ export function createApp(ctx: AppContext): Hono {
     ctx.sourcesOverride ??
     (() => {
       const map = new Map<AgentProvider, { source: AgentSource; root: string }>();
+      const sessionCache = new AgentSessionCache(ctx.db);
       if (ctx.claudeRoot) {
-        map.set('claude', { source: new ClaudeSource(), root: ctx.claudeRoot });
+        map.set('claude', { source: new ClaudeSource(sessionCache), root: ctx.claudeRoot });
       }
       if (ctx.codexRoot) {
-        map.set('codex', { source: new CodexSource(), root: ctx.codexRoot });
+        map.set('codex', { source: new CodexSource(sessionCache), root: ctx.codexRoot });
       }
       return map;
     })();

@@ -15,25 +15,31 @@ export function createAgentSessionsRouter(
 ): Hono {
   const r = new Hono();
 
-  r.get('/', (c) => {
+  r.get('/', async (c) => {
     try {
       const { provider } = ProviderQuery.parse(c.req.query());
-      const { sessions, errors } = aggregator.scan({ provider: provider ?? 'all', limitPerSource: 100 });
+      const { sessions, errors, cache } = await aggregator.scanAsync({
+        provider: provider ?? 'all',
+        limitPerSource: 100,
+      });
       const data = sessions.map((s) => ({
         ...s,
         linkedWorkItemIds: links.workItemsForSession(s.provider, s.id),
       }));
-      return c.json({ data, errors, count: data.length });
+      return c.json({ data, errors, count: data.length, cache });
     } catch (e) {
       return handleError(c, e);
     }
   });
 
-  r.get('/:provider/:id', (c) => {
+  r.get('/:provider/:id', async (c) => {
     try {
       const provider = c.req.param('provider');
       const id = c.req.param('id');
-      const { sessions } = aggregator.scan({ provider: provider as 'claude' | 'codex', limitPerSource: 500 });
+      const { sessions, cache } = await aggregator.scanAsync({
+        provider: provider as 'claude' | 'codex',
+        limitPerSource: 500,
+      });
       const found = sessions.find((s) => s.id === id);
       if (!found) return c.json({ error: { code: 'NOT_FOUND', message: 'session not found' } }, 404);
       return c.json({
@@ -41,37 +47,38 @@ export function createAgentSessionsRouter(
           ...found,
           linkedWorkItemIds: links.workItemsForSession(found.provider, found.id),
         },
+        cache,
       });
     } catch (e) {
       return handleError(c, e);
     }
   });
 
-  r.get('/:provider/:id/events', (c) => {
+  r.get('/:provider/:id/events', async (c) => {
     try {
       const provider = c.req.param('provider') as 'claude' | 'codex';
       const id = c.req.param('id');
-      const { sessions } = aggregator.scan({ provider, limitPerSource: 500 });
+      const { sessions, cache } = await aggregator.scanAsync({ provider, limitPerSource: 500 });
       const found = sessions.find((s) => s.id === id);
       if (!found) return c.json({ error: { code: 'NOT_FOUND', message: 'session not found' } }, 404);
       const events = aggregator.getEvents(provider, found.sourcePath);
-      return c.json({ data: events, count: events.length });
+      return c.json({ data: events, count: events.length, cache });
     } catch (e) {
       return handleError(c, e);
     }
   });
 
   /** SPEC v0.3 §3h — decision candidates extracted from session events. */
-  r.get('/:provider/:id/decision-candidates', (c) => {
+  r.get('/:provider/:id/decision-candidates', async (c) => {
     try {
       const provider = c.req.param('provider') as 'claude' | 'codex';
       const id = c.req.param('id');
-      const { sessions } = aggregator.scan({ provider, limitPerSource: 500 });
+      const { sessions, cache } = await aggregator.scanAsync({ provider, limitPerSource: 500 });
       const found = sessions.find((s) => s.id === id);
       if (!found) return c.json({ error: { code: 'NOT_FOUND', message: 'session not found' } }, 404);
       const events = aggregator.getEvents(provider, found.sourcePath);
       const candidates = extractDecisions(events);
-      return c.json({ data: candidates, count: candidates.length });
+      return c.json({ data: candidates, count: candidates.length, cache });
     } catch (e) {
       return handleError(c, e);
     }

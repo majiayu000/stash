@@ -10,7 +10,7 @@ import {
   systemClock,
   type Clock,
 } from '@stash/shared';
-import type { AgentSourceAggregator } from '../../adapters/aggregator.js';
+import type { AgentSourceAggregator, AggregateResult } from '../../adapters/aggregator.js';
 import type { AreaService } from '../area/service.js';
 
 export interface BurnServiceDeps {
@@ -37,12 +37,12 @@ export class BurnService {
     this.rates = deps.rates ?? DEFAULT_MODEL_RATES;
   }
 
-  snapshot(q: BurnQuery = {}): BurnSnapshot {
+  snapshot(q: BurnQuery = {}, scanResult?: AggregateResult): BurnSnapshot {
     const days = clampDays(q.days);
     const startMs = startOfDayUtcMs(new Date(this.clock.now())) - (days - 1) * 86_400_000;
     const startIso = new Date(startMs).toISOString();
 
-    const events = this.collectEvents(startIso);
+    const events = this.collectEvents(startIso, scanResult);
     const totals = this.computeTotals(events);
     const dailySpend = this.bucketDaily(events, startMs, days);
     const hourlyHeatmap = this.bucketHourly(events);
@@ -52,11 +52,16 @@ export class BurnService {
     return { totals, dailySpend, hourlyHeatmap, modelMix, perProjectLeaderboard };
   }
 
+  async snapshotAsync(q: BurnQuery = {}): Promise<{ data: BurnSnapshot; cache: AggregateResult['cache'] }> {
+    const scan = await this.aggregator.scanAsync({});
+    return { data: this.snapshot(q, scan), cache: scan.cache };
+  }
+
   // ─── pipeline ───────────────────────────────────────────────────────────
 
-  private collectEvents(sinceIso: string): UsageEvent[] {
+  private collectEvents(sinceIso: string, scanResult?: AggregateResult): UsageEvent[] {
     const out: UsageEvent[] = [];
-    const { sessions } = this.aggregator.scan({});
+    const { sessions } = scanResult ?? this.aggregator.scan({});
     for (const s of sessions) {
       for (const e of this.aggregator.getUsage(s.provider, s.sourcePath)) {
         if (e.ts < sinceIso) continue;

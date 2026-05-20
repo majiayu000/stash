@@ -27,10 +27,10 @@ export function createWorkboardRouter(
 ): Hono {
   const r = new Hono();
 
-  r.get('/', (c) => {
+  r.get('/', async (c) => {
     try {
       const all = items.list({ includeDropped: false });
-      const sessionScan = aggregator.scan({ provider: 'all', limitPerSource: 100 });
+      const sessionScan = await aggregator.scanAsync({ provider: 'all', limitPerSource: 100 });
       const sessionsById = new Map(sessionScan.sessions.map((s) => [`${s.provider}:${s.id}`, s] as const));
 
       const projects = new Map<string, ProjectSummary>();
@@ -69,7 +69,7 @@ export function createWorkboardRouter(
         unassigned,
         parseErrors: sessionScan.errors,
       };
-      return c.json({ data: response });
+      return c.json({ data: response, cache: sessionScan.cache });
     } catch (e) {
       return handleError(c, e);
     }
