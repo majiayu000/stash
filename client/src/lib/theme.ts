@@ -23,7 +23,7 @@ function clearThemeClasses() {
 export function setTheme(id: ThemeId): void {
   clearThemeClasses();
   if (id !== DEFAULT) document.body.classList.add(`theme-${id}`);
-  try { localStorage.setItem(STORAGE_KEY, id); } catch { /* no-op */ }
+  try { localStorage.setItem(STORAGE_KEY, id); } catch { /* optional preference persistence */ }
   window.dispatchEvent(new CustomEvent('stash:themechange', { detail: { theme: id } }));
 }
 
@@ -31,7 +31,7 @@ export function getTheme(): ThemeId {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved && THEMES.some((t) => t.id === saved)) return saved as ThemeId;
-  } catch { /* no-op */ }
+  } catch { /* optional preference persistence */ }
   return DEFAULT;
 }
 

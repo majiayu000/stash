@@ -20,6 +20,7 @@ import {
 import { listProjectSkills, listSkills } from '../../api/skills';
 import { CountUp } from '../../components/effects';
 import { fmt, type WBData, type WBProject } from '../data';
+import { reportAsyncError } from '../reportAsyncError';
 import { ModelBadge, ProgressBar, SessionRow, StatusPill, Tile, Topbar, TodoItem } from '../shared';
 import { conceptKStyles } from './conceptK.styles';
 
@@ -119,7 +120,9 @@ export function ConceptK({ data }: { data: WBData; reload: () => void }) {
       // Reload decisions so the new one appears in the log.
       const fresh = await listDecisions(p.id);
       setKb((cur) => (cur ? { ...cur, decisions: fresh } : cur));
-    } catch { /* swallow */ }
+    } catch (error) {
+      reportAsyncError('accept decision candidate', error);
+    }
   }
 
   function rejectCandidate(c: DecisionCandidate) {
@@ -451,4 +454,3 @@ function renderInline(s: string): React.ReactNode[] {
       : <Fragment key={i}>{p}</Fragment>
   );
 }
-

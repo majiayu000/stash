@@ -83,7 +83,7 @@ export class SessionDispatchService {
 
     const prompt = this.composePrompt(item, input.extraInstructions);
     const dir = join(tmpdir(), 'stash-prompts');
-    try { mkdirSync(dir, { recursive: true }); } catch { /* exists */ }
+    mkdirSync(dir, { recursive: true });
     const stamp = ulid(this.clock.now());
     const promptFile = join(dir, `${input.tool}-${stamp}.md`);
     (this.deps.writeFileImpl ?? defaultWrite)(promptFile, prompt);

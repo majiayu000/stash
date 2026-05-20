@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { listWorkItems } from '../api/work-items';
+import { reportAsyncError } from './reportAsyncError';
 
 /**
  * v0.6 — fire browser notifications for reminders that fell due in the last
@@ -26,7 +27,7 @@ function loadFired(): Set<string> {
 }
 
 function persistFired(fired: Set<string>) {
-  try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(Array.from(fired))); } catch { /* quota */ }
+  try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(Array.from(fired))); } catch { /* optional notification dedupe */ }
 }
 
 export function ReminderTicker() {
@@ -65,7 +66,9 @@ export function ReminderTicker() {
         }
         persistFired(fired);
         lastTick.current = now;
-      } catch { /* swallow */ }
+      } catch (error) {
+        reportAsyncError('reminder tick', error);
+      }
     }
 
     tick();

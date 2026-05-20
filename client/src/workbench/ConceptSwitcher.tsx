@@ -20,7 +20,7 @@ export function ConceptSwitcher() {
   const active = activeFromPath(pathname);
 
   function go(id: ConceptId) {
-    try { localStorage.setItem(STORAGE_KEY, id); } catch { /* no-op */ }
+    try { localStorage.setItem(STORAGE_KEY, id); } catch { /* optional navigation memory */ }
     navigate(id === 'e' ? '/' : `/c/${id}`);
   }
 
@@ -78,6 +78,6 @@ export function getLastConcept(): ConceptId | null {
   try {
     const v = localStorage.getItem(STORAGE_KEY);
     if (v && CONCEPTS.some((c) => c.id === v)) return v as ConceptId;
-  } catch { /* no-op */ }
+  } catch { /* optional navigation memory */ }
   return null;
 }

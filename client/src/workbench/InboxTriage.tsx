@@ -6,6 +6,7 @@ import {
   togglePin,
   updateWorkItem,
 } from '../api/work-items';
+import { reportAsyncError } from './reportAsyncError';
 
 /**
  * SPEC v0.3 §3e — global inbox triage keyboard layer.
@@ -51,7 +52,9 @@ export function InboxTriage() {
           if (cur && next.some((it) => it.id === cur)) return cur;
           return next[0]?.id ?? null;
         });
-      } catch { /* silent — surface elsewhere */ }
+      } catch (error) {
+        reportAsyncError('load inbox triage', error);
+      }
     }
     reload();
     function onChange() { reload(); }

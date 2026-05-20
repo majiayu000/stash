@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { WorkItem } from '@stash/shared';
 import { listWorkItems } from '../api/work-items';
+import { reportAsyncError } from './reportAsyncError';
 
 /**
  * v0.4 — global search palette.
@@ -63,7 +64,9 @@ export function SearchPalette() {
         if (cancelled) return;
         setResults(found.slice(0, 12));
         setCursor(0);
-      } catch { /* ignore */ }
+      } catch (error) {
+        if (!cancelled) reportAsyncError('search work items', error);
+      }
     }, 120);
     return () => { cancelled = true; clearTimeout(id); };
   }, [query, open]);

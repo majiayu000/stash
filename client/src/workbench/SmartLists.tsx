@@ -40,7 +40,7 @@ function loadSaved(): SavedList[] {
 }
 
 function persistSaved(lists: SavedList[]) {
-  try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(lists)); } catch { /* quota */ }
+  try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(lists)); } catch { /* optional saved-list persistence */ }
 }
 
 function resolveFilter(f: WorkItemFilter): WorkItemFilter {

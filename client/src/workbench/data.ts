@@ -3,6 +3,7 @@
 // the original workbench (window.AppData), but the values come from real hooks.
 
 import type { AgentSession, Area, WorkItem } from '@stash/shared';
+import type { SourceHealthError } from '../api/agent-sessions';
 
 export interface WBProject {
   id: string;
@@ -67,6 +68,7 @@ export interface WBData {
   sessions: WBSession[];
   todos: WBTodo[];
   stats: WBStats;
+  sourceErrors: SourceHealthError[];
 }
 
 // ─── helpers ────────────────────────────────────────────────────────────────
@@ -130,6 +132,7 @@ function todayIso(): string {
 export interface AdaptInput {
   items: WorkItem[];
   sessions: AgentSession[];
+  sourceErrors: SourceHealthError[];
   workboardProjects: { projectId: string; itemCount: number; activeCount: number; blockedCount: number; items: WorkItem[]; sessions: AgentSession[] }[];
   areas: Area[];
 }
@@ -213,5 +216,5 @@ export function adaptToWorkbenchData(input: AdaptInput): WBData {
     todosDone: todos.filter((t) => t.done).length,
   };
 
-  return { projects, sessions, todos, stats };
+  return { projects, sessions, todos, stats, sourceErrors: input.sourceErrors };
 }

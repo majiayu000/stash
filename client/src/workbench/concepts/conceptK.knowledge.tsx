@@ -13,6 +13,7 @@ import {
   updateLesson,
   updateMilestone,
 } from '../../api/project-knowledge';
+import { reportAsyncError } from '../reportAsyncError';
 
 /**
  * Editable Knowledge sub-sections for Concept K. Extracted into its own file
@@ -116,16 +117,16 @@ export function KnowledgeMilestonesEditor({ projectId, value: milestones, onChan
   async function add() {
     const name = window.prompt('milestone name');
     if (!name?.trim()) return;
-    try { await createMilestone(projectId, { name: name.trim() }); onChange(); } catch { /* noop */ }
+    try { await createMilestone(projectId, { name: name.trim() }); onChange(); } catch (error) { reportAsyncError('create milestone', error); }
   }
   async function cycle(m: Milestone) {
     const idx = MS_STATUS_CYCLE.indexOf(m.status);
     const next = MS_STATUS_CYCLE[(idx + 1) % MS_STATUS_CYCLE.length]!;
-    try { await updateMilestone(projectId, m.id, { status: next, progress: next === 'done' ? 100 : m.progress }); onChange(); } catch { /* noop */ }
+    try { await updateMilestone(projectId, m.id, { status: next, progress: next === 'done' ? 100 : m.progress }); onChange(); } catch (error) { reportAsyncError('update milestone', error); }
   }
   async function remove(m: Milestone) {
     if (!window.confirm(`delete milestone "${m.name}"?`)) return;
-    try { await deleteMilestone(projectId, m.id); onChange(); } catch { /* noop */ }
+    try { await deleteMilestone(projectId, m.id); onChange(); } catch (error) { reportAsyncError('delete milestone', error); }
   }
 
   return (
@@ -182,17 +183,17 @@ export function KnowledgeDecisionsEditor({ projectId, value: decisions, onChange
     const title = window.prompt('decision title');
     if (!title?.trim()) return;
     const body = window.prompt('one-line reason (optional)') ?? '';
-    try { await createDecision(projectId, { title: title.trim(), body }); onChange(); } catch { /* noop */ }
+    try { await createDecision(projectId, { title: title.trim(), body }); onChange(); } catch (error) { reportAsyncError('create decision', error); }
   }
   async function edit(d: Decision) {
     const title = window.prompt('decision title', d.title);
     if (!title?.trim()) return;
     const body = window.prompt('one-line reason', d.body ?? '') ?? '';
-    try { await updateDecision(projectId, d.id, { title: title.trim(), body }); onChange(); } catch { /* noop */ }
+    try { await updateDecision(projectId, d.id, { title: title.trim(), body }); onChange(); } catch (error) { reportAsyncError('update decision', error); }
   }
   async function remove(d: Decision) {
     if (!window.confirm(`delete decision "${d.title}"?`)) return;
-    try { await deleteDecision(projectId, d.id); onChange(); } catch { /* noop */ }
+    try { await deleteDecision(projectId, d.id); onChange(); } catch (error) { reportAsyncError('delete decision', error); }
   }
 
   return (
@@ -245,20 +246,20 @@ export function KnowledgeLessonsEditor({ projectId, value: lessons, onChange }: 
     const title = window.prompt('lesson title (one line)');
     if (!title?.trim()) return;
     const body = window.prompt('details / what to remember (optional)') ?? '';
-    try { await createLesson({ title: title.trim(), body, projectId }); onChange(); } catch { /* noop */ }
+    try { await createLesson({ title: title.trim(), body, projectId }); onChange(); } catch (error) { reportAsyncError('create lesson', error); }
   }
   async function edit(l: Lesson) {
     const title = window.prompt('lesson title', l.title);
     if (!title?.trim()) return;
     const body = window.prompt('details / what to remember', l.body ?? '') ?? '';
-    try { await updateLesson(l.id, { title: title.trim(), body }); onChange(); } catch { /* noop */ }
+    try { await updateLesson(l.id, { title: title.trim(), body }); onChange(); } catch (error) { reportAsyncError('update lesson', error); }
   }
   async function toggleCross(l: Lesson) {
-    try { await updateLesson(l.id, { cross: !l.cross }); onChange(); } catch { /* noop */ }
+    try { await updateLesson(l.id, { cross: !l.cross }); onChange(); } catch (error) { reportAsyncError('toggle lesson scope', error); }
   }
   async function remove(l: Lesson) {
     if (!window.confirm(`delete lesson "${l.title}"?`)) return;
-    try { await deleteLesson(l.id); onChange(); } catch { /* noop */ }
+    try { await deleteLesson(l.id); onChange(); } catch (error) { reportAsyncError('delete lesson', error); }
   }
 
   return (

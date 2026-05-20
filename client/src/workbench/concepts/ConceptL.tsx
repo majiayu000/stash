@@ -17,6 +17,7 @@ import {
   updateWorkItem,
 } from '../../api/work-items';
 import { fmt, type WBData, type WBTodo } from '../data';
+import { reportAsyncError } from '../reportAsyncError';
 import { Topbar } from '../shared';
 import { conceptLStyles } from './conceptL.styles';
 import { slugify, stubSubTasks } from './conceptL.stubs';
@@ -115,7 +116,9 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
     try {
       const res = await apiGet<{ data: WorkItem[] }>(`/work-items/${todo.id}/subtasks`);
       setRealSubs(res.data);
-    } catch { /* ignore */ }
+    } catch (error) {
+      reportAsyncError('load subtasks', error);
+    }
   }
 
   async function addSubtask() {
@@ -143,14 +146,18 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
     try {
       await updateWorkItem(sub.id, { status: sub.status === 'done' ? 'planned' : 'done' });
       await reloadSubs();
-    } catch { /* ignore */ }
+    } catch (error) {
+      reportAsyncError('toggle subtask', error);
+    }
   }
 
   async function dropSubtask(sub: WorkItem) {
     try {
       await updateWorkItem(sub.id, { status: 'dropped' });
       await reloadSubs();
-    } catch { /* ignore */ }
+    } catch (error) {
+      reportAsyncError('drop subtask', error);
+    }
   }
 
   async function addLabel() {
@@ -177,7 +184,9 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
   const [journalEntries, setJournalEntries] = useState<JournalEntry[]>([]);
   useEffect(() => {
     let cancelled = false;
-    listJournal(journalTodoId).then((rows) => { if (!cancelled) setJournalEntries(rows); }).catch(() => {});
+    listJournal(journalTodoId)
+      .then((rows) => { if (!cancelled) setJournalEntries(rows); })
+      .catch((error) => { if (!cancelled) reportAsyncError('load journal', error); });
     return () => { cancelled = true; };
   }, [journalTodoId]);
 
@@ -196,7 +205,9 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
     try {
       await deleteJournalEntry(journalTodoId, entry.id);
       setJournalEntries((cur) => cur.filter((e) => e.id !== entry.id));
-    } catch { /* swallow */ }
+    } catch (error) {
+      reportAsyncError('delete journal entry', error);
+    }
   }
 
   const evidence = usePendingEvidence({
@@ -240,7 +251,12 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
     let cancelled = false;
     listLinkedSessions(todoId)
       .then((e) => { if (!cancelled) setLinkedEdges(e); })
-      .catch(() => { if (!cancelled) setLinkedEdges([]); });
+      .catch((error) => {
+        if (!cancelled) {
+          setLinkedEdges([]);
+          reportAsyncError('load linked sessions', error);
+        }
+      });
     return () => { cancelled = true; };
   }, [todoId]);
 
@@ -265,7 +281,9 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
     try {
       await unlinkSession(todoId, edge.provider, edge.sessionId);
       setLinkedEdges((cur) => cur.filter((e) => !(e.provider === edge.provider && e.sessionId === edge.sessionId)));
-    } catch { /* swallow */ }
+    } catch (error) {
+      reportAsyncError('unlink session', error);
+    }
   }
 
   // ─── Promote handlers ─────────────────────────────────────────────────────
@@ -789,4 +807,3 @@ function toLocalDateTime(iso: string): string {
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
-

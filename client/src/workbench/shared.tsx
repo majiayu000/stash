@@ -263,7 +263,9 @@ export function TodoItem({ t, projects, showProject = true }: { t: WBTodo; proje
     try {
       await updateWorkItem(t.id, { status: t.done ? 'planned' : 'done' });
       window.dispatchEvent(new CustomEvent('stash:captured'));
-    } catch { /* swallow; would surface via Topbar errors */ }
+    } catch (error) {
+      console.error('Failed to toggle todo status', error);
+    }
   }
 
   function openDetail(e: React.MouseEvent | React.KeyboardEvent) {

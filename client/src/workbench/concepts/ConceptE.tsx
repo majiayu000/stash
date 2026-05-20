@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { CountUp, LiveDot, ParticleField, Typewriter } from '../../components/effects';
 import { createWorkItem, updateWorkItem } from '../../api/work-items';
 import type { WBData, WBProject, WBTodo } from '../data';
+import { reportAsyncError } from '../reportAsyncError';
 import { ProgressBar, Topbar, TodoItem } from '../shared';
 
 /**
@@ -327,7 +328,9 @@ function DraggableList({ items, projects }: { items: WBTodo[]; projects: WBProje
     try {
       await updateWorkItem(movedId, { sortOrder: newOrder });
       window.dispatchEvent(new CustomEvent('stash:captured'));
-    } catch { /* swallow */ }
+    } catch (error) {
+      reportAsyncError('reorder todo', error);
+    }
   }
 
   return (

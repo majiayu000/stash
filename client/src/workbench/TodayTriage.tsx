@@ -6,6 +6,7 @@ import {
   togglePin,
   updateWorkItem,
 } from '../api/work-items';
+import { reportAsyncError } from './reportAsyncError';
 
 /**
  * v0.9 — multi-select + bulk ops for the Today list, mirroring InboxTriage.
@@ -43,7 +44,9 @@ export function TodayTriage() {
           if (cur && next.some((it) => it.id === cur)) return cur;
           return next[0]?.id ?? null;
         });
-      } catch { /* silent */ }
+      } catch (error) {
+        reportAsyncError('load today triage', error);
+      }
     }
     reload();
     function onChange() { reload(); }
