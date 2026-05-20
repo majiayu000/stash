@@ -486,9 +486,23 @@ Domain service rejects invalid transitions with `INVALID_TRANSITION`. UI buttons
 - Logs: stderr only (per project `mcp-stderr-convention`); structured JSON in prod, pretty in dev.
 - Env (loaded by `server/src/config.ts`):
   - `PORT=4174`
-  - `STASH_DB_PATH=$XDG_DATA_HOME/stash/stash.db` (or `~/.local/share/stash/stash.db`)
+  - `STASH_DB_PATH` always overrides the SQLite file path.
+  - Default SQLite path:
+    - macOS: `~/Library/Application Support/stash/stash.db`
+    - Linux/other: `${XDG_DATA_HOME:-~/.local/share}/stash/stash.db`
+  - macOS compatibility: if the legacy default
+    `~/.local/share/stash/stash.db` or
+    `~/Library/Application Support/stash/app.db` exists and the new macOS
+    `stash.db` does not, startup keeps using the existing file. Operators can
+    migrate by backing up the existing DB, copying it to
+    `~/Library/Application Support/stash/stash.db`, and rerunning
+    `bun run doctor --strict`, or by pinning `STASH_DB_PATH` to the existing
+    file.
   - `CLAUDE_ROOT=~/.claude` (for Slice 2)
   - `CODEX_ROOT=~/.codex` (for Slice 3)
+- First-run diagnostics:
+  - `bun run doctor` checks Bun, the configured DB path, Claude/Codex roots, and local dev servers.
+  - `bun run doctor --strict` fails on missing DB directory/file, invalid Bun, unreachable dev servers, or unreadable configured roots.
 
 ## 12. Open Decisions (defaults I'm taking unless you override)
 

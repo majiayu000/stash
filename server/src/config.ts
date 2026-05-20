@@ -1,3 +1,4 @@
+import { existsSync } from 'fs';
 import { homedir } from 'os';
 import { dirname, join } from 'path';
 
@@ -17,7 +18,40 @@ function envPath(name: string, fallback: string): string {
 }
 
 const home = homedir();
-const xdgData = process.env.XDG_DATA_HOME ?? join(home, '.local', 'share');
+
+export interface DefaultDbPathOptions {
+  platform?: NodeJS.Platform;
+  homeDir?: string;
+  xdgDataHome?: string;
+  pathExists?: (path: string) => boolean;
+}
+
+export function defaultDbPath(options: DefaultDbPathOptions = {}): string {
+  const platform = options.platform ?? process.platform;
+  const homeDir = options.homeDir ?? home;
+  const xdgDataHome =
+    options.xdgDataHome ?? process.env.XDG_DATA_HOME ?? join(homeDir, '.local', 'share');
+  const defaultDataRoot =
+    platform === 'darwin' ? join(homeDir, 'Library', 'Application Support') : xdgDataHome;
+  const dbDir = join(defaultDataRoot, 'stash');
+  const currentPath = join(dbDir, 'stash.db');
+
+  if (platform === 'darwin') {
+    const priorXdgPath = join(xdgDataHome, 'stash', 'stash.db');
+    const legacyPath = join(dbDir, 'app.db');
+    const pathExists = options.pathExists ?? existsSync;
+    if (!pathExists(currentPath)) {
+      if (pathExists(priorXdgPath)) {
+        return priorXdgPath;
+      }
+      if (pathExists(legacyPath)) {
+        return legacyPath;
+      }
+    }
+  }
+
+  return currentPath;
+}
 
 export interface Config {
   port: number;
@@ -30,7 +64,7 @@ export interface Config {
 }
 
 export function loadConfig(overrides: Partial<Config> = {}): Config {
-  const dbPath = overrides.dbPath ?? envPath('STASH_DB_PATH', join(xdgData, 'stash', 'stash.db'));
+  const dbPath = overrides.dbPath ?? envPath('STASH_DB_PATH', defaultDbPath());
   return {
     port: envInt('PORT', 4174),
     dbPath,

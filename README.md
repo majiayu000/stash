@@ -20,6 +20,9 @@ context surfaces itself.
 # 1) Install
 bun install
 
+# Optional: check local paths and dev servers before first launch
+bun run doctor
+
 # 2) Install the capture CLI into ~/.local/bin/stash
 bun run install:cli
 
@@ -147,9 +150,17 @@ tools/    stash CLI binary + install script (doctor probes /health; capture
 docs/     SPEC v0.1 / v0.2 / v0.3 (workbench-design + friction-zero release)
 ```
 
-The DB is one SQLite file (default
-`${XDG_DATA_HOME:-$HOME/.local/share}/stash/stash.db`).
-Override with `STASH_DB_PATH`.
+The DB is one SQLite file. `STASH_DB_PATH` always wins. Without an override,
+the default is `~/Library/Application Support/stash/stash.db` on macOS and
+`${XDG_DATA_HOME:-~/.local/share}/stash/stash.db` elsewhere.
+
+Existing macOS users are protected during the path transition: if the new
+`~/Library/Application Support/stash/stash.db` file does not exist, stash keeps
+using an existing prior default at `~/.local/share/stash/stash.db` or legacy
+`~/Library/Application Support/stash/app.db` so existing data does not
+disappear. To migrate explicitly, stop the server, back up the existing DB, copy
+it to `~/Library/Application Support/stash/stash.db`, then rerun
+`bun run doctor --strict`; or set `STASH_DB_PATH` to the existing file.
 
 Backups default to a `backups/` directory next to the DB. Override with
 `STASH_BACKUP_DIR`.
@@ -174,6 +185,8 @@ bun run server:test      # 204 domain + route tests
 bun run client:test      # 2 vitest hook tests
 bun run client:e2e       # 9 Playwright golden paths
 bun run test:all
+bun run doctor           # local install / paths / port checks
+bun run doctor --strict  # fail on missing first-run state or unreachable dev servers
 ```
 
 The pre-commit hook (VibeGuard) runs guards inline; no setup needed beyond
