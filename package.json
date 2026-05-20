@@ -16,6 +16,8 @@
     "client:typecheck": "cd client && bun x tsc --noEmit",
     "typecheck": "bun run server:typecheck && bun run client:typecheck",
     "test:all": "bun run server:test && bun run client:test",
+    "db:backup": "bun run server/scripts/db-backup.ts",
+    "db:restore": "bun run server/scripts/db-restore.ts",
     "seed": "bun run server/fixtures/seed.ts",
     "seed:rich": "bun run server/fixtures/seed-rich.ts",
     "seed:rich:sessions": "bun run server/fixtures/seed-rich.ts --with-sessions"

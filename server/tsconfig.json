@@ -8,5 +8,5 @@
       "@stash/shared/*": ["../shared/src/*"]
     }
   },
-  "include": ["src/**/*", "fixtures/**/*"]
+  "include": ["src/**/*", "fixtures/**/*", "scripts/**/*"]
 }

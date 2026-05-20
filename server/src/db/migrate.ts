@@ -30,6 +30,14 @@ export function listAppliedMigrations(db: Database): string[] {
   return rows.map((r) => r.id);
 }
 
+export function listPendingMigrations(db: Database, dir: string = MIGRATIONS_DIR): string[] {
+  const rows = db
+    .query<{ name: string }, []>("select name from sqlite_master where type = 'table' and name = '_migrations'")
+    .all();
+  const applied = rows.length === 0 ? new Set<string>() : new Set(listAppliedMigrations(db));
+  return listMigrationFiles(dir).filter((file) => !applied.has(file));
+}
+
 export interface MigrateResult {
   applied: string[];
   alreadyApplied: string[];
