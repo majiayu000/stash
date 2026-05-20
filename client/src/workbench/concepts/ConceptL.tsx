@@ -35,7 +35,7 @@ import { slugify, stubSubTasks } from './conceptL.stubs';
  */
 export function ConceptL({ data, reload }: { data: WBData; reload: () => void }) {
   const { projects, todos } = data;
-  const { projectId: workItemId } = useParams<{ projectId?: string }>();
+  const { workItemId } = useParams<{ workItemId?: string }>();
   const navigate = useNavigate();
 
   // Pick the todo from URL, or default to first idea/inbox, else first todo.
@@ -789,4 +789,3 @@ function toLocalDateTime(iso: string): string {
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
-

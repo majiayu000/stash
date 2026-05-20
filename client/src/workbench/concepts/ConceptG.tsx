@@ -21,7 +21,7 @@ import { ModelBadge, Tile, TodoItem, ToolBadge, Topbar } from '../shared';
  */
 export function ConceptG({ data }: { data: WBData; reload: () => void }) {
   const { projects, sessions, todos } = data;
-  const { projectId: sessionId } = useParams<{ projectId?: string }>(); // route reuses :projectId param slot
+  const { sessionId } = useParams<{ sessionId?: string }>();
 
   const session = sessionId
     ? sessions.find((s) => s.id === sessionId)
