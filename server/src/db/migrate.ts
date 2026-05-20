@@ -2,6 +2,7 @@ import type { Database } from 'bun:sqlite';
 import { readdirSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { fileURLToPath } from 'url';
+import { backupDatabase, type BackupDatabaseResult } from './backup.js';
 
 const MIGRATIONS_DIR = join(fileURLToPath(new URL('.', import.meta.url)), 'migrations');
 
@@ -33,16 +34,28 @@ export function listAppliedMigrations(db: Database): string[] {
 export interface MigrateResult {
   applied: string[];
   alreadyApplied: string[];
+  backup?: BackupDatabaseResult;
 }
 
-export function migrate(db: Database, dir: string = MIGRATIONS_DIR): MigrateResult {
+export interface MigrateOptions {
+  backup?: {
+    dbPath: string;
+    backupDir?: string;
+    now?: Date;
+  };
+}
+
+export function migrate(db: Database, dir: string = MIGRATIONS_DIR, options: MigrateOptions = {}): MigrateResult {
   ensureMigrationsTable(db);
   const files = listMigrationFiles(dir);
   const applied = new Set(listAppliedMigrations(db));
+  const pending = files.filter((file) => !applied.has(file));
   const newly: string[] = [];
+  const backup = pending.length > 0 && options.backup
+    ? backupDatabase(db, { ...options.backup, reason: 'migration' })
+    : undefined;
 
-  for (const file of files) {
-    if (applied.has(file)) continue;
+  for (const file of pending) {
     const sql = readFileSync(join(dir, file), 'utf8');
     db.transaction(() => {
       db.exec(sql);
@@ -57,5 +70,6 @@ export function migrate(db: Database, dir: string = MIGRATIONS_DIR): MigrateResu
   return {
     applied: newly,
     alreadyApplied: [...applied],
+    backup,
   };
 }

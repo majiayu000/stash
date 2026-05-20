@@ -1,5 +1,5 @@
 import { homedir } from 'os';
-import { join } from 'path';
+import { dirname, join } from 'path';
 
 function envInt(name: string, fallback: number): number {
   const raw = process.env[name];
@@ -22,6 +22,7 @@ const xdgData = process.env.XDG_DATA_HOME ?? join(home, '.local', 'share');
 export interface Config {
   port: number;
   dbPath: string;
+  backupDir: string;
   claudeRoot: string;
   codexRoot: string;
   // When true, the connection layer creates an in-memory DB for tests.
@@ -29,9 +30,11 @@ export interface Config {
 }
 
 export function loadConfig(overrides: Partial<Config> = {}): Config {
+  const dbPath = overrides.dbPath ?? envPath('STASH_DB_PATH', join(xdgData, 'stash', 'stash.db'));
   return {
     port: envInt('PORT', 4174),
-    dbPath: envPath('STASH_DB_PATH', join(xdgData, 'stash', 'stash.db')),
+    dbPath,
+    backupDir: overrides.backupDir ?? envPath('STASH_BACKUP_DIR', join(dirname(dbPath), 'backups')),
     claudeRoot: envPath('CLAUDE_ROOT', join(home, '.claude')),
     codexRoot: envPath('CODEX_ROOT', join(home, '.codex')),
     inMemoryDb: process.env.STASH_IN_MEMORY === '1',

@@ -4,7 +4,11 @@ import { createApp } from './web/app-factory.js';
 import { AreaService } from './domain/area/service.js';
 
 const config = defaultConfig;
-const db = openDatabaseMigrated({ path: config.dbPath, inMemory: config.inMemoryDb });
+const db = openDatabaseMigrated({
+  path: config.dbPath,
+  inMemory: config.inMemoryDb,
+  backupDir: config.backupDir,
+});
 
 // Seed default areas on first run.
 new AreaService({ db }).ensureDefaults();
@@ -18,6 +22,7 @@ const app = createApp({
 
 process.stderr.write(`[stash] listening on http://localhost:${config.port}\n`);
 process.stderr.write(`[stash] db: ${config.inMemoryDb ? ':memory:' : config.dbPath}\n`);
+if (!config.inMemoryDb) process.stderr.write(`[stash] backups: ${config.backupDir}\n`);
 
 export { app, db, config };
 
