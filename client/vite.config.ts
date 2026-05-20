@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 import { dirname, resolve } from 'path';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const serverTarget = `http://localhost:${process.env.STASH_E2E_SERVER_PORT ?? 4174}`;
+const serverTarget = `http://127.0.0.1:${process.env.STASH_E2E_SERVER_PORT ?? 4174}`;
 
 export default defineConfig({
   plugins: [react()],

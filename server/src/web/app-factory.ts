@@ -1,4 +1,4 @@
-import { Hono } from 'hono';
+import { Hono, type MiddlewareHandler } from 'hono';
 import { cors } from 'hono/cors';
 import { logger as honoLogger } from 'hono/logger';
 import type { Database } from 'bun:sqlite';
@@ -34,12 +34,35 @@ import {
 import { createProjectSkillsRouter, createSkillsRouter } from './routes/skills.js';
 import { createWorkItemsRouter } from './routes/work-items.js';
 import { createWorkboardRouter } from './routes/workboard.js';
+import { apiError } from './errors.js';
+
+export const LOCAL_CLIENT_ORIGINS = [
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+  'http://[::1]:5173',
+] as const;
+
+function resolveAllowedOrigins(extraOrigins: readonly string[] = []): string[] {
+  return Array.from(new Set([...LOCAL_CLIENT_ORIGINS, ...extraOrigins]));
+}
+
+function rejectUntrustedBrowserOrigins(allowedOrigins: ReadonlySet<string>): MiddlewareHandler {
+  return async (c, next) => {
+    const origin = c.req.header('origin');
+    if (origin && !allowedOrigins.has(origin)) {
+      return c.json(apiError('FORBIDDEN_ORIGIN', 'origin is not allowed'), 403);
+    }
+    await next();
+  };
+}
 
 export interface AppContext {
   db: Database;
   clock?: Clock;
   claudeRoot?: string;
   codexRoot?: string;
+  /** Extra browser origins allowed to call the local API, e.g. e2e client ports. */
+  allowedOrigins?: readonly string[];
   /** Test override: replace the default Claude/Codex sources. */
   sourcesOverride?: Map<AgentProvider, { source: AgentSource; root: string }>;
   /** When set, every request gets logged via Hono's logger middleware. */
@@ -90,8 +113,12 @@ export function createApp(ctx: AppContext): Hono {
     clock,
   });
 
+  const localClientOrigins = resolveAllowedOrigins(ctx.allowedOrigins);
+  const allowedOrigins = new Set<string>(localClientOrigins);
+
   const app = new Hono();
-  app.use('*', cors());
+  app.use('*', rejectUntrustedBrowserOrigins(allowedOrigins));
+  app.use('*', cors({ origin: localClientOrigins }));
   if (ctx.logger) app.use('*', honoLogger(ctx.logger));
 
   app.get('/health', (c) =>

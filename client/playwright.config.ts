@@ -10,6 +10,11 @@ const CLIENT_PORT = Number(process.env.STASH_E2E_CLIENT_PORT ?? 5173);
 const SERVER_PORT = Number(process.env.STASH_E2E_SERVER_PORT ?? 4174);
 const DB_PATH = process.env.STASH_E2E_DB_PATH ?? '/tmp/stash-e2e.db';
 const reuseExistingServer = process.env.STASH_REUSE_E2E_SERVER === '1';
+const CLIENT_ORIGINS = [
+  `http://localhost:${CLIENT_PORT}`,
+  `http://127.0.0.1:${CLIENT_PORT}`,
+  `http://[::1]:${CLIENT_PORT}`,
+].join(',');
 
 export default defineConfig({
   testDir: './e2e',
@@ -34,6 +39,7 @@ export default defineConfig({
       env: {
         STASH_DB_PATH: DB_PATH,
         PORT: String(SERVER_PORT),
+        STASH_ALLOWED_ORIGINS: CLIENT_ORIGINS,
         CLAUDE_ROOT: CLAUDE_FIXTURE_ROOT,
         CODEX_ROOT: CODEX_FIXTURE_ROOT,
       },
