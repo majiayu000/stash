@@ -3,7 +3,7 @@ import type { Area, ReviewCadence } from '@stash/shared';
 import { CountUp, ShinyText } from '../../components/effects';
 import { createArea, deleteArea, listAreas, updateArea } from '../../api/areas';
 import { fmt, type WBData, type WBProject } from '../data';
-import { ProgressBar, Topbar } from '../shared';
+import { ProgressBar, ProjectIcon, Topbar, isProjectImageIcon } from '../shared';
 import { slugify } from './conceptL.stubs';
 
 /**
@@ -146,7 +146,7 @@ function NewProjectPanel({ onCreated, onError }: {
         <div className="np-field">
           <label>name</label>
           <div className="np-input">
-            <EmojiPicker value={emoji} onPick={setEmoji} />
+            <EmojiPicker value={emoji} onPick={setEmoji} onError={onError} />
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -313,7 +313,7 @@ function EditProjectPanel({ p, area, allProjects, onPick, onSaved, onDeleted, on
 
       <div className="surface">
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem' }}>
-          <span style={{ fontSize: '2rem', filter: 'drop-shadow(0 0 14px var(--neon-cyan))' }}>{emoji || p.emoji}</span>
+          <ProjectIcon icon={emoji || p.emoji} size="2rem" style={{ filter: 'drop-shadow(0 0 14px var(--neon-cyan))' }} />
           <div style={{ flex: 1 }}>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.05rem', fontWeight: 700, color: 'var(--neon-cyan)' }}>{area.name}</div>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)' }}>{area.id.slice(0, 12)}… · created {area.createdAt.slice(0, 10)}</div>
@@ -322,11 +322,11 @@ function EditProjectPanel({ p, area, allProjects, onPick, onSaved, onDeleted, on
         </div>
 
         <div className="ep-section">
-          <label>emoji</label>
+          <label>icon</label>
           <div className="np-input" style={{ gap: 8 }}>
-            <EmojiPicker value={emoji || area.emoji || p.emoji} onPick={setEmoji} />
+            <EmojiPicker value={emoji || area.emoji || p.emoji} onPick={setEmoji} onError={onError} />
             <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-              {emoji ? 'custom' : area.emoji ? 'persisted' : 'auto (from id hash) — pick to persist'}
+              {emoji ? iconKind(emoji) : area.emoji ? 'persisted' : 'auto (from id hash) — pick to persist'}
             </span>
           </div>
         </div>
@@ -428,10 +428,55 @@ function EditProjectPanel({ p, area, allProjects, onPick, onSaved, onDeleted, on
   );
 }
 
-const PROJECT_EMOJI_OPTIONS = ['🌌', '🎨', '🤖', '🧭', '📚', '👻', '🔮', '⚡', '🚀', '🛸', '🎯', '📦', '🧪', '🔥', '💎', '🪄'];
+const PROJECT_ICON_GROUPS = [
+  { label: 'recent', icons: ['🚀', '🛸', '🎯', '📦', '🧪', '🔥', '💎', '🪄'] },
+  { label: 'work', icons: ['💼', '📁', '🗂️', '📌', '✅', '🧱', '🛠️', '⚙️', '🔧', '🧰', '📊', '🧾', '💬', '🧵', '🗓️', '🏁'] },
+  { label: 'creative', icons: ['🌌', '🎨', '✏️', '📝', '📚', '🎬', '🎧', '📷', '🖼️', '💡', '🔮', '🌈', '✨', '⭐', '🎲', '🎮'] },
+  { label: 'systems', icons: ['🤖', '🧠', '💻', '⌨️', '🛰️', '🧬', '🔬', '🧫', '🔐', '⚡', '🌐', '🗄️', '🧲', '📡', '🧩', '🧭'] },
+  { label: 'life', icons: ['🏠', '🌱', '☕', '🍜', '🏃', '🧘', '✈️', '🗺️', '⛰️', '🌊', '🌙', '☀️', '💰', '🧳', '👻', '🍀'] },
+] as const;
 
-function EmojiPicker({ value, onPick }: { value: string; onPick: (next: string) => void }) {
+const LOCAL_ICON_SIZE = 96;
+const MAX_LOCAL_ICON_BYTES = 8 * 1024 * 1024;
+
+function iconKind(icon: string): string {
+  return isProjectImageIcon(icon) ? 'local image' : 'custom';
+}
+
+function EmojiPicker({ value, onPick, onError }: {
+  value: string;
+  onPick: (next: string) => void;
+  onError?: (msg: string) => void;
+}) {
   const [open, setOpen] = useState(false);
+  const [localError, setLocalError] = useState<string | null>(null);
+
+  function reportError(message: string) {
+    setLocalError(message);
+    onError?.(message);
+  }
+
+  async function chooseLocalIcon(file: File | undefined) {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      reportError('choose an image file');
+      return;
+    }
+    if (file.size > MAX_LOCAL_ICON_BYTES) {
+      reportError('image must be under 8MB');
+      return;
+    }
+
+    try {
+      const dataUrl = await resizeLocalIcon(file);
+      setLocalError(null);
+      onPick(dataUrl);
+      setOpen(false);
+    } catch (err) {
+      reportError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
   return (
     <div style={{ position: 'relative' }}>
       <button
@@ -440,12 +485,14 @@ function EmojiPicker({ value, onPick }: { value: string; onPick: (next: string) 
         className="np-emoji-pick"
         style={{ border: 0, cursor: 'pointer' }}
         data-testid="cf-emoji-trigger"
-        aria-label="pick emoji"
-      >{value || '·'}</button>
+        aria-label="pick project icon"
+      >
+        <ProjectIcon icon={value} size="1.3rem" />
+      </button>
       {open && (
         <div
           role="dialog"
-          aria-label="emoji picker"
+          aria-label="project icon picker"
           style={{
             position: 'absolute', top: 'calc(100% + 4px)', left: 0,
             background: 'var(--bg-elevated)',
@@ -454,28 +501,57 @@ function EmojiPicker({ value, onPick }: { value: string; onPick: (next: string) 
             padding: '0.4rem', zIndex: 20,
             boxShadow: '0 12px 32px rgba(0,0,0,0.5)',
             display: 'flex', flexDirection: 'column', gap: 6,
-            minWidth: 220,
+            minWidth: 300,
+            maxWidth: 360,
           }}
-          onMouseLeave={() => setOpen(false)}
         >
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', gap: 3 }}>
-            {PROJECT_EMOJI_OPTIONS.map((e) => (
-              <button
-                key={e}
-                type="button"
-                onClick={() => { onPick(e); setOpen(false); }}
-                style={{
-                  background: value === e ? 'rgba(0,255,242,0.15)' : 'transparent',
-                  border: '1px solid ' + (value === e ? 'var(--neon-cyan)' : 'transparent'),
-                  borderRadius: 4, padding: 4, fontSize: '1.1rem', cursor: 'pointer',
-                }}
-                data-testid={`cf-emoji-${e}`}
-              >{e}</button>
+          <div className="np-emoji-scroll">
+            {PROJECT_ICON_GROUPS.map((group) => (
+              <div key={group.label} className="np-emoji-group">
+                <div className="np-emoji-group-label">{group.label}</div>
+                <div className="np-emoji-grid">
+                  {group.icons.map((e, idx) => (
+                    <button
+                      key={`${group.label}-${e}-${idx}`}
+                      type="button"
+                      onClick={() => { onPick(e); setOpen(false); }}
+                      className="np-emoji-option"
+                      style={{
+                        background: value === e ? 'rgba(0,255,242,0.15)' : 'transparent',
+                        borderColor: value === e ? 'var(--neon-cyan)' : 'transparent',
+                      }}
+                      data-testid={`cf-emoji-option-${group.label}-${idx}`}
+                      aria-label={`pick ${e}`}
+                    >
+                      {e}
+                    </button>
+                  ))}
+                </div>
+              </div>
             ))}
           </div>
+          <label className="np-local-icon">
+            <span className="np-local-icon-thumb">
+              <ProjectIcon icon={value} size="1.5rem" />
+            </span>
+            <span className="np-local-icon-text">
+              <span>local image</span>
+              <span>square-cropped and saved with this project</span>
+            </span>
+            <input
+              type="file"
+              accept="image/png,image/jpeg,image/gif,image/webp"
+              data-testid="cf-emoji-local"
+              onChange={(ev) => {
+                void chooseLocalIcon(ev.target.files?.[0]);
+                ev.target.value = '';
+              }}
+            />
+          </label>
+          {localError && <div className="np-local-error">{localError}</div>}
           <input
-            value={value}
-            onChange={(ev) => onPick(ev.target.value.slice(0, 4))}
+            value={isProjectImageIcon(value) ? '' : value}
+            onChange={(ev) => onPick(ev.target.value.slice(0, 16))}
             placeholder="custom (paste any emoji)"
             data-testid="cf-emoji-custom"
             style={{
@@ -493,6 +569,54 @@ function EmojiPicker({ value, onPick }: { value: string; onPick: (next: string) 
       )}
     </div>
   );
+}
+
+function resizeLocalIcon(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const image = new Image();
+
+    function cleanup() {
+      URL.revokeObjectURL(url);
+    }
+
+    image.onload = () => {
+      try {
+        const sourceWidth = image.naturalWidth;
+        const sourceHeight = image.naturalHeight;
+        if (!sourceWidth || !sourceHeight) {
+          throw new Error('image has no readable dimensions');
+        }
+
+        const sourceSize = Math.min(sourceWidth, sourceHeight);
+        const sx = Math.floor((sourceWidth - sourceSize) / 2);
+        const sy = Math.floor((sourceHeight - sourceSize) / 2);
+        const canvas = document.createElement('canvas');
+        canvas.width = LOCAL_ICON_SIZE;
+        canvas.height = LOCAL_ICON_SIZE;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          throw new Error('could not prepare image preview');
+        }
+
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(image, sx, sy, sourceSize, sourceSize, 0, 0, LOCAL_ICON_SIZE, LOCAL_ICON_SIZE);
+        resolve(canvas.toDataURL('image/png'));
+      } catch (err) {
+        reject(err);
+      } finally {
+        cleanup();
+      }
+    };
+
+    image.onerror = () => {
+      cleanup();
+      reject(new Error('could not read local image'));
+    };
+
+    image.src = url;
+  });
 }
 
 const conceptFStyles = `
@@ -551,7 +675,101 @@ const conceptFStyles = `
   border-radius: var(--radius-md);
   box-shadow: inset 0 0 20px rgba(0,255,242,0.04);
 }
-.np-emoji-pick { font-size: 1.2rem; cursor: pointer; padding: 2px 6px; border-radius: 4px; background: var(--bg-elevated); }
+.np-emoji-pick {
+  width: 38px;
+  height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  border-radius: 6px;
+  background: var(--bg-elevated);
+}
+.np-emoji-scroll {
+  max-height: 238px;
+  overflow-y: auto;
+  padding-right: 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.np-emoji-group { display: flex; flex-direction: column; gap: 3px; }
+.np-emoji-group-label {
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  padding: 0 2px;
+}
+.np-emoji-grid {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 3px;
+}
+.np-emoji-option {
+  border: 1px solid transparent;
+  border-radius: 5px;
+  padding: 4px;
+  min-width: 30px;
+  min-height: 30px;
+  font-size: 1.08rem;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--text-primary);
+}
+.np-emoji-option:hover {
+  border-color: var(--border-subtle) !important;
+  background: rgba(255,255,255,0.05) !important;
+}
+.np-local-icon {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px;
+  align-items: center;
+  padding: 7px 8px;
+  background: var(--bg-void);
+  border: 1px dashed var(--border-subtle);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.np-local-icon:hover { border-color: var(--border-glow); }
+.np-local-icon input { display: none; }
+.np-local-icon-thumb {
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-elevated);
+  border-radius: 5px;
+  overflow: hidden;
+}
+.np-local-icon-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  font-family: var(--font-mono);
+}
+.np-local-icon-text span:first-child {
+  font-size: 0.72rem;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+.np-local-icon-text span:last-child {
+  font-size: 0.62rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.np-local-error {
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  color: var(--neon-pink);
+}
 .np-input-text { flex: 1; font-family: var(--font-mono); font-size: 0.95rem; color: var(--text-primary); }
 
 .np-feat-list { display: flex; flex-direction: column; gap: 0.35rem; }

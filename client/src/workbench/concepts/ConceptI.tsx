@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { LiveDot } from '../../components/effects';
 import { fmt, type WBData } from '../data';
-import { ProjectCardFull, Topbar } from '../shared';
+import { ProjectCardFull, ProjectIcon, Topbar } from '../shared';
 
 /**
  * Concept I — Command Palette (⌘K).
@@ -86,7 +86,7 @@ export function ConceptI({ data }: { data: WBData; reload: () => void }) {
                 : filteredProjects.slice(0, 5).map((p, i) => (
                   <CpItem
                     key={p.id}
-                    icon={p.emoji}
+                    icon={<ProjectIcon icon={p.emoji} size="1rem" />}
                     title={p.name}
                     selected={i === 0}
                     hint={<><span style={{ color: 'var(--neon-cyan)' }}>{p.progress}%</span> · {p.todoCount} todo</>}
@@ -125,7 +125,7 @@ export function ConceptI({ data }: { data: WBData; reload: () => void }) {
                       icon={s.tool === 'codex' ? '$' : '>'}
                       iconColor={s.tool === 'codex' ? 'var(--neon-purple)' : 'var(--neon-cyan)'}
                       title={s.title}
-                      hint={<>{proj?.emoji} {proj?.name ?? s.project} · {s.model} · {fmt.k(s.tokens)} tok · {fmt.ago(s.at)}</>}
+                      hint={<span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><ProjectIcon icon={proj?.emoji} size="0.85rem" /> {proj?.name ?? s.project} · {s.model} · {fmt.k(s.tokens)} tok · {fmt.ago(s.at)}</span>}
                       badge={s.state === 'live' ? <span className="sess-state live" style={{ margin: 0 }}><LiveDot color="var(--neon-green)" /> live</span> : null}
                       onClick={() => navigate(`/c/g/${s.id}`)}
                     />
@@ -165,7 +165,7 @@ function CpGroup({ label, children }: { label: string; children: ReactNode }) {
 }
 
 function CpItem({ icon, iconColor, title, hint, kbd, badge, selected, onClick }: {
-  icon: string; iconColor?: string; title: string;
+  icon: ReactNode; iconColor?: string; title: string;
   hint?: ReactNode; kbd?: string; badge?: ReactNode; selected?: boolean; onClick?: () => void;
 }) {
   return (

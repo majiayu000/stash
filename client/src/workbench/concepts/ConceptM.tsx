@@ -9,7 +9,7 @@ import {
   updateSkill,
 } from '../../api/skills';
 import { fmt, type WBData, type WBProject } from '../data';
-import { StatTile, Topbar } from '../shared';
+import { ProjectIcon, StatTile, Topbar } from '../shared';
 import { slugify } from './conceptL.stubs';
 
 /**
@@ -286,7 +286,7 @@ function SkillCard({ s, selected, onClick, bindings }: { s: Skill; selected: boo
           : <span className="sk-uninstalled">○ not installed</span>}
         {bindings.length > 0 && (
           <span className="sk-bindings">
-            {bindings.slice(0, 4).map((p) => <span key={p.id} className="sk-binding-emoji" title={p.name}>{p.emoji}</span>)}
+            {bindings.slice(0, 4).map((p) => <ProjectIcon key={p.id} icon={p.emoji} className="sk-binding-emoji" size="1rem" title={p.name} />)}
             {bindings.length > 4 && <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.66rem', color: 'var(--text-muted)', marginLeft: 3 }}>+{bindings.length - 4}</span>}
           </span>
         )}
@@ -364,7 +364,7 @@ function SkillDetail({ s, bindings, allProjects, projectSkills, onToggleBinding,
                 onClick={() => { onToggleBinding(p.id, s.id, !bound); }}
                 style={{ background: 'transparent', textAlign: 'left' }}
               >
-                <span style={{ fontSize: '1.05rem' }}>{p.emoji}</span>
+                <ProjectIcon icon={p.emoji} size="1.05rem" />
                 <span style={{ flex: 1, fontFamily: 'var(--font-mono)', fontSize: '0.8rem', color: bound ? 'var(--neon-cyan)' : 'var(--text-secondary)', fontWeight: bound ? 600 : 400 }}>{p.name}</span>
                 {bound && <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.62rem', color: 'var(--text-muted)' }}>last used {fmt.ago(p.lastTouched)}</span>}
                 <span className={`kw-skill-toggle ${bound ? 'on' : ''}`}>
@@ -388,7 +388,7 @@ function SkillDetail({ s, bindings, allProjects, projectSkills, onToggleBinding,
           ) : (
             bindings.map((p) => (
               <div key={p.id} style={{ display: 'grid', gridTemplateColumns: 'auto 1fr auto', gap: 6, padding: '5px 8px', background: 'rgba(255,255,255,0.025)', border: '1px solid var(--border-hair)', borderRadius: 'var(--radius-sm)', fontFamily: 'var(--font-mono)', fontSize: '0.72rem', alignItems: 'center' }}>
-                <span style={{ fontSize: '0.95rem' }}>{p.emoji}</span>
+                <ProjectIcon icon={p.emoji} size="0.95rem" />
                 <div style={{ minWidth: 0 }}>
                   <div style={{ color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</div>
                   <div style={{ color: 'var(--text-muted)', fontSize: '0.65rem' }}>last touched {fmt.ago(p.lastTouched)}</div>

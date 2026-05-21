@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { LiveDot, ParticleField } from '../../components/effects';
 import { fmt, type WBData, type WBProject } from '../data';
-import { ProgressBar, StatusPill, Tile, Topbar, TodoItem } from '../shared';
+import { ProgressBar, ProjectIcon, StatusPill, Tile, Topbar, TodoItem } from '../shared';
 
 /**
  * Concept D — Constellation. Projects as glowing nodes positioned on a 2D
@@ -99,7 +99,7 @@ export function ConceptD({ data }: { data: WBData; reload: () => void }) {
                         style={{ filter: `drop-shadow(0 0 6px ${color})` }}
                       />
                     </svg>
-                    <span className="const-node-emoji" style={{ fontSize: Math.max(18, size * 0.42) }}>{p.emoji}</span>
+                    <ProjectIcon icon={p.emoji} className="const-node-emoji" size={Math.max(18, size * 0.42)} />
                     {p.status === 'active' && p.tokens24h > 0 && (
                       <span className="const-node-live"><LiveDot color="var(--neon-green)" /></span>
                     )}
@@ -143,7 +143,7 @@ export function ConceptD({ data }: { data: WBData; reload: () => void }) {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.9rem', minWidth: 0, minHeight: 0, overflowY: 'auto' }}>
             <div className="surface" style={{ padding: '1.25rem', borderColor: statusColor(selected.status) }}>
               <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}>
-                <div style={{ fontSize: '2.5rem', filter: `drop-shadow(0 0 16px ${statusColor(selected.status)})` }}>{selected.emoji}</div>
+                <ProjectIcon icon={selected.emoji} size="2.5rem" style={{ filter: `drop-shadow(0 0 16px ${statusColor(selected.status)})` }} />
                 <div style={{ flex: 1 }}>
                   <h2 style={{ fontFamily: 'var(--font-mono)', fontSize: '1.3rem', fontWeight: 700, color: 'var(--neon-cyan)', textShadow: '0 0 18px rgba(0,255,242,0.4)', lineHeight: 1.2, margin: 0 }}>{selected.name}</h2>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: 6, flexWrap: 'wrap' }}>
@@ -270,7 +270,7 @@ function Timeline({ projects, sessions }: { projects: WBProject[]; sessions: WBD
           return (
             <div key={p.id} className="tl-lane">
               <div className="tl-lane-label">
-                <span>{p.emoji}</span>
+                <ProjectIcon icon={p.emoji} size="0.95rem" />
                 <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</span>
               </div>
               <div className="tl-track">

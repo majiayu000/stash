@@ -4,7 +4,7 @@ import { getWeeklySnapshot } from '../../api/analytics';
 import { listStale, listWorkItems } from '../../api/work-items';
 import { CountUp, ParticleField, ShinyText } from '../../components/effects';
 import { fmt, type WBData, type WBProject } from '../data';
-import { SessionRow, Topbar } from '../shared';
+import { ProjectIcon, SessionRow, Topbar } from '../shared';
 
 /**
  * Concept J — Weekly Review.
@@ -93,7 +93,7 @@ export function ConceptJ({ data }: { data: WBData; reload: () => void }) {
                 <p>You closed <strong>{week.doneCount}</strong> todos and logged <strong>{week.focusHours}</strong> focus hours across {doneByProject.length} active projects. Sessions {wowSessionsDelta >= 0 ? 'up' : 'down'} from {week.wow.sessions.prev} → {week.wow.sessions.now}.</p>
                 {doneByProject[0] && (
                   <p>
-                    Top project: <span className="wr-narr-pill cyan">{doneByProject[0].project.emoji} {doneByProject[0].project.name}</span> with {doneByProject[0].items.length} items completed.
+                    Top project: <span className="wr-narr-pill cyan" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><ProjectIcon icon={doneByProject[0].project.emoji} size="0.9rem" /> {doneByProject[0].project.name}</span> with {doneByProject[0].items.length} items completed.
                   </p>
                 )}
                 {featAdvanced.length > 0 && (
@@ -266,7 +266,7 @@ function DoneGroup({ project, items }: { project: WBProject; items: string[] }) 
   return (
     <div className="wr-done-group">
       <div className="wr-done-head">
-        <span style={{ fontSize: '1.05rem' }}>{project.emoji}</span>
+        <ProjectIcon icon={project.emoji} size="1.05rem" />
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.82rem', color: 'var(--neon-cyan)', fontWeight: 600 }}>{project.name}</span>
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', color: 'var(--neon-green)', marginLeft: 'auto', background: 'rgba(48,209,88,0.1)', padding: '1px 7px', borderRadius: 'var(--radius-pill)' }}>✓ {items.length}</span>
       </div>

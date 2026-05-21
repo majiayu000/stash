@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { CountUp, LiveDot } from '../../components/effects';
 import { fmt, type WBData, type WBProject, type WBSession } from '../data';
-import { ProgressBar, SessionRow, StatusPill, Topbar, TodoItem } from '../shared';
+import { ProgressBar, ProjectIcon, SessionRow, StatusPill, Topbar, TodoItem } from '../shared';
 
 /**
  * Concept B — Mission Control. 3-pane operations center.
@@ -59,7 +59,7 @@ export function ConceptB({ data }: { data: WBData; reload: () => void }) {
             {/* Hero */}
             <div className="surface" style={{ padding: '1.5rem', position: 'relative' }}>
               <div style={{ display: 'flex', alignItems: 'flex-start', gap: '1rem', marginBottom: '1rem' }}>
-                <div style={{ fontSize: '3rem', filter: 'drop-shadow(0 0 18px var(--neon-cyan))' }}>{active.emoji}</div>
+                <ProjectIcon icon={active.emoji} size="3rem" style={{ filter: 'drop-shadow(0 0 18px var(--neon-cyan))' }} />
                 <div style={{ flex: 1 }}>
                   <h2 style={{ fontFamily: 'var(--font-mono)', fontSize: '1.8rem', fontWeight: 700, color: 'var(--neon-cyan)', textShadow: '0 0 20px rgba(0,255,242,0.4)', lineHeight: 1.1, margin: 0 }}>
                     {active.name}
@@ -166,7 +166,7 @@ export function ConceptB({ data }: { data: WBData; reload: () => void }) {
 function ProjectRail({ p, active, onSelect }: { p: WBProject; active: boolean; onSelect: (id: string) => void }) {
   return (
     <button onClick={() => onSelect(p.id)} className={`rail-item ${active ? 'active' : ''}`} type="button" data-testid={`rail-${p.id}`}>
-      <span className="rail-emoji">{p.emoji}</span>
+      <ProjectIcon icon={p.emoji} className="rail-emoji" size="1.35rem" />
       <div className="rail-body">
         <div className="rail-name">{p.name}</div>
         <div className="rail-foot">

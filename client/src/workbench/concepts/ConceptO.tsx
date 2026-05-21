@@ -7,7 +7,7 @@ import { composeSession, startSession, type DispatchResult } from '../../api/ses
 import { getWorkItem } from '../../api/work-items';
 import { ShinyText } from '../../components/effects';
 import type { WBData } from '../data';
-import { Topbar } from '../shared';
+import { ProjectIcon, Topbar } from '../shared';
 
 /**
  * Concept O — Start Session Dispatcher.
@@ -157,7 +157,7 @@ export function ConceptO({ data }: { data: WBData; reload: () => void }) {
             <div className="ss-section">
               <label className="ss-label">project</label>
               <button className="ss-picker" type="button">
-                <span style={{ fontSize: '1.1rem' }}>{selectedProject?.emoji ?? '·'}</span>
+                <ProjectIcon icon={selectedProject?.emoji} size="1.1rem" />
                 <div style={{ flex: 1, textAlign: 'left' }}>
                   <div className="ss-picker-name">{selectedProject?.name ?? '(none)'}</div>
                   <div className="ss-picker-sub">{selectedProject?.id.slice(0, 12) ?? '—'}</div>

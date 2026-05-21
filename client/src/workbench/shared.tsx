@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { updateWorkItem } from '../api/work-items';
 import { CountUp, LiveDot, Typewriter } from '../components/effects';
@@ -8,6 +8,61 @@ export interface Feature {
   name: string;
   progress: number;
   status: 'done' | 'almost' | 'wip' | 'todo';
+}
+
+export function isProjectImageIcon(icon?: string): boolean {
+  return Boolean(icon?.startsWith('data:image/'));
+}
+
+export function ProjectIcon({ icon, className, style, size = '1em', title }: {
+  icon?: string;
+  className?: string;
+  style?: CSSProperties;
+  size?: number | string;
+  title?: string;
+}) {
+  const resolvedSize = typeof size === 'number' ? `${size}px` : size;
+  const base: CSSProperties = {
+    width: resolvedSize,
+    height: resolvedSize,
+    flexShrink: 0,
+    verticalAlign: 'middle',
+    ...style,
+  };
+
+  if (isProjectImageIcon(icon)) {
+    return (
+      <img
+        src={icon}
+        alt=""
+        title={title}
+        className={className}
+        style={{
+          ...base,
+          display: 'inline-block',
+          objectFit: 'cover',
+          borderRadius: 4,
+        }}
+      />
+    );
+  }
+
+  return (
+    <span
+      title={title}
+      className={className}
+      style={{
+        fontSize: resolvedSize,
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        lineHeight: 1,
+        ...base,
+      }}
+    >
+      {icon || '·'}
+    </span>
+  );
 }
 
 export function FeatureRow({ f }: { f: Feature }) {
@@ -23,7 +78,7 @@ export function ProjectCardFull({ p, onClick }: { p: WBProject; onClick?: () => 
   return (
     <div className="pcard" onClick={onClick} role={onClick ? 'button' : undefined} tabIndex={onClick ? 0 : undefined}>
       <div className="pcard-head">
-        <div className="pcard-emoji">{p.emoji}</div>
+        <ProjectIcon icon={p.emoji} className="pcard-emoji" size="2rem" />
         <div className="pcard-titles">
           <div className="pcard-name">{p.name}</div>
         </div>
@@ -231,7 +286,10 @@ export function SessionRow({ s, projects, compact }: { s: WBSession; projects: W
           >
             {s.state === 'live' ? <><LiveDot color="var(--neon-green)" /> live</> : s.state}
           </span>
-          <span>{proj?.emoji} {proj?.name ?? s.project}</span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <ProjectIcon icon={proj?.emoji} size="0.9rem" />
+            {proj?.name ?? s.project}
+          </span>
           <ModelBadge model={s.model} />
           <span style={{ color: 'var(--text-muted)' }}>· {fmt.ago(s.at)}</span>
         </div>

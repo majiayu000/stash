@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { CountUp, LiveDot, ParticleField, Typewriter } from '../../components/effects';
 import { createWorkItem, updateWorkItem } from '../../api/work-items';
 import type { WBData, WBProject, WBTodo } from '../data';
-import { ProgressBar, Topbar, TodoItem } from '../shared';
+import { ProgressBar, ProjectIcon, Topbar, TodoItem } from '../shared';
 
 /**
  * Concept E — Capture & Plan (todo-first).
@@ -352,7 +352,7 @@ function DraggableList({ items, projects }: { items: WBTodo[]; projects: WBProje
 function ProjectChipRow({ p }: { p: WBProject }) {
   return (
     <div className="proj-chip">
-      <span style={{ fontSize: '1rem' }}>{p.emoji}</span>
+      <ProjectIcon icon={p.emoji} size="1rem" />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
           <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', color: 'var(--neon-cyan)', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>

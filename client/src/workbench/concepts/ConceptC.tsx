@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { CountUp, CursorGlow, LiveDot, ParticleField } from '../../components/effects';
 import { fmt, type WBData, type WBProject } from '../data';
-import { ModelBadge, ProgressBar, StatusPill, Topbar, TodoItem } from '../shared';
+import { ModelBadge, ProgressBar, ProjectIcon, StatusPill, Topbar, TodoItem } from '../shared';
 
 /**
  * Concept C — Hero + Stream. One project as cinematic hero, others as a
@@ -48,7 +48,7 @@ export function ConceptC({ data }: { data: WBData; reload: () => void }) {
                   </div>
 
                   <div style={{ display: 'flex', alignItems: 'flex-start', gap: '1.5rem', marginBottom: '1.5rem' }}>
-                    <div style={{ fontSize: '4rem', filter: 'drop-shadow(0 0 22px var(--neon-cyan))', animation: 'pulse 3s ease-in-out infinite', flexShrink: 0 }}>{hero.emoji}</div>
+                    <ProjectIcon icon={hero.emoji} size="4rem" style={{ filter: 'drop-shadow(0 0 22px var(--neon-cyan))', animation: 'pulse 3s ease-in-out infinite' }} />
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <h1 style={{ fontFamily: 'var(--font-mono)', fontSize: '2.6rem', fontWeight: 700, letterSpacing: '-0.02em', lineHeight: 1.05, marginBottom: '0.4rem', margin: 0 }}>
                         <span style={{ background: 'var(--gradient-logo)', WebkitBackgroundClip: 'text', backgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>{hero.name}</span>
@@ -192,7 +192,7 @@ function MiniProjectCard({ p }: { p: WBProject }) {
   return (
     <div className="mini-card">
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-        <span style={{ fontSize: '1.1rem' }}>{p.emoji}</span>
+        <ProjectIcon icon={p.emoji} size="1.1rem" />
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', fontWeight: 600, color: 'var(--neon-cyan)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1 }}>{p.name}</span>
       </div>
       <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.68rem', color: 'var(--text-muted)', marginBottom: 8, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: 1.3 }}>

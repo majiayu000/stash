@@ -20,7 +20,7 @@ import {
 import { listProjectSkills, listSkills } from '../../api/skills';
 import { CountUp } from '../../components/effects';
 import { fmt, type WBData, type WBProject } from '../data';
-import { ModelBadge, ProgressBar, SessionRow, StatusPill, Tile, Topbar, TodoItem } from '../shared';
+import { ModelBadge, ProgressBar, ProjectIcon, SessionRow, StatusPill, Tile, Topbar, TodoItem } from '../shared';
 import { conceptKStyles } from './conceptK.styles';
 
 interface ProjectKnowledgeView {
@@ -158,7 +158,7 @@ export function ConceptK({ data }: { data: WBData; reload: () => void }) {
         <div className="kw-hero">
           <div className="kw-hero-row">
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: '1rem', flex: 1, minWidth: 0 }}>
-              <span style={{ fontSize: '3.2rem', filter: 'drop-shadow(0 0 20px var(--neon-cyan))', animation: 'pulse 3s ease-in-out infinite', flexShrink: 0, lineHeight: 1 }}>{p.emoji}</span>
+              <ProjectIcon icon={p.emoji} size="3.2rem" style={{ filter: 'drop-shadow(0 0 20px var(--neon-cyan))', animation: 'pulse 3s ease-in-out infinite' }} />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div className="kw-crumb">workbench &nbsp;/&nbsp; <span style={{ color: 'var(--text-secondary)' }}>projects</span> &nbsp;/&nbsp; <span style={{ color: 'var(--neon-cyan)' }}>{p.name}</span></div>
                 <h2 className="kw-name">{p.name}</h2>

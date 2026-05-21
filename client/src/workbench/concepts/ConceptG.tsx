@@ -4,7 +4,7 @@ import type { AgentSessionEvent } from '@stash/shared';
 import { getAgentSessionEvents } from '../../api/agent-sessions';
 import { LiveDot } from '../../components/effects';
 import { fmt, type WBData, type WBSession } from '../data';
-import { ModelBadge, Tile, TodoItem, ToolBadge, Topbar } from '../shared';
+import { ModelBadge, ProjectIcon, Tile, TodoItem, ToolBadge, Topbar } from '../shared';
 
 /**
  * Concept G — Session Detail.
@@ -68,7 +68,10 @@ export function ConceptG({ data }: { data: WBData; reload: () => void }) {
         <div className="sd-head">
           <div className="sd-crumb">
             <span style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: '0.75rem' }}>workbench &nbsp;/&nbsp;</span>
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', color: 'var(--neon-cyan)' }}>{project?.emoji} {project?.name ?? session.project}</span>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', color: 'var(--neon-cyan)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <ProjectIcon icon={project?.emoji} size="0.9rem" />
+              {project?.name ?? session.project}
+            </span>
             <span style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: '0.75rem' }}>&nbsp;/&nbsp; sessions &nbsp;/&nbsp;</span>
             <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', color: 'var(--text-primary)' }}>{session.id.slice(0, 8)}</span>
           </div>
