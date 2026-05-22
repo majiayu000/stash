@@ -105,7 +105,7 @@ Move to `client/src/workbench/shared/`:
 
 ```
 /                                    → concept E (default)
-/c/:id  (id ∈ a..o)                  → corresponding concept
+/c/:detailId  (detailId ∈ a..o, prd) → corresponding concept
 /c/k/:projectId                      → Concept K bound to a specific project
 /c/g/:sessionId                      → Concept G bound to a session
 /c/l/:workItemId                     → Concept L bound to a work item
