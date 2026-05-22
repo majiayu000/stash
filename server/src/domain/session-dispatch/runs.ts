@@ -28,6 +28,13 @@ export interface CreateDispatchRunInput {
   spawnCommand: string;
 }
 
+export class DispatchRunNotFoundError extends Error {
+  constructor(id: string) {
+    super(`dispatch run ${id} not found`);
+    this.name = 'DispatchRunNotFoundError';
+  }
+}
+
 export class DispatchRunService {
   private readonly clock: Clock;
 
@@ -67,31 +74,34 @@ export class DispatchRunService {
   recordSpawnResult(id: string, result: { pid?: number; error?: string }): DispatchRun {
     const status: DispatchRunStatus = result.pid !== undefined ? 'spawned' : 'failed';
     const updatedAt = this.clock.nowIso();
-    this.deps.db.prepare(
+    const updated = this.deps.db.prepare(
       `update dispatch_runs
        set pid = ?, status = ?, error = ?, updated_at = ?
        where id = ?`,
     ).run(result.pid ?? null, status, result.error ?? null, updatedAt, id);
+    if (updated.changes === 0) throw new DispatchRunNotFoundError(id);
     return this.getRequired(id);
   }
 
   markMatched(id: string, sessionId: string): DispatchRun {
     const updatedAt = this.clock.nowIso();
-    this.deps.db.prepare(
+    const updated = this.deps.db.prepare(
       `update dispatch_runs
        set status = 'matched', matched_session_id = ?, error = null, updated_at = ?
        where id = ?`,
     ).run(sessionId, updatedAt, id);
+    if (updated.changes === 0) throw new DispatchRunNotFoundError(id);
     return this.getRequired(id);
   }
 
   close(id: string): DispatchRun {
     const now = this.clock.nowIso();
-    this.deps.db.prepare(
+    const updated = this.deps.db.prepare(
       `update dispatch_runs
        set status = 'closed', closed_at = ?, updated_at = ?
        where id = ?`,
     ).run(now, now, id);
+    if (updated.changes === 0) throw new DispatchRunNotFoundError(id);
     return this.getRequired(id);
   }
 
@@ -115,7 +125,7 @@ export class DispatchRunService {
 
   private getRequired(id: string): DispatchRun {
     const run = this.get(id);
-    if (!run) throw new Error(`dispatch run ${id} not found`);
+    if (!run) throw new DispatchRunNotFoundError(id);
     return run;
   }
 }
