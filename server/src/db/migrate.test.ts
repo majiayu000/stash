@@ -122,7 +122,17 @@ describe('migrate', () => {
       seedLegacyDb(db);
 
       const result = migrate(db);
-      expect(result.applied).toEqual(['010_drop_repeat_rule.sql', '011_area_emoji.sql']);
+      expect(result.applied).toEqual([
+        '010_drop_repeat_rule.sql',
+        '011_area_emoji.sql',
+        '012_agent_session_cache.sql',
+      ]);
+      const cacheTable = db
+        .query<{ name: string }, []>(
+          "select name from sqlite_master where type = 'table' and name = 'agent_session_cache'",
+        )
+        .get();
+      expect(cacheTable?.name).toBe('agent_session_cache');
 
       const workItems = new WorkItemService({ db });
       const workItem = workItems.get('wi-auth');

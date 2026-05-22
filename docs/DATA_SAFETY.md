@@ -1,17 +1,25 @@
 # Data safety
 
-stash stores user data in one local SQLite database. The database path defaults
-to:
+stash stores user data in one local SQLite database. `STASH_DB_PATH` always
+wins. Without an override, the database path defaults to:
 
 ```sh
-${XDG_DATA_HOME:-$HOME/.local/share}/stash/stash.db
+# macOS
+~/Library/Application Support/stash/stash.db
+
+# Linux/other
+${XDG_DATA_HOME:-~/.local/share}/stash/stash.db
 ```
 
-Override it with `STASH_DB_PATH`. Backups default to a `backups/` directory next
-to that database, for example:
+On macOS, existing users are protected during the default-path transition. If
+the new `~/Library/Application Support/stash/stash.db` file does not exist,
+stash keeps using an existing prior default at `~/.local/share/stash/stash.db`
+or legacy `~/Library/Application Support/stash/app.db`.
+
+Backups default to a `backups/` directory next to that database, for example:
 
 ```sh
-${XDG_DATA_HOME:-$HOME/.local/share}/stash/backups/
+~/Library/Application Support/stash/backups/
 ```
 
 Override the backup directory with `STASH_BACKUP_DIR`.
