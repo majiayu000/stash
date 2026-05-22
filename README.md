@@ -61,7 +61,7 @@ matches what you're doing:
 | `/c/d`           | D — constellation | all projects as glowing nodes, click to inspect |
 | `/c/e`           | E — inbox & 4-col board | same as `/` |
 | `/c/f`           | F — file picker | jump by file path |
-| `/c/g/:provider/:sessionId` | G — session detail | what the agent did |
+| `/c/g/:sessionId` | G — session detail | what the agent did |
 | `/c/h`           | H — cost & burn | spend per project / model / day |
 | `/c/i`           | I — ⌘K palette | global search |
 | `/c/j`           | J — weekly review | what shipped, what's stale |
@@ -117,14 +117,28 @@ Claude/Codex JSONL roots: `CLAUDE_ROOT` (default `~/.claude`), `CODEX_ROOT`
 
 ```sh
 bun run typecheck        # server + client TypeScript
-bun run server:test      # 185 domain + route tests
+bun run server:test      # 204 domain + route tests
 bun run client:test      # 2 vitest hook tests
-bun run client:e2e       # 8 Playwright golden paths
+bun run client:e2e       # 9 Playwright golden paths
 bun run test:all
 ```
 
 The pre-commit hook (VibeGuard) runs guards inline; no setup needed beyond
 `bun install`.
+
+## Production readiness
+
+The app is usable as a local-first beta, but it is not yet production-hardened.
+The current production plan is tracked in
+[`docs/PRODUCTION_READINESS.md`](./docs/PRODUCTION_READINESS.md).
+
+Current highest-priority gaps:
+- Session and analytics scans are computed on demand and can block pages when the
+  local Claude/Codex history is large.
+- The canonical G route is `/c/g/:sessionId`; provider-qualified deep links are
+  a hardening target, not the current route contract.
+- Browser-level e2e coverage proves the main flows, but not every concept page
+  has a dedicated golden-path test yet.
 
 ## What ships vs what's deferred
 
