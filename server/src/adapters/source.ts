@@ -6,9 +6,20 @@ export interface ScanOptions {
   limit?: number;
 }
 
+export interface SourceScanCacheStats {
+  provider: AgentProvider;
+  root: string;
+  cacheEnabled: boolean;
+  filesSeen: number;
+  filesIndexed: number;
+  filesReused: number;
+  refreshedAt: string;
+}
+
 export interface SourceScanResult {
   sessions: AgentSession[];
   errors: SourceParseError[];
+  cache?: SourceScanCacheStats;
 }
 
 export interface SourceParseError {

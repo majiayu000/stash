@@ -1,6 +1,10 @@
 import { describe, expect, test } from 'bun:test';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync, utimesSync } from 'fs';
+import { tmpdir } from 'os';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
+import { freshDb } from '../../db/test-helpers.js';
+import { AgentSessionCache } from '../session-cache.js';
 import { ClaudeSource } from './scanner.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -43,6 +47,39 @@ describe('ClaudeSource.scan', () => {
     expect(result.sessions).toEqual([]);
     expect(result.errors).toEqual([]);
   });
+
+  test('indexes changed files and reuses unchanged cache rows', () => {
+    const root = mkdtempSync(join(tmpdir(), 'stash-claude-cache-'));
+    try {
+      const projectDir = join(root, 'projects', '-Users-test-cache');
+      mkdirSync(projectDir, { recursive: true });
+      const file = join(projectDir, 'session.jsonl');
+      writeClaudeFixture(file, 'first cache title', '2026-05-14T08:00:00.000Z');
+
+      const source = new ClaudeSource(new AgentSessionCache(freshDb()));
+      const first = source.scan({ root });
+      expect(first.sessions[0]?.title).toBe('first cache title');
+      expect(first.cache?.filesIndexed).toBe(1);
+      expect(first.cache?.filesReused).toBe(0);
+
+      const second = source.scan({ root });
+      expect(second.sessions[0]?.title).toBe('first cache title');
+      expect(second.cache?.filesIndexed).toBe(0);
+      expect(second.cache?.filesReused).toBe(1);
+
+      writeClaudeFixture(file, 'second cache title', '2026-05-14T08:05:00.000Z');
+      const future = new Date(Date.now() + 30_000);
+      utimesSync(file, future, future);
+
+      const third = source.scan({ root });
+      expect(third.sessions[0]?.title).toBe('second cache title');
+      expect(third.cache?.filesIndexed).toBe(1);
+      expect(third.cache?.filesReused).toBe(0);
+      expect(source.getUsage(file)[0]?.inputTokens).toBe(12);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('ClaudeSource.getEvents', () => {
@@ -58,3 +95,25 @@ describe('ClaudeSource.getEvents', () => {
     expect(kinds.has('tool_call')).toBe(true);
   });
 });
+
+function writeClaudeFixture(sourcePath: string, title: string, ts: string): void {
+  const user = {
+    type: 'user',
+    timestamp: ts,
+    sessionId: 'sess-cache',
+    cwd: '/Users/test/cache-repo',
+    message: { role: 'user', content: 'Inspect cache behavior' },
+  };
+  const assistant = {
+    type: 'assistant',
+    timestamp: ts,
+    aiTitle: title,
+    message: {
+      role: 'assistant',
+      content: [{ type: 'text', text: 'done' }],
+      model: 'claude-sonnet-4-6',
+      usage: { input_tokens: 12, output_tokens: 3 },
+    },
+  };
+  writeFileSync(sourcePath, `${JSON.stringify(user)}\n${JSON.stringify(assistant)}\n`);
+}

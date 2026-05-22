@@ -6,7 +6,7 @@ import {
   type WeeklySnapshot,
   type WoWPair,
 } from '@stash/shared';
-import type { AgentSourceAggregator } from '../../adapters/aggregator.js';
+import type { AgentSourceAggregator, AggregateResult } from '../../adapters/aggregator.js';
 import type { AreaService } from '../area/service.js';
 import type { WorkItemService } from '../work-item/service.js';
 import type { BurnService } from './burn.js';
@@ -31,7 +31,7 @@ export class WeeklyReviewService {
     this.clock = deps.clock ?? systemClock;
   }
 
-  snapshot(q: WeeklyQuery = {}): WeeklySnapshot {
+  snapshot(q: WeeklyQuery = {}, scanResult?: AggregateResult): WeeklySnapshot {
     const { startMs, endMs, label } = resolveWeek(q.week, this.clock);
     const prevStartMs = startMs - 7 * 86_400_000;
 
@@ -40,10 +40,11 @@ export class WeeklyReviewService {
       startMs,
       endMs,
       prevStartMs,
+      scanResult,
     );
 
-    const thisBurn = this.deps.burnService.snapshot({ days: daysSpan(startMs, endMs) });
-    const prevBurn = this.deps.burnService.snapshot({ days: daysSpan(prevStartMs, startMs) });
+    const thisBurn = this.deps.burnService.snapshot({ days: daysSpan(startMs, endMs) }, scanResult);
+    const prevBurn = this.deps.burnService.snapshot({ days: daysSpan(prevStartMs, startMs) }, scanResult);
     const tokens: WoWPair = { now: thisBurn.totals.tokens, prev: prevBurn.totals.tokens };
     const cost: WoWPair = { now: thisBurn.totals.cost, prev: prevBurn.totals.cost };
     const sessions: WoWPair = { now: sessionsThisWeek, prev: sessionsPrevWeek };
@@ -59,6 +60,11 @@ export class WeeklyReviewService {
       donePerProject: doneByProject,
       wow: { tokens, cost, sessions },
     };
+  }
+
+  async snapshotAsync(q: WeeklyQuery = {}): Promise<{ data: WeeklySnapshot; cache: AggregateResult['cache'] }> {
+    const scan = await this.deps.aggregator.scanAsync({});
+    return { data: this.snapshot(q, scan), cache: scan.cache };
   }
 
   // ─── done work-items ────────────────────────────────────────────────────
@@ -96,7 +102,12 @@ export class WeeklyReviewService {
 
   // ─── sessions ───────────────────────────────────────────────────────────
 
-  private collectSessions(startMs: number, endMs: number, prevStartMs: number): {
+  private collectSessions(
+    startMs: number,
+    endMs: number,
+    prevStartMs: number,
+    scanResult?: AggregateResult,
+  ): {
     sessionsByDay: number[];
     focusHours: number;
     sessionsThisWeek: number;
@@ -107,7 +118,7 @@ export class WeeklyReviewService {
     const thisSet = new Set<string>();
     const prevSet = new Set<string>();
 
-    const { sessions } = this.deps.aggregator.scan({});
+    const { sessions } = scanResult ?? this.deps.aggregator.scan({});
     for (const s of sessions) {
       const t = Date.parse(s.lastActiveAt);
       if (Number.isNaN(t)) continue;

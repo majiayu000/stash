@@ -18,19 +18,21 @@ const WeeklyQuery = z.object({
 export function createAnalyticsRouter(burn: BurnService, weekly: WeeklyReviewService): Hono {
   const r = new Hono();
 
-  r.get('/burn', (c) => {
+  r.get('/burn', async (c) => {
     try {
       const q = BurnQuery.parse(Object.fromEntries(new URL(c.req.url).searchParams));
-      return c.json({ data: burn.snapshot({ days: q.days }) });
+      const snapshot = await burn.snapshotAsync({ days: q.days });
+      return c.json(snapshot);
     } catch (e) {
       return handleError(c, e);
     }
   });
 
-  r.get('/weekly', (c) => {
+  r.get('/weekly', async (c) => {
     try {
       const q = WeeklyQuery.parse(Object.fromEntries(new URL(c.req.url).searchParams));
-      return c.json({ data: weekly.snapshot(q) });
+      const snapshot = await weekly.snapshotAsync(q);
+      return c.json(snapshot);
     } catch (e) {
       return handleError(c, e);
     }
