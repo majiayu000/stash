@@ -38,6 +38,13 @@ export interface CandidateContext {
   sourcePath: string;
 }
 
+export class DecisionCandidateNotFoundError extends Error {
+  constructor(id: string) {
+    super(`decision candidate ${id} not found`);
+    this.name = 'DecisionCandidateNotFoundError';
+  }
+}
+
 export class DecisionCandidateService {
   private readonly clock: Clock;
 
@@ -80,21 +87,23 @@ export class DecisionCandidateService {
 
   accept(id: string, decisionId: string): DecisionCandidateRecord {
     const now = this.clock.nowIso();
-    this.deps.db.prepare(
+    const updated = this.deps.db.prepare(
       `update decision_candidates
        set status = 'accepted', decision_id = ?, accepted_at = ?, updated_at = ?
        where id = ?`,
     ).run(decisionId, now, now, id);
+    if (updated.changes === 0) throw new DecisionCandidateNotFoundError(id);
     return this.getRequired(id);
   }
 
   ignore(id: string): DecisionCandidateRecord {
     const now = this.clock.nowIso();
-    this.deps.db.prepare(
+    const updated = this.deps.db.prepare(
       `update decision_candidates
        set status = 'ignored', ignored_at = ?, updated_at = ?
        where id = ?`,
     ).run(now, now, id);
+    if (updated.changes === 0) throw new DecisionCandidateNotFoundError(id);
     return this.getRequired(id);
   }
 
@@ -107,7 +116,7 @@ export class DecisionCandidateService {
 
   private getRequired(id: string): DecisionCandidateRecord {
     const candidate = this.get(id);
-    if (!candidate) throw new Error(`decision candidate ${id} not found`);
+    if (!candidate) throw new DecisionCandidateNotFoundError(id);
     return candidate;
   }
 }

@@ -65,6 +65,46 @@ describe('GET /api/agent-sessions/:provider/:id/events', () => {
   });
 });
 
+describe('dispatch run lifecycle errors', () => {
+  test('matching a missing dispatch run returns 404', async () => {
+    const { app } = setupApp();
+    const res = await jsonReq(app, 'POST', '/api/sessions/runs/missing/match', {
+      sessionId: 'sess-404',
+    });
+
+    expect(res.status).toBe(404);
+    expect(res.body.error.code).toBe('NOT_FOUND');
+  });
+
+  test('closing a missing dispatch run returns 404', async () => {
+    const { app } = setupApp();
+    const res = await jsonReq(app, 'POST', '/api/sessions/runs/missing/close');
+
+    expect(res.status).toBe(404);
+    expect(res.body.error.code).toBe('NOT_FOUND');
+  });
+});
+
+describe('decision candidate mutation errors', () => {
+  test('accepting a missing decision candidate returns 404', async () => {
+    const { app } = setupApp();
+    const res = await jsonReq(app, 'POST', '/api/agent-sessions/decision-candidates/missing/accept', {
+      decisionId: 'decision-404',
+    });
+
+    expect(res.status).toBe(404);
+    expect(res.body.error.code).toBe('NOT_FOUND');
+  });
+
+  test('ignoring a missing decision candidate returns 404', async () => {
+    const { app } = setupApp();
+    const res = await jsonReq(app, 'POST', '/api/agent-sessions/decision-candidates/missing/ignore');
+
+    expect(res.status).toBe(404);
+    expect(res.body.error.code).toBe('NOT_FOUND');
+  });
+});
+
 describe('link-session', () => {
   test('POST link → GET sessions for item → DELETE unlink', async () => {
     const { app } = setupApp();
