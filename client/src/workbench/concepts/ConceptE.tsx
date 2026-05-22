@@ -97,7 +97,7 @@ export function ConceptE({ data, reload }: { data: WBData; reload: () => void })
         </div>
 
         {/* Main split: 4-column board + right rail */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 290px', gap: '1.25rem', flex: 1, minHeight: 0 }}>
+        <div id="inbox-board" style={{ display: 'grid', gridTemplateColumns: '1fr 290px', gap: '1.25rem', flex: 1, minHeight: 0 }}>
           <div style={{ minWidth: 0, display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.85rem', minHeight: 0 }}>
             <BoardCol icon="📥" name="inbox"  tone="orange" hint="ideas & quick captures"     items={inbox}  projects={projects} />
             <BoardCol icon="🌅" name="today"  tone="cyan"   hint="planned for today"          items={today}  projects={projects} />

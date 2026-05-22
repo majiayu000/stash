@@ -120,6 +120,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 1.25rem;
+  flex-wrap: wrap;
   padding: 1.25rem 1.75rem;
   background: var(--bg-glass);
   backdrop-filter: blur(20px);
@@ -129,7 +131,14 @@
   position: relative;
   overflow: hidden;
 }
-.topbar-brand { display: flex; align-items: center; gap: 0.75rem; }
+.topbar-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  flex: 1 1 560px;
+  min-width: 0;
+}
+.topbar-brand { display: flex; align-items: center; gap: 0.75rem; min-width: 0; }
 .topbar-logo { font-size: 1.6rem; filter: drop-shadow(0 0 12px var(--neon-cyan)); }
 .topbar-title {
   font-family: var(--font-mono);
@@ -149,10 +158,47 @@
   border-left: 1px solid var(--border-subtle);
   padding-left: 0.75rem;
 }
+.topbar-flow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.topbar-flow-step {
+  appearance: none;
+  min-height: 28px;
+  padding: 4px 9px;
+  background: rgba(255,255,255,0.04);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-hair);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 650;
+  line-height: 1;
+  cursor: pointer;
+  transition: all 0.15s var(--ease-smooth);
+}
+.topbar-flow-step:hover {
+  color: var(--text-primary);
+  border-color: var(--border-glow);
+}
+.topbar-flow-step.active {
+  background: var(--neon-cyan);
+  border-color: var(--neon-cyan);
+  color: var(--bg-void);
+}
+.topbar-flow-sep {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  opacity: 0.7;
+}
 .topbar-stats {
   display: flex;
   gap: 1.75rem;
   align-items: center;
+  margin-left: auto;
 }
 .tb-stat {
   display: flex;

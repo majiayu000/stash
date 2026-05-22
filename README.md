@@ -20,25 +20,42 @@ context surfaces itself.
 # 1) Install
 bun install
 
-# 2) Seed a believable demo (areas, todos, projects, milestones, decisions, lessons,
+# 2) Install the capture CLI into ~/.local/bin/stash
+bun run install:cli
+
+# 3) Seed a believable demo (areas, todos, projects, milestones, decisions, lessons,
 #    plus one fake Claude JSONL so analytics has data to chew on)
 STASH_DB_PATH=/tmp/stash-demo.db bun run seed:rich:sessions
 
-# 3) Start the server
+# 4) Start the server
 STASH_DB_PATH=/tmp/stash-demo.db CLAUDE_ROOT=/tmp/stash-rich-claude \
   bun run server:dev          # http://localhost:4174
 
-# 4) Start the client (in another shell)
+# 5) Start the client (in another shell)
 bun run client:dev            # http://localhost:5173
 ```
 
-Open `http://localhost:5173` and press `?` for the keyboard cheatsheet.
+Open `http://localhost:5173`. The default top navigation follows the first-user
+path: Home -> Inbox/Todo -> Project -> Session/Evidence -> Settings.
+
+Try UI capture from the default page:
+
+```txt
+press c, type: fix login #aurora ^p1 !tomorrow @auth *45m, press Enter
+```
+
+Try shell capture from a normal shell after `bun run install:cli`:
+
+```sh
+stash doctor
+stash add "fix login #aurora ^p1 !tomorrow @auth *45m"
+```
 
 ## Daily flow
 
 ```
 Capture:        press  c  →  type "fix login #aurora ^p1 !tomorrow @auth *45m"  →  enter
-                or:    stash "fix login #aurora ^p1 !tomorrow @auth *45m"   (CLI)
+                or:    stash add "fix login #aurora ^p1 !tomorrow @auth *45m"   (CLI)
 Triage:         j / k  to walk inbox, t/n/s/d for pin/plan/someday/drop
 Multi-select:   v to mark, V to mark all, action keys apply to all marked
 Find:           Cmd+K  search title/description/labels
@@ -90,6 +107,28 @@ Quick Capture (`c`) and the CLI (`stash …`) both parse the same inline tokens:
 Anything that doesn't match falls into the `unresolved` field so the original
 text is never lost; the raw input is also stored in `rawInput` for re-parsing.
 
+## CLI install and diagnostics
+
+`bun run install:cli` symlinks `tools/stash` into `~/.local/bin/stash` by
+default. Override the destination with `STASH_CLI_DIR=/path/to/bin`; rerun with
+`--force` if that path already has an older `stash` command.
+
+```sh
+bun run install:cli
+stash doctor
+stash add "write release notes #stash ^p2 !today"
+```
+
+If the server runs somewhere other than `http://localhost:4174`, set:
+
+```sh
+export STASH_BASE_URL=http://localhost:4174
+stash doctor
+```
+
+`tools/stash doctor` works without installing the CLI and checks the same
+server reachability path.
+
 ## Architecture
 
 ```
@@ -103,7 +142,8 @@ server/   Bun + Hono + bun:sqlite
 client/   React + Vite + 7-theme system
           • workbench/   the shell + concepts/ (16 files) + shared widgets
           • api/         one wrapper per backend domain
-tools/    stash CLI binary (POSTs to /api/work-items/capture)
+tools/    stash CLI binary + install script (doctor probes /health; capture
+          POSTs to /api/work-items/capture)
 docs/     SPEC v0.1 / v0.2 / v0.3 (workbench-design + friction-zero release)
 ```
 
