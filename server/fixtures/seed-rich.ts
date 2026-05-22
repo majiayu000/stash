@@ -28,7 +28,11 @@ function daysAhead(n: number): string { const d = new Date(NOW); d.setDate(d.get
 function rel(n: number): string { return daysAhead(n); }
 
 const config = loadConfig();
-const db = openDatabaseMigrated({ path: config.dbPath, inMemory: config.inMemoryDb });
+const db = openDatabaseMigrated({
+  path: config.dbPath,
+  inMemory: config.inMemoryDb,
+  backupDir: config.backupDir,
+});
 const clock = systemClock;
 const areas = new AreaService({ db, clock });
 const items = new WorkItemService({ db, clock });

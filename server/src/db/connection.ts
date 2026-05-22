@@ -6,6 +6,7 @@ import { migrate } from './migrate.js';
 export interface OpenDbOptions {
   path: string;
   inMemory?: boolean;
+  backupDir?: string;
 }
 
 export function openDatabase(options: OpenDbOptions): Database {
@@ -22,7 +23,12 @@ export function openDatabase(options: OpenDbOptions): Database {
 }
 
 export function openDatabaseMigrated(options: OpenDbOptions): Database {
+  const existedBeforeOpen = !options.inMemory && existsSync(options.path);
   const db = openDatabase(options);
-  migrate(db);
+  migrate(
+    db,
+    undefined,
+    existedBeforeOpen ? { backup: { dbPath: options.path, backupDir: options.backupDir } } : {},
+  );
   return db;
 }

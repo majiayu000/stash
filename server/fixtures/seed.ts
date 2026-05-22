@@ -19,7 +19,11 @@ function isoDate(daysFromToday = 0): string {
 }
 
 const config = loadConfig();
-const db = openDatabaseMigrated({ path: config.dbPath, inMemory: config.inMemoryDb });
+const db = openDatabaseMigrated({
+  path: config.dbPath,
+  inMemory: config.inMemoryDb,
+  backupDir: config.backupDir,
+});
 
 const areas = new AreaService({ db, clock: systemClock });
 const items = new WorkItemService({ db, clock: systemClock });

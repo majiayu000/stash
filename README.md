@@ -107,8 +107,21 @@ tools/    stash CLI binary (POSTs to /api/work-items/capture)
 docs/     SPEC v0.1 / v0.2 / v0.3 (workbench-design + friction-zero release)
 ```
 
-The DB is one SQLite file (default `~/Library/Application Support/stash/app.db`
-on macOS). Override with `STASH_DB_PATH`.
+The DB is one SQLite file (default
+`${XDG_DATA_HOME:-$HOME/.local/share}/stash/stash.db`).
+Override with `STASH_DB_PATH`.
+
+Backups default to a `backups/` directory next to the DB. Override with
+`STASH_BACKUP_DIR`.
+
+```sh
+bun run db:backup
+bun run db:restore -- /path/to/stash-backup.db
+```
+
+Existing on-disk databases are backed up automatically before pending migrations
+run. See [`docs/DATA_SAFETY.md`](./docs/DATA_SAFETY.md) for backup, restore, and
+migration-safety details.
 
 Claude/Codex JSONL roots: `CLAUDE_ROOT` (default `~/.claude`), `CODEX_ROOT`
 (default `~/.codex`).
