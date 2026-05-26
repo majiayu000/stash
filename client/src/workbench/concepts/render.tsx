@@ -15,6 +15,7 @@ import { ConceptC } from './ConceptC';
 import { ConceptD } from './ConceptD';
 import { ConceptJ } from './ConceptJ';
 import { ConceptN } from './ConceptN';
+import { ConceptDone } from './ConceptDone';
 import { ConceptPRD } from './ConceptPRD';
 import { ConceptStub } from './ConceptStub';
 import { findConcept, type ConceptId } from './registry';
@@ -47,6 +48,7 @@ const COMPONENTS: Partial<Record<ConceptId, ComponentType<ConceptProps>>> = {
   d: ConceptD,
   j: ConceptJ,
   n: ConceptN,
+  done: ConceptDone,
   prd: ConceptPRD,
 };
 

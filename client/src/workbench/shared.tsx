@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { updateWorkItem } from '../api/work-items';
 import { CountUp, LiveDot, Typewriter } from '../components/effects';
 import { fmt, type WBData, type WBProject, type WBSession, type WBTodo } from './data';
+import { useWorkbenchFeedback } from './WorkbenchFeedback';
 
 export interface Feature {
   name: string;
@@ -304,10 +305,21 @@ export function SessionRow({ s, projects, compact }: { s: WBSession; projects: W
   );
 }
 
-export function TodoItem({ t, projects, showProject = true }: { t: WBTodo; projects: WBProject[]; showProject?: boolean }) {
+export function TodoItem({
+  t,
+  projects,
+  showProject = true,
+  onOpen,
+}: {
+  t: WBTodo;
+  projects: WBProject[];
+  showProject?: boolean;
+  onOpen?: (todo: WBTodo) => void;
+}) {
   const proj = projects.find((p) => p.id === t.project);
   const isIdea = t.kind === 'idea';
   const navigate = useNavigate();
+  const feedback = useWorkbenchFeedback();
   // SPEC v0.3 §3e — inbox rows participate in the triage cursor; gated on real
   // work-item status, not on absence of project (planned items can also lack a project).
   const inboxAttr = t.status === 'inbox' ? { 'data-inbox-item': t.id } : {};
@@ -321,12 +333,15 @@ export function TodoItem({ t, projects, showProject = true }: { t: WBTodo; proje
     try {
       await updateWorkItem(t.id, { status: t.done ? 'planned' : 'done' });
       window.dispatchEvent(new CustomEvent('stash:captured'));
-    } catch { /* swallow; would surface via Topbar errors */ }
+    } catch (err) {
+      feedback.toast(err instanceof Error ? err.message : String(err), { tone: 'error' });
+    }
   }
 
   function openDetail(e: React.MouseEvent | React.KeyboardEvent) {
     e.stopPropagation();
-    navigate(`/c/l/${t.id}`);
+    if (onOpen) onOpen(t);
+    else navigate(`/tasks/${t.id}`);
   }
 
   return (
@@ -346,7 +361,7 @@ export function TodoItem({ t, projects, showProject = true }: { t: WBTodo; proje
         type="button"
         className="todo-check"
         aria-label={t.done ? 'mark not done' : 'mark done'}
-        title={t.done ? 'mark not done (Space)' : 'mark done (Space)'}
+        title={t.done ? 'Mark not done' : 'Mark done'}
         onClick={toggleDone}
         data-testid={`todo-check-${t.id}`}
         style={{ background: 'transparent', padding: 0, font: 'inherit' }}

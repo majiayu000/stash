@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { useParams } from 'react-router-dom';
+import { useLocation, useParams } from 'react-router-dom';
 import './styles/brand.css';
 import './styles/dashboard.css';
 import { ThemeSwitcher } from '../components/ThemeSwitcher';
@@ -13,11 +13,13 @@ import { QuickCapture } from './QuickCapture';
 import { SearchPalette } from './SearchPalette';
 import { SmartLists } from './SmartLists';
 import { TodayTriage } from './TodayTriage';
+import { WorkbenchFeedbackProvider } from './WorkbenchFeedback';
 
 export function Workbench() {
   const { data, loading, error, reload } = useWorkbenchData();
+  const { pathname } = useLocation();
   const params = useParams<{ id?: ConceptId }>();
-  const conceptId: ConceptId = (params.id as ConceptId) ?? 'e';
+  const conceptId = conceptIdForPath(pathname, params.id);
   const entry = findConcept(conceptId);
 
   // SPEC v0.3 — refresh data after Quick Capture submits.
@@ -75,46 +77,83 @@ export function Workbench() {
   const content = renderConcept(entry.id, data, reload);
 
   return (
-    <div className="workbench-shell">
-      <div className="workbench-floating">
-        <ConceptSwitcher />
-        <ThemeSwitcher />
-      </div>
-      <QuickCapture />
-      <InboxTriage />
-      <SearchPalette />
-      <SmartLists />
-      <ReminderTicker />
-      <TodayTriage />
-      {content}
+    <WorkbenchFeedbackProvider>
+      <div className="workbench-shell">
+        <div className="workbench-floating">
+          <ConceptSwitcher />
+          <ThemeSwitcher />
+        </div>
+        <QuickCapture />
+        <InboxTriage />
+        <SearchPalette />
+        <SmartLists />
+        <ReminderTicker />
+        <TodayTriage />
+        {content}
 
-      <style>{`
-        .workbench-shell {
-          min-height: 100vh;
-          padding: 1.5rem;
-          position: relative;
-        }
-        .workbench-floating {
-          position: fixed;
-          top: 16px;
-          right: 24px;
-          z-index: 50;
-          display: flex;
-          flex-direction: column;
-          align-items: flex-end;
-          gap: 8px;
-        }
-        .dashboard-canvas {
-          min-height: calc(100vh - 3rem);
-          height: auto;
-        }
-        .dashboard-canvas .inner {
-          height: auto !important;
-          min-height: calc(100vh - 3rem);
-          display: flex;
-          flex-direction: column;
-        }
-      `}</style>
-    </div>
+        <style>{`
+          .workbench-shell {
+            min-height: 100vh;
+            padding: 5.75rem 1.5rem 1.5rem;
+            position: relative;
+          }
+          .workbench-floating {
+            position: fixed;
+            top: 16px;
+            left: 24px;
+            right: 24px;
+            z-index: 50;
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 8px;
+          }
+          .dashboard-canvas {
+            min-height: calc(100vh - 3rem);
+            height: auto;
+          }
+          .dashboard-canvas .inner {
+            height: auto !important;
+            min-height: calc(100vh - 3rem);
+            display: flex;
+            flex-direction: column;
+          }
+          [data-testid="concept-switcher"]::-webkit-scrollbar {
+            display: none;
+          }
+          @media (max-width: 760px) {
+            .workbench-shell {
+              padding: 5.25rem 0.75rem 1rem;
+            }
+            .workbench-floating {
+              left: 0.75rem;
+              right: 0.75rem;
+              align-items: center;
+              overflow: hidden;
+            }
+            .workbench-floating [data-testid="theme-switcher"] {
+              display: none;
+            }
+            .dashboard-canvas .inner {
+              min-height: calc(100vh - 2rem);
+            }
+          }
+        `}</style>
+      </div>
+    </WorkbenchFeedbackProvider>
   );
+}
+
+function conceptIdForPath(pathname: string, routeId?: string): ConceptId {
+  if (pathname === '/' || pathname === '') return 'e';
+  if (pathname === '/projects') return 'f';
+  if (pathname.startsWith('/projects/')) return 'k';
+  if (pathname.startsWith('/tasks/')) return 'l';
+  if (pathname === '/sessions' || pathname.startsWith('/sessions/')) return 'g';
+  if (pathname === '/skills') return 'm';
+  if (pathname === '/analytics') return 'h';
+  if (pathname === '/done') return 'done';
+  if (pathname === '/settings') return 'n';
+  if (pathname === '/agent/new') return 'o';
+  return (routeId as ConceptId) ?? 'e';
 }

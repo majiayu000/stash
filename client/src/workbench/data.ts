@@ -40,14 +40,29 @@ export interface WBSession {
 export interface WBTodo {
   id: string;
   text: string;
+  description?: string;
+  outcome?: string;
+  context?: string;
   project: string | null;
   tags: string[];
   done: boolean;
   /** Raw work-item status — needed by InboxTriage to match what the API filters on. */
   status: 'inbox' | 'planned' | 'active' | 'waiting' | 'blocked' | 'someday' | 'done';
+  /** Manual "today" pin (orthogonal to scheduledFor). */
+  todayPinned: boolean;
   priority: 'high' | 'med' | 'low';
   kind: 'task' | 'idea';
   due?: 'today' | 'this-week' | 'someday';
+  /** Fractional order for manual Today reordering. */
+  sortOrder?: number;
+  estimateMinutes?: number;
+  dueAt?: string;
+  scheduledFor?: string;
+  blockedBy?: string;
+  waitingOn?: string;
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string;
   /** v0.6 — visual flags for TodoItem chrome. */
   recurring: boolean;
   reminding: boolean;
@@ -137,38 +152,54 @@ export interface AdaptInput {
 export function adaptToWorkbenchData(input: AdaptInput): WBData {
   const today = todayIso();
   const areasById = new Map(input.areas.map((a) => [a.id, a]));
+  const workboardByProjectId = new Map(input.workboardProjects.map((wb) => [wb.projectId, wb]));
 
-  // Projects derived from workboard groups.
-  const projects: WBProject[] = input.workboardProjects.map((wb, idx) => {
-    const done = wb.items.filter((i) => i.status === 'done').length;
-    const total = wb.items.length;
+  function projectFromGroup(
+    projectId: string,
+    idx: number,
+    wb: AdaptInput['workboardProjects'][number] | undefined,
+  ): WBProject {
+    const area = areasById.get(projectId);
+    const items = wb?.items ?? [];
+    const sessions = wb?.sessions ?? [];
+    const done = items.filter((i) => i.status === 'done').length;
+    const total = items.length;
     const progress = total > 0 ? Math.round((done / total) * 100) : 0;
-    const doingItem = wb.items.find((i) => i.status === 'active');
+    const doingItem = items.find((i) => i.status === 'active');
     const status: WBProject['status'] =
-      wb.activeCount > 0 ? 'active' :
-      wb.items.every((i) => i.status === 'done') ? 'shipping' :
-      wb.items.some((i) => i.status === 'inbox') ? 'fresh' : 'paused';
+      (wb?.activeCount ?? 0) > 0 ? 'active' :
+      total > 0 && items.every((i) => i.status === 'done') ? 'shipping' :
+      total === 0 || items.some((i) => i.status === 'inbox') ? 'fresh' : 'paused';
     return {
-      id: wb.projectId,
-      name: areasById.get(wb.projectId)?.name ?? basename(wb.projectId),
-      emoji: areasById.get(wb.projectId)?.emoji || emojiFor(wb.projectId, idx),
+      id: projectId,
+      name: area?.name ?? basename(projectId),
+      emoji: area?.emoji || emojiFor(projectId, idx),
       progress,
       status,
-      doing: doingItem?.title ?? (wb.blockedCount > 0 ? 'blocked' : 'no active work'),
-      features: wb.items.slice(0, 4).map((i) => ({
+      doing: doingItem?.title ?? ((wb?.blockedCount ?? 0) > 0 ? 'blocked' : 'no active work'),
+      features: items.slice(0, 4).map((i) => ({
         name: i.title.slice(0, 32),
         progress: i.status === 'done' ? 100 : i.status === 'active' ? 50 : i.status === 'planned' ? 20 : 0,
         status: i.status === 'done' ? 'done' : i.status === 'active' ? 'almost' : i.status === 'planned' ? 'wip' : 'todo',
       })),
-      todoCount: wb.items.filter((i) => i.status !== 'done' && i.status !== 'dropped').length,
+      todoCount: items.filter((i) => i.status !== 'done' && i.status !== 'dropped').length,
       todoDone: done,
-      sessions: wb.sessions.length,
-      tokens24h: wb.sessions.reduce((acc, s) => acc + (s.toolCount + s.messageCount) * 80, 0),
-      cost24h: wb.sessions.length * 0.05,
-      lastModel: wb.sessions[0]?.model ?? (wb.sessions[0]?.provider === 'codex' ? 'codex' : wb.sessions[0]?.provider === 'claude' ? 'claude' : '—'),
-      lastTouched: wb.sessions[0] ? new Date(wb.sessions[0].lastActiveAt).getTime() : Date.now() - 3600_000,
+      sessions: sessions.length,
+      tokens24h: sessions.reduce((acc, s) => acc + (s.toolCount + s.messageCount) * 80, 0),
+      cost24h: sessions.length * 0.05,
+      lastModel: sessions[0]?.model ?? (sessions[0]?.provider === 'codex' ? 'codex' : sessions[0]?.provider === 'claude' ? 'claude' : '—'),
+      lastTouched: sessions[0] ? new Date(sessions[0].lastActiveAt).getTime() : new Date(area?.updatedAt ?? Date.now()).getTime(),
     };
-  });
+  }
+
+  // Projects come from areas so newly-created projects are visible before they
+  // have todos. Workboard groups add item/session rollups when present.
+  const projects: WBProject[] = input.areas.map((area, idx) =>
+    projectFromGroup(area.id, idx, workboardByProjectId.get(area.id)),
+  );
+  for (const [projectId, wb] of workboardByProjectId) {
+    if (!areasById.has(projectId)) projects.push(projectFromGroup(projectId, projects.length, wb));
+  }
 
   // Sessions, ordered by most recent.
   const sessions: WBSession[] = input.sessions.slice(0, 30).map((s) => ({
@@ -192,13 +223,26 @@ export function adaptToWorkbenchData(input: AdaptInput): WBData {
     .map((i) => ({
       id: i.id,
       text: i.title,
+      description: i.description,
+      outcome: i.outcome,
+      context: i.context,
       project: i.projectId ?? null,
       tags: i.labels.map((l) => '#' + l),
       done: i.status === 'done',
       status: i.status as WBTodo['status'],
+      todayPinned: i.todayPinned,
       priority: PRIORITY_MAP[i.priority] ?? 'med',
       kind: i.kind === 'idea' ? 'idea' : 'task',
       due: todoDue(i, today),
+      sortOrder: i.sortOrder,
+      estimateMinutes: i.estimateMinutes,
+      dueAt: i.dueAt,
+      scheduledFor: i.scheduledFor,
+      blockedBy: i.blockedBy,
+      waitingOn: i.waitingOn,
+      createdAt: i.createdAt,
+      updatedAt: i.updatedAt,
+      completedAt: i.completedAt,
       recurring: i.recurrence !== undefined,
       reminding: i.reminderAt !== undefined,
     }));
