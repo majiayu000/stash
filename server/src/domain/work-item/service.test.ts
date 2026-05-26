@@ -157,6 +157,15 @@ describe('WorkItemService.update', () => {
     expect(updated.completedAt).toBeUndefined();
   });
 
+  test('clears scheduled date when patching scheduledFor to null', () => {
+    const item = service.create({ title: 'thing', status: 'active', scheduledFor: '2026-05-14' });
+    const updated = service.update(item.id, { status: 'planned', todayPinned: false, scheduledFor: null });
+    expect(updated.status).toBe('planned');
+    expect(updated.todayPinned).toBe(false);
+    expect(updated.scheduledFor).toBeUndefined();
+    expect(service.get(item.id)?.scheduledFor).toBeUndefined();
+  });
+
   test('throws when item missing', () => {
     expect(() => service.update('nope', { title: 'x' })).toThrow(WorkItemNotFoundError);
   });

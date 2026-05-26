@@ -1,10 +1,10 @@
 import { useEffect } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useLocation, useParams } from 'react-router-dom';
 import './styles/brand.css';
 import './styles/dashboard.css';
 import { ThemeSwitcher } from '../components/ThemeSwitcher';
 import { useWorkbenchData } from './useWorkbenchData';
-import { findConcept } from './concepts/registry';
+import { findConcept, type ConceptId } from './concepts/registry';
 import { renderConcept } from './concepts/render';
 import { ConceptSwitcher } from './ConceptSwitcher';
 import { InboxTriage } from './InboxTriage';
@@ -13,26 +13,22 @@ import { QuickCapture } from './QuickCapture';
 import { SearchPalette } from './SearchPalette';
 import { SmartLists } from './SmartLists';
 import { TodayTriage } from './TodayTriage';
+import { WorkbenchFeedbackProvider } from './WorkbenchFeedback';
 
 type WorkbenchRouteParams = {
+  id?: ConceptId | string;
   detailId?: string;
   projectId?: string;
   sessionId?: string;
   workItemId?: string;
 };
 
-function conceptIdFromParams(params: WorkbenchRouteParams): string {
-  if (params.projectId) return 'k';
-  if (params.sessionId) return 'g';
-  if (params.workItemId) return 'l';
-  return params.detailId ?? 'e';
-}
-
 export function Workbench() {
   const { data, loading, error, reload } = useWorkbenchData();
   const params = useParams<WorkbenchRouteParams>();
-  const routeConceptId = conceptIdFromParams(params);
-  const entry = findConcept(routeConceptId);
+  const { pathname } = useLocation();
+  const conceptId = conceptIdForPath(pathname, params);
+  const entry = findConcept(conceptId);
 
   // SPEC v0.3 — refresh data after Quick Capture submits.
   useEffect(() => {
@@ -84,54 +80,94 @@ export function Workbench() {
       </div>
     );
   }
-  if (!entry) return <UnknownConceptState conceptId={routeConceptId} />;
   if (!data) return null;
+  if (!entry) return <UnknownConceptState conceptId={conceptId} />;
 
   const content = renderConcept(entry.id, data, reload);
 
   return (
-    <div className="workbench-shell">
-      <div className="workbench-floating">
-        <ConceptSwitcher />
-        <ThemeSwitcher />
-      </div>
-      <QuickCapture />
-      <InboxTriage />
-      <SearchPalette />
-      <SmartLists />
-      <ReminderTicker />
-      <TodayTriage />
-      {content}
+    <WorkbenchFeedbackProvider>
+      <div className="workbench-shell">
+        <div className="workbench-floating">
+          <ConceptSwitcher />
+          <ThemeSwitcher />
+        </div>
+        <QuickCapture />
+        <InboxTriage />
+        <SearchPalette />
+        <SmartLists />
+        <ReminderTicker />
+        <TodayTriage />
+        {content}
 
-      <style>{`
-        .workbench-shell {
-          min-height: 100vh;
-          padding: 1.5rem;
-          position: relative;
-        }
-        .workbench-floating {
-          position: fixed;
-          top: 16px;
-          right: 24px;
-          z-index: 50;
-          display: flex;
-          flex-direction: column;
-          align-items: flex-end;
-          gap: 8px;
-        }
-        .dashboard-canvas {
-          min-height: calc(100vh - 3rem);
-          height: auto;
-        }
-        .dashboard-canvas .inner {
-          height: auto !important;
-          min-height: calc(100vh - 3rem);
-          display: flex;
-          flex-direction: column;
-        }
-      `}</style>
-    </div>
+        <style>{`
+          .workbench-shell {
+            min-height: 100vh;
+            padding: 5.75rem 1.5rem 1.5rem;
+            position: relative;
+          }
+          .workbench-floating {
+            position: fixed;
+            top: 16px;
+            left: 24px;
+            right: 24px;
+            z-index: 50;
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 8px;
+          }
+          .dashboard-canvas {
+            min-height: calc(100vh - 3rem);
+            height: auto;
+          }
+          .dashboard-canvas .inner {
+            height: auto !important;
+            min-height: calc(100vh - 3rem);
+            display: flex;
+            flex-direction: column;
+          }
+          [data-testid="concept-switcher"]::-webkit-scrollbar {
+            display: none;
+          }
+          @media (max-width: 760px) {
+            .workbench-shell {
+              padding: 5.25rem 0.75rem 1rem;
+            }
+            .workbench-floating {
+              left: 0.75rem;
+              right: 0.75rem;
+              align-items: center;
+              overflow: hidden;
+            }
+            .workbench-floating [data-testid="theme-switcher"] {
+              display: none;
+            }
+            .dashboard-canvas .inner {
+              min-height: calc(100vh - 2rem);
+            }
+          }
+        `}</style>
+      </div>
+    </WorkbenchFeedbackProvider>
   );
+}
+
+function conceptIdForPath(pathname: string, params: WorkbenchRouteParams): string {
+  if (pathname === '/' || pathname === '') return 'e';
+  if (pathname === '/projects') return 'f';
+  if (pathname.startsWith('/projects/')) return 'k';
+  if (pathname.startsWith('/tasks/')) return 'l';
+  if (pathname === '/sessions' || pathname.startsWith('/sessions/')) return 'g';
+  if (pathname === '/skills') return 'm';
+  if (pathname === '/analytics') return 'h';
+  if (pathname === '/done') return 'done';
+  if (pathname === '/settings') return 'n';
+  if (pathname === '/agent/new') return 'o';
+  if (params.sessionId) return 'g';
+  if (params.workItemId) return 'l';
+  if (params.projectId && (params.id === 'k' || pathname.startsWith('/c/k/'))) return 'k';
+  return params.detailId ?? params.id ?? 'e';
 }
 
 function UnknownConceptState({ conceptId }: { conceptId: string }) {

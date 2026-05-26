@@ -1,8 +1,24 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { type UpdateWorkItemInput } from '@stash/shared';
 import { CountUp, LiveDot, ParticleField, Typewriter } from '../../components/effects';
-import { createWorkItem, updateWorkItem } from '../../api/work-items';
+import { captureWorkItem, createWorkItem, updateWorkItem } from '../../api/work-items';
 import type { WBData, WBProject, WBTodo } from '../data';
-import { ProgressBar, Topbar, TodoItem } from '../shared';
+import { Topbar, TodoItem } from '../shared';
+import { useWorkbenchFeedback } from '../WorkbenchFeedback';
+import { DoneDropZone, invalidMoveMessage, isStatusMoveAllowed, type ToastAction, type ToastTone } from './conceptE.dnd';
+import { conceptEDragStyles } from './conceptE.drag.styles';
+import {
+  DoneReviewPanel,
+  TodoCommandRail,
+  TodoInspector,
+  buildSuggestions,
+  todayIso,
+  todoCommandStyles,
+  viewTitle,
+  type TodoViewId,
+} from './conceptE.command';
+import { TodoListSurface, todoListStyles, type TodoListGroup } from './conceptE.list';
 
 /**
  * Concept E — Capture & Plan (todo-first).
@@ -12,14 +28,70 @@ import { ProgressBar, Topbar, TodoItem } from '../shared';
  */
 export function ConceptE({ data, reload }: { data: WBData; reload: () => void }) {
   const { projects, todos, sessions } = data;
+  const navigate = useNavigate();
   const [submitting, setSubmitting] = useState(false);
   const [captureText, setCaptureText] = useState('');
+  const [draggingTodo, setDraggingTodo] = useState<WBTodo | null>(null);
+  const [toast, setToast] = useState<ToastState | null>(null);
+  const [view, setView] = useState<TodoViewId>('command');
+  const [selectedTodoId, setSelectedTodoId] = useState<string | null>(null);
+  const toastTimer = useRef<number | null>(null);
 
-  const liveProjectIds = new Set(sessions.filter((s) => s.state === 'live').map((s) => s.project));
-  const inbox = todos.filter((t) => !t.project && !t.done);
-  const doing = todos.filter((t) => t.project && liveProjectIds.has(t.project) && !t.done);
-  const today = todos.filter((t) => t.project && !liveProjectIds.has(t.project) && t.due === 'today' && !t.done);
-  const later = todos.filter((t) => t.project && !liveProjectIds.has(t.project) && (t.due === 'this-week' || t.due === 'someday') && !t.done);
+  // Column membership is keyed on real WorkItem status / todayPinned, not on
+  // project-presence. A captured "buy milk" with no project still moves to
+  // today when you drag it onto the today column.
+  //
+  // inbox:  status === 'inbox' (newly captured, untriaged)
+  // today:  todayPinned OR scheduledFor === today (and not inbox/active/done)
+  // doing:  status === 'active'
+  // later:  everything else still open
+  const isTodayBucket = (t: WBTodo) => (t.todayPinned || t.due === 'today') && t.status !== 'inbox' && t.status !== 'active' && !t.done;
+  const inbox = todos.filter((t) => t.status === 'inbox' && !t.done);
+  const doing = todos.filter((t) => t.status === 'active' && !t.done);
+  const waiting = todos.filter((t) => (t.status === 'waiting' || t.status === 'blocked') && !t.done);
+  const today = sortByManualOrder(todos.filter(isTodayBucket));
+  const later = todos.filter((t) =>
+    t.status !== 'inbox'
+    && t.status !== 'active'
+    && t.status !== 'waiting'
+    && t.status !== 'blocked'
+    && !t.done
+    && !isTodayBucket(t)
+  );
+  const done = todos.filter((t) => t.done).sort((a, b) => (b.completedAt ?? b.updatedAt).localeCompare(a.completedAt ?? a.updatedAt));
+  const doneToday = done.filter((t) => (t.completedAt ?? t.updatedAt).slice(0, 10) === todayIso());
+  const suggestions = buildSuggestions({ inbox, today, doing, waiting, later });
+  const selectedTodo = todos.find((t) => t.id === selectedTodoId)
+    ?? doing[0]
+    ?? today[0]
+    ?? inbox[0]
+    ?? waiting[0]
+    ?? later[0]
+    ?? done[0]
+    ?? null;
+
+  useEffect(() => {
+    if (selectedTodoId && todos.some((todo) => todo.id === selectedTodoId)) return;
+    setSelectedTodoId(selectedTodo?.id ?? null);
+  }, [selectedTodoId, selectedTodo?.id, todos]);
+
+  const columns = [
+    { id: 'inbox' as const, icon: '📥', name: 'inbox', tone: 'orange' as const, hint: 'quick captures to clarify', items: inbox },
+    { id: 'today' as const, icon: '🌅', name: 'today', tone: 'cyan' as const, hint: 'planned and pinned now', items: today },
+    { id: 'active' as const, icon: '▶', name: 'doing', tone: 'green' as const, hint: 'in execution right now', items: doing, live: true },
+    { id: 'waiting' as const, icon: '⏸', name: 'blocked', tone: 'pink' as const, hint: 'waiting or blocked', items: waiting },
+    { id: 'later' as const, icon: '📅', name: 'later', tone: 'purple' as const, hint: 'scheduled later or someday', items: later },
+  ];
+  const visibleColumns = view === 'command'
+    ? columns
+    : columns.filter((col) => col.id === view);
+  const listGroups: TodoListGroup[] = [
+    { id: 'active', title: '进行中', subtitle: '已经开始处理的任务', tone: 'green', items: doing, empty: '暂无进行中的任务。' },
+    { id: 'today', title: '今天', subtitle: '今天要推进的任务', tone: 'cyan', items: today, empty: '今天还没有安排任务。' },
+    { id: 'inbox', title: '收件箱', subtitle: '需要判断归类的新事项', tone: 'orange', items: inbox, empty: '收件箱为空，可以从上方捕获新任务。' },
+    { id: 'blocked', title: '阻塞', subtitle: '等待外部条件的任务', tone: 'pink', items: waiting, empty: '暂无阻塞或等待中的任务。' },
+    { id: 'later', title: '稍后', subtitle: '以后再处理的任务', tone: 'purple', items: later, empty: '暂无稍后处理的任务。' },
+  ];
 
   async function submitCapture(e: React.FormEvent) {
     e.preventDefault();
@@ -27,12 +99,20 @@ export function ConceptE({ data, reload }: { data: WBData; reload: () => void })
     if (!trimmed || submitting) return;
     setSubmitting(true);
     try {
-      await createWorkItem({ title: trimmed, kind: 'idea', status: 'inbox' });
+      await captureWorkItem(trimmed);
       setCaptureText('');
-      reload();
+      window.dispatchEvent(new CustomEvent('stash:captured'));
+    } catch (err) {
+      flash(err instanceof Error ? err.message : String(err), 'error');
     } finally {
       setSubmitting(false);
     }
+  }
+
+  function flash(message: string, tone: ToastTone = 'info', action?: ToastAction) {
+    setToast({ message, tone, action });
+    if (toastTimer.current) window.clearTimeout(toastTimer.current);
+    toastTimer.current = window.setTimeout(() => setToast(null), action ? 8000 : 2400);
   }
 
   return (
@@ -60,11 +140,10 @@ export function ConceptE({ data, reload }: { data: WBData; reload: () => void })
                   <span className="capture-typewriter" aria-hidden>
                     <Typewriter
                       phrases={[
-                        'fix oauth callback edge case #aurora !high',
-                        'idea: wasm + simd for lexer hot loop',
-                        'reply to sam re contract scope',
-                        'try voice-to-todo via whisper #idea',
-                        'ship haiku-bot v1.2 #haiku-bot !high today',
+                        'Write a task, idea, or reminder here',
+                        'Add #project to file it under a project',
+                        'Use ^p1 for priority and !today for schedule',
+                        'Use @tag to add a label',
                       ]}
                       speed={48}
                       pause={1900}
@@ -74,19 +153,20 @@ export function ConceptE({ data, reload }: { data: WBData; reload: () => void })
               </div>
               <button
                 type="submit"
-                className="capture-kbd-btn"
+                className="capture-submit-btn"
                 disabled={!captureText.trim() || submitting}
                 data-testid="capture-submit"
-                title="Save to inbox (Enter)"
+                title="Save to inbox"
               >
-                ⏎
+                {submitting ? 'Saving...' : 'Save'}
               </button>
             </form>
             <div className="capture-hints">
-              <span><kbd>#proj</kbd> tag project</span>
-              <span><kbd>!</kbd> priority</span>
-              <span><kbd>@today</kbd> when</span>
-              <span><kbd>💡</kbd> idea, not task</span>
+              <span><code>#project</code> project</span>
+              <span><code>@tag</code> label</span>
+              <span><code>^p1</code> priority</span>
+              <span><code>!today</code> schedule</span>
+              <span><code>*45m</code> estimate</span>
               <span style={{ marginLeft: 'auto', color: 'var(--text-muted)' }}>
                 <CountUp to={todos.filter((t) => !t.done).length} duration={800} /> open ·{' '}
                 <CountUp to={todos.filter((t) => t.done).length} duration={800} /> done ·{' '}
@@ -96,56 +176,129 @@ export function ConceptE({ data, reload }: { data: WBData; reload: () => void })
           </div>
         </div>
 
-        {/* Main split: 4-column board + right rail */}
-        <div id="inbox-board" style={{ display: 'grid', gridTemplateColumns: '1fr 290px', gap: '1.25rem', flex: 1, minHeight: 0 }}>
-          <div style={{ minWidth: 0, display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.85rem', minHeight: 0 }}>
-            <BoardCol icon="📥" name="inbox"  tone="orange" hint="ideas & quick captures"     items={inbox}  projects={projects} />
-            <BoardCol icon="🌅" name="today"  tone="cyan"   hint="planned for today"          items={today}  projects={projects} />
-            <BoardCol icon="🚧" name="doing"  tone="green"  hint="agent is on it right now"   items={doing}  projects={projects} live />
-            <BoardCol icon="📅" name="later"  tone="purple" hint="this week · someday"        items={later}  projects={projects} />
-          </div>
+        <div className="todo-command-shell">
+          <TodoCommandRail
+            view={view}
+            counts={{
+              inbox: inbox.length,
+              today: today.length,
+              active: doing.length,
+              waiting: waiting.length,
+              later: later.length,
+              doneToday: doneToday.length,
+            }}
+            suggestions={suggestions}
+            onViewChange={setView}
+            onSelectTodo={(todo) => setSelectedTodoId(todo.id)}
+          />
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', minHeight: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
-              <div className="sec-head" style={{ marginBottom: 0, minWidth: 0, flex: 1 }}>
-                <span className="prompt">&gt;</span> projects <span className="count">— {projects.length}</span>
+          <main className="todo-flow-panel" data-testid="todo-flow-panel">
+            <div className="flow-panel-head">
+              <div>
+                <span className="todo-rail-kicker">{view === 'command' ? 'work flow' : view}</span>
+                <h2>{view === 'command' ? '捕获、判断、执行' : viewTitle(view)}</h2>
               </div>
-              <button className="new-proj-btn" style={{ whiteSpace: 'nowrap', flexShrink: 0 }}>+ new</button>
+              <button type="button" className="flow-panel-link" onClick={() => navigate('/done')}>
+                完成归档
+              </button>
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', overflowY: 'auto', paddingRight: 4 }}>
-              {projects.length === 0
-                ? <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)' }}>no projects yet — set <code>projectId</code> on work items</div>
-                : projects.map((p) => <ProjectChipRow key={p.id} p={p} />)}
-            </div>
-            <div className="surface" style={{ padding: '0.75rem 0.9rem', marginTop: 'auto' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem' }}>
-                <LiveDot color="var(--neon-green)" />
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', color: 'var(--text-primary)', fontWeight: 600 }}>
-                  {sessions.filter((s) => s.state === 'live').length} agents live
-                </span>
-              </div>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
-                {sessions.filter((s) => s.state === 'live').slice(0, 3).map((s) => (
-                  <div key={s.id} style={{ marginTop: 6 }}>
-                    <span style={{ color: s.tool === 'codex' ? 'var(--neon-purple)' : 'var(--neon-cyan)' }}>
-                      {s.tool === 'codex' ? '$' : '>'}
-                    </span>{' '}
-                    {projects.find((p) => p.id === s.project)?.name ?? s.project} · {s.model}
-                    <div style={{ paddingLeft: 14 }}>{s.preview.slice(0, 60)}…</div>
-                  </div>
-                ))}
-                {sessions.filter((s) => s.state === 'live').length === 0 && (
-                  <div style={{ color: 'var(--text-muted)' }}>(no live agents)</div>
-                )}
-              </div>
-            </div>
-          </div>
+
+            {view === 'done' ? (
+              <DoneReviewPanel
+                doneToday={doneToday}
+                doneOlder={done}
+                onSelectTodo={(todo) => setSelectedTodoId(todo.id)}
+                onOpenDone={() => navigate('/done')}
+              />
+            ) : view === 'command' ? (
+              <>
+                <DoneDropZone
+                  active={draggingTodo !== null}
+                  allTodos={todos}
+                  draggingTodo={draggingTodo}
+                  onDragEnd={() => setDraggingTodo(null)}
+                  onFlash={flash}
+                />
+                <TodoListSurface
+                  groups={listGroups}
+                  projects={projects}
+                  selectedTodoId={selectedTodo?.id ?? null}
+                  onSelectTodo={(todo) => setSelectedTodoId(todo.id)}
+                  onDragStart={setDraggingTodo}
+                  onDragEnd={() => setDraggingTodo(null)}
+                  onFlash={flash}
+                  onUpdated={reload}
+                />
+              </>
+            ) : (
+              <>
+                <div
+                  className={`todo-lane-grid ${visibleColumns.length === 1 ? 'focused' : ''}`}
+                  style={{ '--lane-count': visibleColumns.length } as CSSProperties}
+                >
+                  {visibleColumns.map((col) => (
+                    <BoardCol
+                      key={col.id}
+                      icon={col.icon}
+                      name={col.name}
+                      tone={col.tone}
+                      hint={col.hint}
+                      items={col.items}
+                      projects={projects}
+                      allTodos={todos}
+                      draggingTodo={draggingTodo}
+                      selectedTodoId={selectedTodo?.id ?? null}
+                      onSelectTodo={(todo: WBTodo) => setSelectedTodoId(todo.id)}
+                      onDragStart={setDraggingTodo}
+                      onDragEnd={() => setDraggingTodo(null)}
+                      onFlash={flash}
+                      live={col.live}
+                    />
+                  ))}
+                </div>
+                <DoneDropZone
+                  active={draggingTodo !== null}
+                  allTodos={todos}
+                  draggingTodo={draggingTodo}
+                  onDragEnd={() => setDraggingTodo(null)}
+                  onFlash={flash}
+                />
+              </>
+            )}
+          </main>
+
+          <TodoInspector
+            todo={selectedTodo}
+            projects={projects}
+            sessions={sessions}
+            onFlash={flash}
+            onUpdated={reload}
+          />
         </div>
       </div>
+      {toast && (
+        <div className={`ce-toast ${toast.tone}`} role="status" data-testid="ce-toast">
+          <span>{toast.message}</span>
+          {toast.action && (
+            <button type="button" onClick={() => { void toast.action?.run(); }}>
+              {toast.action.label}
+            </button>
+          )}
+        </div>
+      )}
 
       <style>{conceptEStyles}</style>
+      <style>{conceptEDragStyles}</style>
+      <style>{todoCommandStyles}</style>
+      <style>{todoListStyles}</style>
     </div>
   );
+}
+
+interface ToastState {
+  message: string;
+  tone: ToastTone;
+  action?: ToastAction;
 }
 
 // Map BoardCol name → defaults for a new work item dropped into that column.
@@ -154,6 +307,7 @@ function colCreateOpts(col: string): Partial<Parameters<typeof createWorkItem>[0
     case 'inbox':  return { kind: 'idea', status: 'inbox' };
     case 'today':  return { kind: 'task', status: 'planned', todayPinned: true, scheduledFor: new Date().toISOString().slice(0, 10) };
     case 'doing':  return { kind: 'task', status: 'active' };
+    case 'blocked': return { kind: 'task', status: 'blocked' };
     case 'later':  return { kind: 'task', status: 'planned' };
     default:       return { kind: 'task', status: 'inbox' };
   }
@@ -162,27 +316,66 @@ function colCreateOpts(col: string): Partial<Parameters<typeof createWorkItem>[0
 function emptyCopyFor(col: string): string {
   // SPEC v0.3 §3i — actionable empty states, no fake data.
   switch (col) {
-    case 'inbox':  return 'Inbox empty. Press `c` to capture.';
-    case 'today':  return 'Nothing planned for today.';
-    case 'doing':  return 'No active work.';
-    case 'later':  return 'No items scheduled later.';
+    case 'inbox':  return '收件箱为空，可以从上方捕获新任务。';
+    case 'today':  return '今天还没有安排任务。';
+    case 'doing':  return '暂无进行中的任务。';
+    case 'blocked': return '暂无阻塞或等待中的任务。';
+    case 'later':  return '暂无稍后处理的任务。';
     default:       return '— empty —';
   }
 }
 
-function BoardCol({ icon, name, tone, hint, items, count, live, projects }: { icon: string; name: string; tone: 'orange' | 'cyan' | 'green' | 'purple'; hint: string; items: WBTodo[]; count?: number; live?: boolean; projects: WBProject[] }) {
+function BoardCol({
+  icon,
+  name,
+  tone,
+  hint,
+  items,
+  count,
+  live,
+  projects,
+  allTodos,
+  draggingTodo,
+  selectedTodoId,
+  onSelectTodo,
+  onDragStart,
+  onDragEnd,
+  onFlash,
+}: {
+  icon: string;
+  name: string;
+  tone: 'orange' | 'cyan' | 'green' | 'purple' | 'pink';
+  hint: string;
+  items: WBTodo[];
+  count?: number;
+  live?: boolean;
+  projects: WBProject[];
+  allTodos: WBTodo[];
+  draggingTodo: WBTodo | null;
+  selectedTodoId: string | null;
+  onSelectTodo: (todo: WBTodo) => void;
+  onDragStart: (todo: WBTodo) => void;
+  onDragEnd: () => void;
+  onFlash: (message: string, tone?: ToastTone, action?: ToastAction) => void;
+}) {
   const c = count ?? items.length;
   const draggable = name === 'today';
   const [dragOver, setDragOver] = useState(false);
+  const feedback = useWorkbenchFeedback();
+  const target = colMoveOpts(name).status;
+  const invalidTarget = Boolean(draggingTodo && target && !isStatusMoveAllowed(draggingTodo.status, target));
 
   async function addToCol() {
-    const title = window.prompt(`new todo in ${name}`);
+    const title = await feedback.prompt({
+      title: `New todo in ${name}`,
+      placeholder: 'Todo title',
+    });
     if (!title?.trim()) return;
     try {
       const opts = colCreateOpts(name);
       await createWorkItem({ title: title.trim(), ...opts });
       window.dispatchEvent(new CustomEvent('stash:captured'));
-    } catch (e) { window.alert(e instanceof Error ? e.message : String(e)); }
+    } catch (e) { onFlash(e instanceof Error ? e.message : String(e), 'error'); }
   }
 
   function onDragOver(e: React.DragEvent) {
@@ -198,15 +391,22 @@ function BoardCol({ icon, name, tone, hint, items, count, live, projects }: { ic
     setDragOver(false);
     const id = e.dataTransfer.getData('application/stash-todo');
     if (!id) return;
+    const todo = allTodos.find((t) => t.id === id);
+    if (!todo) return;
     const opts = colMoveOpts(name);
+    const invalid = invalidMoveMessage(todo, opts.status);
+    if (invalid) {
+      onFlash(invalid, 'error');
+      return;
+    }
     try {
       await updateWorkItem(id, opts);
       window.dispatchEvent(new CustomEvent('stash:captured'));
-    } catch (err) { window.alert(err instanceof Error ? err.message : String(err)); }
+    } catch (err) { onFlash(err instanceof Error ? err.message : String(err), 'error'); }
   }
 
   return (
-    <div className={`board-col tone-${tone} ${dragOver ? 'drag-over' : ''}`} data-testid={`board-col-${name}`}>
+    <div className={`board-col tone-${tone} ${dragOver ? 'drag-over' : ''} ${dragOver && invalidTarget ? 'invalid-over' : ''}`} data-testid={`board-col-${name}`}>
       <div className="board-col-head">
         <span style={{ fontSize: '1rem' }}>{icon}</span>
         <span className="board-col-name">{name}</span>
@@ -223,9 +423,9 @@ function BoardCol({ icon, name, tone, hint, items, count, live, projects }: { ic
         {items.length === 0 ? (
           <div className="board-col-empty">{emptyCopyFor(name)}</div>
         ) : draggable ? (
-          <DraggableList items={items} projects={projects} />
+          <DraggableList items={items} projects={projects} selectedTodoId={selectedTodoId} onSelectTodo={onSelectTodo} onDragStart={onDragStart} onDragEnd={onDragEnd} onFlash={onFlash} />
         ) : (
-          items.map((t) => <DraggableRow key={t.id} t={t} projects={projects} />)
+          items.map((t) => <DraggableRow key={t.id} t={t} projects={projects} selectedTodoId={selectedTodoId} onSelectTodo={onSelectTodo} onDragStart={onDragStart} onDragEnd={onDragEnd} />)
         )}
         <button className="todo-add" type="button" onClick={addToCol}>+ add</button>
       </div>
@@ -237,31 +437,51 @@ function BoardCol({ icon, name, tone, hint, items, count, live, projects }: { ic
  * Map a target column → the status/pin transition to apply when a row is
  * dropped on it. Mirror of colCreateOpts but for existing items.
  */
-function colMoveOpts(col: string): Parameters<typeof updateWorkItem>[1] {
+function colMoveOpts(col: string): UpdateWorkItemInput {
   switch (col) {
     case 'inbox':  return { status: 'inbox',   todayPinned: false };
     case 'today':  return { status: 'planned', todayPinned: true, scheduledFor: new Date().toISOString().slice(0, 10) };
     case 'doing':  return { status: 'active',  todayPinned: false };
-    case 'later':  return { status: 'planned', todayPinned: false };
+    case 'blocked': return { status: 'blocked', todayPinned: false };
+    case 'later':  return { status: 'planned', todayPinned: false, scheduledFor: null };
     default:       return {};
   }
 }
 
+function sortByManualOrder(items: WBTodo[]): WBTodo[] {
+  return items
+    .map((item, index) => ({ item, order: item.sortOrder ?? (index + 1) * 1000 }))
+    .sort((a, b) => {
+      if (a.order !== b.order) return a.order - b.order;
+      return a.item.text.localeCompare(b.item.text);
+    })
+    .map(({ item }) => item);
+}
+
 /** Wrap a TodoItem in an outer <div> that supports HTML5 drag for cross-column moves. */
-function DraggableRow({ t, projects }: { t: WBTodo; projects: WBProject[] }) {
+function DraggableRow({ t, projects, selectedTodoId, onSelectTodo, onDragStart, onDragEnd }: {
+  t: WBTodo;
+  projects: WBProject[];
+  selectedTodoId: string | null;
+  onSelectTodo: (todo: WBTodo) => void;
+  onDragStart: (todo: WBTodo) => void;
+  onDragEnd: () => void;
+}) {
   const [dragging, setDragging] = useState(false);
   return (
     <div
       draggable
       onDragStart={(e) => {
         setDragging(true);
+        onDragStart(t);
         e.dataTransfer.effectAllowed = 'move';
         e.dataTransfer.setData('application/stash-todo', t.id);
       }}
-      onDragEnd={() => setDragging(false)}
+      onDragEnd={() => { setDragging(false); onDragEnd(); }}
+      className={`todo-row-shell ${selectedTodoId === t.id ? 'selected' : ''}`}
       style={{ opacity: dragging ? 0.4 : 1, cursor: 'grab' }}
     >
-      <TodoItem t={t} projects={projects} />
+      <TodoItem t={t} projects={projects} onOpen={onSelectTodo} />
     </div>
   );
 }
@@ -272,7 +492,15 @@ function DraggableRow({ t, projects }: { t: WBTodo; projects: WBProject[] }) {
  * Optimistic local reorder; PATCHes only the moved row; emits stash:captured
  * so the workbench refetches in canonical order.
  */
-function DraggableList({ items, projects }: { items: WBTodo[]; projects: WBProject[] }) {
+function DraggableList({ items, projects, selectedTodoId, onSelectTodo, onDragStart: onExternalDragStart, onDragEnd, onFlash }: {
+  items: WBTodo[];
+  projects: WBProject[];
+  selectedTodoId: string | null;
+  onSelectTodo: (todo: WBTodo) => void;
+  onDragStart: (todo: WBTodo) => void;
+  onDragEnd: () => void;
+  onFlash: (message: string, tone?: ToastTone, action?: ToastAction) => void;
+}) {
   const [order, setOrder] = useState<WBTodo[]>(items);
   const [draggingId, setDraggingId] = useState<string | null>(null);
 
@@ -283,6 +511,8 @@ function DraggableList({ items, projects }: { items: WBTodo[]; projects: WBProje
 
   function onDragStart(e: React.DragEvent, id: string) {
     setDraggingId(id);
+    const todo = items.find((it) => it.id === id);
+    if (todo) onExternalDragStart(todo);
     e.dataTransfer.effectAllowed = 'move';
     // Use both: stash-todo so cross-column drops see it; text/plain for compat.
     e.dataTransfer.setData('application/stash-todo', id);
@@ -311,23 +541,27 @@ function DraggableList({ items, projects }: { items: WBTodo[]; projects: WBProje
     next.splice(to, 0, moved);
     setOrder(next);
 
-    // Compute fractional sortOrder.
-    // We don't have the existing sortOrder values on WBTodo, so the simplest
-    // correct thing is to renumber locally using 1000.0 step and patch the
-    // moved row's neighbours only. Use midpoint between neighbours' indices.
+    // Compute a fractional order between the new neighbours. Items without a
+    // persisted order get a stable local fallback so the first drag seeds order.
     const prevIdx = next.findIndex((it) => it.id === movedId);
     const before = next[prevIdx - 1];
     const after = next[prevIdx + 1];
+    const fallbackOrder = (idx: number) => (idx + 1) * 1000;
+    const beforeOrder = before ? (before.sortOrder ?? fallbackOrder(prevIdx - 1)) : undefined;
+    const afterOrder = after ? (after.sortOrder ?? fallbackOrder(prevIdx + 1)) : undefined;
     const newOrder =
-      before && after ? (prevIdx) * 1000 + 0.5  // tighten later if precision degrades
-        : before ? (prevIdx + 1) * 1000
-          : after ? (prevIdx) * 1000 - 500
+      beforeOrder !== undefined && afterOrder !== undefined ? (beforeOrder + afterOrder) / 2
+        : beforeOrder !== undefined ? beforeOrder + 1000
+          : afterOrder !== undefined ? afterOrder - 1000
             : 1000;
 
     try {
       await updateWorkItem(movedId, { sortOrder: newOrder });
       window.dispatchEvent(new CustomEvent('stash:captured'));
-    } catch { /* swallow */ }
+    } catch (err) {
+      setOrder(items);
+      onFlash(err instanceof Error ? err.message : String(err), 'error');
+    }
   }
 
   return (
@@ -339,66 +573,37 @@ function DraggableList({ items, projects }: { items: WBTodo[]; projects: WBProje
           onDragStart={(e) => onDragStart(e, t.id)}
           onDragOver={onDragOver}
           onDrop={(e) => onDrop(e, t.id)}
-          onDragEnd={() => setDraggingId(null)}
+          onDragEnd={() => { setDraggingId(null); onDragEnd(); }}
+          className={`todo-row-shell ${selectedTodoId === t.id ? 'selected' : ''}`}
           style={{ opacity: draggingId === t.id ? 0.4 : 1, cursor: 'grab' }}
         >
-          <TodoItem t={t} projects={projects} />
+          <TodoItem t={t} projects={projects} onOpen={onSelectTodo} />
         </div>
       ))}
     </>
   );
 }
 
-function ProjectChipRow({ p }: { p: WBProject }) {
-  return (
-    <div className="proj-chip">
-      <span style={{ fontSize: '1rem' }}>{p.emoji}</span>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
-          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', color: 'var(--neon-cyan)', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            {p.name}
-          </span>
-          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.66rem', color: 'var(--text-muted)' }}>{p.progress}%</span>
-        </div>
-        <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 3 }}>
-          <ProgressBar value={p.progress} thin />
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 3, fontFamily: 'var(--font-mono)', fontSize: '0.62rem', color: 'var(--text-muted)' }}>
-          <span>{p.todoCount} todo · {p.sessions} sess</span>
-          {p.status === 'active' && p.tokens24h > 0 && <LiveDot color="var(--neon-green)" />}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 const conceptEStyles = `
 .capture-hero {
   position: relative;
-  background: linear-gradient(135deg, rgba(191,90,242,0.08), rgba(0,255,242,0.05));
-  border: 1px solid rgba(191,90,242,0.25);
-  border-radius: var(--radius-xl, 16px);
-  padding: 1.25rem 1.5rem;
-  margin-bottom: 1.25rem;
+  background: linear-gradient(135deg, rgba(191,90,242,0.055), rgba(0,255,242,0.035));
+  border: 1px solid rgba(191,90,242,0.18);
+  border-radius: var(--radius-lg, 12px);
+  padding: 1rem 1.15rem;
+  margin-bottom: 1rem;
   overflow: hidden;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), 0 0 30px rgba(191,90,242,0.06);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), 0 10px 30px rgba(0,0,0,0.12);
 }
 .capture-hero::before {
-  content: '';
-  position: absolute; inset: -2px;
-  background: linear-gradient(90deg, var(--neon-purple), var(--neon-cyan), var(--neon-magenta), var(--neon-purple));
-  background-size: 300% 100%;
-  border-radius: var(--radius-xl, 16px);
-  z-index: -1;
-  opacity: 0.5;
-  animation: borderFlow 5s linear infinite;
-  filter: blur(6px);
+  display: none;
 }
 @keyframes borderFlow {
   0% { background-position: 0% 0; }
   100% { background-position: 300% 0; }
 }
 .capture-hero-inner { position: relative; z-index: 1; }
+.capture-hero .particle-field { opacity: 0.18; }
 .capture-row {
   display: flex; align-items: center; gap: 0.75rem;
   padding: 0.85rem 1rem;
@@ -432,24 +637,28 @@ const conceptEStyles = `
   font-family: var(--font-mono);
   font-size: 1.1rem;
   color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.capture-kbd-btn {
+.capture-submit-btn {
   font-family: var(--font-mono);
   font-size: 0.8rem;
   color: var(--text-primary);
-  padding: 4px 10px;
+  padding: 5px 14px;
   background: var(--bg-elevated);
   border: 1px solid var(--border-glow);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   transition: all .15s;
+  min-width: 72px;
 }
-.capture-kbd-btn:hover:not(:disabled) {
+.capture-submit-btn:hover:not(:disabled) {
   background: var(--neon-cyan);
   color: var(--bg-void);
   box-shadow: 0 0 16px rgba(0,255,242,0.4);
 }
-.capture-kbd-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.capture-submit-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .capture-hints {
   display: flex; gap: 1rem; align-items: center;
   margin-top: 0.7rem;
@@ -458,7 +667,7 @@ const conceptEStyles = `
   color: var(--text-secondary);
   flex-wrap: wrap;
 }
-.capture-hints kbd {
+.capture-hints code {
   font-family: var(--font-mono);
   color: var(--neon-purple);
   background: rgba(191,90,242,0.08);
@@ -484,6 +693,7 @@ const conceptEStyles = `
 .board-col.tone-orange::before { background: linear-gradient(90deg, var(--neon-orange), var(--neon-pink)); }
 .board-col.tone-cyan::before   { background: linear-gradient(90deg, var(--neon-cyan), var(--neon-blue)); }
 .board-col.tone-green::before  { background: var(--gradient-success); }
+.board-col.tone-pink::before   { background: linear-gradient(90deg, var(--neon-pink), var(--neon-orange)); }
 .board-col.tone-purple::before { background: linear-gradient(90deg, var(--neon-purple), var(--neon-magenta)); }
 .board-col.drag-over {
   outline: 2px dashed var(--neon-cyan);
@@ -498,6 +708,7 @@ const conceptEStyles = `
 .board-col.tone-orange .board-col-name { color: var(--neon-orange); }
 .board-col.tone-cyan   .board-col-name { color: var(--neon-cyan); }
 .board-col.tone-green  .board-col-name { color: var(--neon-green); }
+.board-col.tone-pink   .board-col-name { color: var(--neon-pink); }
 .board-col.tone-purple .board-col-name { color: var(--neon-purple); }
 .board-col-count {
   margin-left: auto;
@@ -523,22 +734,26 @@ const conceptEStyles = `
 }
 .todo-add:hover { border-color: var(--neon-cyan); color: var(--neon-cyan); background: rgba(0,255,242,0.04); }
 
-.new-proj-btn {
-  background: var(--gradient-primary);
-  color: var(--bg-void); border: none;
-  padding: 0.4rem 0.9rem; border-radius: var(--radius-pill);
-  font-family: var(--font-mono); font-size: 0.72rem; font-weight: 700;
-  cursor: pointer; transition: all 0.2s; box-shadow: 0 0 15px rgba(0,255,242,0.3);
+@media (max-width: 760px) {
+  .capture-hero {
+    padding: 0.85rem;
+    margin-bottom: 0.85rem;
+  }
+  .capture-row {
+    gap: 0.55rem;
+    padding: 0.72rem 0.75rem;
+  }
+  .capture-real-input,
+  .capture-typewriter {
+    font-size: 0.95rem;
+  }
+  .capture-submit-btn {
+    min-width: 62px;
+    padding: 5px 10px;
+  }
+  .capture-hints {
+    gap: 0.55rem 0.75rem;
+    font-size: 0.68rem;
+  }
 }
-.new-proj-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,255,242,0.4); }
-
-.proj-chip {
-  display: flex; align-items: flex-start; gap: 0.6rem;
-  padding: 0.55rem 0.7rem;
-  background: var(--bg-glass);
-  border: 1px solid var(--border-hair);
-  border-radius: var(--radius-md);
-  cursor: pointer; transition: all 0.2s;
-}
-.proj-chip:hover { border-color: var(--border-glow); transform: translateX(2px); }
 `;

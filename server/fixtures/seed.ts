@@ -31,6 +31,18 @@ const items = new WorkItemService({ db, clock: systemClock });
 const { created } = areas.ensureDefaults();
 process.stderr.write(`[seed] created ${created.length} default areas\n`);
 
+const seedAreas = [
+  { name: 'AI 工具', reviewCadence: 'weekly' as const },
+  { name: 'OM 演示', reviewCadence: 'weekly' as const },
+  { name: 'AtlasCloud 基建', reviewCadence: 'weekly' as const },
+  { name: '个人事务', reviewCadence: 'monthly' as const },
+  { name: '写作社交', reviewCadence: 'weekly' as const },
+  { name: '学习研究', reviewCadence: 'monthly' as const },
+];
+for (const area of seedAreas) {
+  if (!areas.list().some((existingArea) => existingArea.name === area.name)) areas.create(area);
+}
+
 const existing = items.list({ includeDropped: true });
 const skipWorkItems = existing.length > 0;
 if (skipWorkItems) {
@@ -41,61 +53,61 @@ const areaMap = new Map(areas.list().map((a) => [a.name, a.id]));
 
 const samples = [
   {
-    title: 'Design the basic Todo sidebar flow',
+    title: '设计 Todo 侧边栏的基础流程',
     kind: 'feature' as const,
     status: 'active' as const,
     priority: 'p1' as const,
-    areaName: 'AI tooling',
+    areaName: 'AI 工具',
     scheduledFor: isoDate(0),
-    labels: ['design', 'mvp'],
+    labels: ['设计', 'mvp'],
   },
   {
-    title: 'Capture random idea: project does not need to be chosen',
+    title: '快速记录一个想法，不强制选择项目',
     kind: 'idea' as const,
     status: 'inbox' as const,
     priority: 'p2' as const,
-    areaName: 'Personal admin',
+    areaName: '个人事务',
   },
   {
-    title: 'PDF citation highlight visual QA',
+    title: '检查 PDF 引用高亮的视觉效果',
     kind: 'task' as const,
     status: 'waiting' as const,
     priority: 'p1' as const,
-    areaName: 'OM demo',
+    areaName: 'OM 演示',
     scheduledFor: isoDate(0),
-    labels: ['qa', 'pdf'],
-    waitingOn: 'visual approval',
+    labels: ['质检', 'pdf'],
+    waitingOn: '视觉确认',
   },
   {
-    title: 'Compare Things inbox and deadline behavior',
+    title: '对比 Things 的收件箱和截止日期行为',
     kind: 'research' as const,
     status: 'someday' as const,
     priority: 'p3' as const,
-    areaName: 'Learning',
+    areaName: '学习研究',
   },
   {
-    title: 'Collect SLS raw IDs for orphan billing proof',
+    title: '收集 SLS 原始 ID 作为孤儿账单证据',
     kind: 'bug' as const,
     status: 'blocked' as const,
     priority: 'p0' as const,
-    areaName: 'AtlasCloud infra',
+    areaName: 'AtlasCloud 基建',
     scheduledFor: isoDate(0),
-    blockedBy: 'raw logstore IDs',
+    blockedBy: '原始日志库 ID',
   },
   {
-    title: 'Add Codex session adapter',
+    title: '增加 Codex 会话适配器',
     kind: 'feature' as const,
     status: 'planned' as const,
     priority: 'p1' as const,
-    areaName: 'AI tooling',
+    areaName: 'AI 工具',
     scheduledFor: isoDate(2),
   },
   {
-    title: 'Try a weekly idea review routine',
+    title: '尝试每周想法回顾流程',
     kind: 'idea' as const,
     status: 'someday' as const,
     priority: 'p3' as const,
-    areaName: 'Personal admin',
+    areaName: '个人事务',
   },
 ];
 

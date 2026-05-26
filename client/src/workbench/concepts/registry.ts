@@ -9,7 +9,7 @@
  */
 export type ConceptId =
   | 'e' | 'b' | 'a' | 'k' | 'g' | 'h' | 'l' | 'f'
-  | 'm' | 'o' | 'i' | 'j' | 'd' | 'c' | 'n' | 'prd';
+  | 'm' | 'o' | 'i' | 'j' | 'd' | 'c' | 'n' | 'done' | 'prd';
 
 export interface ConceptEntry {
   id: ConceptId;
@@ -26,6 +26,7 @@ export const CONCEPTS: ConceptEntry[] = [
   { id: 'k',   label: 'K · Project Workbench',  title: 'Project Workbench',       oneLiner: 'Intent · milestones · decisions · notes · lessons',                                  built: true  },
   { id: 'g',   label: 'G · Session Detail',     title: 'Session Detail',          oneLiner: 'Full transcript · tool calls · diffs · cost meter',                                  built: true  },
   { id: 'h',   label: 'H · Cost & Burn',        title: 'Cost & Burn Analytics',   oneLiner: 'Daily spend chart · model donut · heatmap · leaderboard',                            built: true  },
+  { id: 'done', label: 'Done',                   title: 'Done Archive',            oneLiner: 'Completed todos with search, grouping, and detail links',                           built: true  },
   { id: 'l',   label: 'L · Todo Detail',        title: 'Todo Detail / Split / Promote', oneLiner: 'Modal: edit, sub-tasks, link sessions, promote to project/feature',          built: false },
   { id: 'f',   label: 'F · Project Edit',       title: 'New Project + Edit',      oneLiner: 'Side-by-side: + new project modal · edit existing settings',                         built: false },
   { id: 'm',   label: 'M · Skills',             title: 'Skills Library',          oneLiner: 'Browse · install · bind to projects',                                                built: false },
