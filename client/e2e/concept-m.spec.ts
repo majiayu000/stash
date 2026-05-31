@@ -10,10 +10,12 @@ const API = process.env.STASH_E2E_API_URL ?? 'http://localhost:4174/api';
  * 4. The "installed" tab count reflects reality
  */
 test('Concept M lists seeded skills', async ({ page, request }) => {
-  // Seed a skill via the API. Conflict on rerun is fine — body keys are stable.
+  // Seed a uniquely named skill so repeated local e2e runs against the same
+  // /tmp database do not make the locator ambiguous.
   const id = `e2e-skill-${Date.now()}`;
+  const name = `E2E Library ${id.slice(-6)}`;
   const create = await request.post(`${API}/skills`, {
-    data: { id, name: 'E2E Library', emoji: '🧪', installed: true, stars: 7 },
+    data: { id, name, emoji: '🧪', installed: true, stars: 7 },
   });
   expect(create.ok()).toBeTruthy();
 
@@ -21,5 +23,5 @@ test('Concept M lists seeded skills', async ({ page, request }) => {
   await expect(page.locator('.topbar-title')).toContainText('stash');
 
   // Skill card should appear in the catalog grid (also appears in detail header — pick the card).
-  await expect(page.locator('.sk-card-name', { hasText: 'E2E Library' })).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator('.sk-card-name', { hasText: name })).toBeVisible({ timeout: 10_000 });
 });

@@ -24,6 +24,7 @@ import {
 import { listProjectSkills, listSkills } from '../../api/skills';
 import { CountUp } from '../../components/effects';
 import { fmt, type WBData, type WBProject } from '../data';
+import { reportAsyncError } from '../reportAsyncError';
 import { ModelBadge, ProgressBar, SessionRow, StatusPill, Tile, Topbar, TodoItem } from '../shared';
 import { conceptKStyles } from './conceptK.styles';
 
@@ -77,7 +78,10 @@ export function ConceptK({ data }: { data: WBData; reload: () => void }) {
       const enabledIds = new Set(bindings.filter((b) => b.enabled).map((b) => b.skillId));
       setMySkills(allSkills.filter((s) => enabledIds.has(s.id)));
       setLoading(false);
-    } catch { setLoading(false); }
+    } catch (error) {
+      reportAsyncError('load project knowledge', error);
+      setLoading(false);
+    }
   }
 
   useEffect(() => { setLoading(true); loadKb(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [p?.id]);
@@ -122,7 +126,9 @@ export function ConceptK({ data }: { data: WBData; reload: () => void }) {
       // Reload decisions so the new one appears in the log.
       const fresh = await listDecisions(p.id);
       setKb((cur) => (cur ? { ...cur, decisions: fresh } : cur));
-    } catch { /* swallow */ }
+    } catch (error) {
+      reportAsyncError('accept decision candidate', error);
+    }
   }
 
   async function rejectCandidate(c: DecisionCandidateRecord) {
@@ -459,4 +465,3 @@ function renderInline(s: string): React.ReactNode[] {
       : <Fragment key={i}>{p}</Fragment>
   );
 }
-

@@ -126,6 +126,7 @@ describe('migrate', () => {
         '010_drop_repeat_rule.sql',
         '011_area_emoji.sql',
         '012_agent_session_cache.sql',
+        '013_dispatch_runs_and_decision_candidates.sql',
       ]);
       const cacheTable = db
         .query<{ name: string }, []>(
@@ -133,6 +134,18 @@ describe('migrate', () => {
         )
         .get();
       expect(cacheTable?.name).toBe('agent_session_cache');
+      const dispatchRunsTable = db
+        .query<{ name: string }, []>(
+          "select name from sqlite_master where type = 'table' and name = 'dispatch_runs'",
+        )
+        .get();
+      expect(dispatchRunsTable?.name).toBe('dispatch_runs');
+      const decisionCandidatesTable = db
+        .query<{ name: string }, []>(
+          "select name from sqlite_master where type = 'table' and name = 'decision_candidates'",
+        )
+        .get();
+      expect(decisionCandidatesTable?.name).toBe('decision_candidates');
 
       const workItems = new WorkItemService({ db });
       const workItem = workItems.get('wi-auth');
