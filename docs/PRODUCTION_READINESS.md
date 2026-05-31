@@ -43,8 +43,9 @@ Tracking issue: [#2](https://github.com/majiayu000/stash/issues/2)
 
 Problem:
 `/api/agent-sessions`, `/api/workboard`, `/api/analytics/burn`, and
-`/api/analytics/weekly` scan local session files on demand. With a large Codex
-or Claude history, this can turn page loads into multi-second waits.
+`/api/analytics/weekly` still depend on local session scans. The current build
+bounds repeated work with per-file cache, route limits, and in-process
+singleflight, but background stale-while-refresh is not implemented yet.
 
 Observed on 2026-05-19:
 
@@ -62,11 +63,11 @@ Target:
 
 Plan:
 
-1. Add a session index table keyed by provider + source path + mtime + size.
-2. Only parse changed JSONL files after the first scan.
+1. Done: add a session index table keyed by provider + source path + mtime + size.
+2. Done: only parse changed JSONL files after the first scan.
 3. Store usage aggregates per session so burn and weekly snapshots do not
    reparse every event.
-4. Add an in-process singleflight guard so concurrent requests share one scan.
+4. Done: add an in-process singleflight guard so concurrent requests share one scan.
 5. Return stale cached data with `isRefreshing: true` instead of blocking the UI.
 6. Add route-level timing logs and response metadata for cache hit/miss.
 

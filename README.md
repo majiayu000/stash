@@ -211,12 +211,11 @@ The current production plan is tracked in
 [`docs/PRODUCTION_READINESS.md`](./docs/PRODUCTION_READINESS.md).
 
 Current highest-priority gaps:
-- Session and analytics scans are computed on demand and can block pages when the
-  local Claude/Codex history is large.
+- Background refresh for very large Claude/Codex histories is still deferred;
+  current scans are bounded by route limits, singleflight, and per-file cache.
 - The canonical G route is `/c/g/:sessionId`; provider-qualified deep links are
   a hardening target, not the current route contract.
-- Browser-level e2e coverage proves the main flows, but not every concept page
-  has a dedicated golden-path test yet.
+- Release packaging is still personal-use only; no public OSS license is granted.
 
 ## What ships vs what's deferred
 

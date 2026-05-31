@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { WorkItem } from '@stash/shared';
 import { listWorkItems } from '../api/work-items';
+import { reportAsyncError } from './reportAsyncError';
+import { useDialogA11y } from './useDialogA11y';
 
 /**
  * v0.4 — global search palette.
@@ -17,6 +19,8 @@ export function SearchPalette() {
   const [results, setResults] = useState<WorkItem[]>([]);
   const [cursor, setCursor] = useState(0);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const closeDialog = useCallback(() => setOpen(false), []);
+  const dialogRef = useDialogA11y(open, closeDialog, inputRef);
   const navigate = useNavigate();
 
   // Open / close hotkey.
@@ -35,7 +39,7 @@ export function SearchPalette() {
         return;
       }
 
-      if (e.key === 'Escape') { e.preventDefault(); setOpen(false); return; }
+      if (e.key === 'Escape') return;
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -45,7 +49,6 @@ export function SearchPalette() {
   useEffect(() => {
     if (open) {
       setCursor(0);
-      setTimeout(() => inputRef.current?.focus(), 0);
     } else {
       setText('');
       setResults([]);
@@ -63,7 +66,9 @@ export function SearchPalette() {
         if (cancelled) return;
         setResults(found.slice(0, 12));
         setCursor(0);
-      } catch { /* ignore */ }
+      } catch (error) {
+        if (!cancelled) reportAsyncError('search work items', error);
+      }
     }, 120);
     return () => { cancelled = true; clearTimeout(id); };
   }, [query, open]);
@@ -75,7 +80,15 @@ export function SearchPalette() {
 
   return !open ? null : (
     <div className="sp-overlay" onClick={() => setOpen(false)} role="presentation">
-      <div className="sp-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="search">
+      <div
+        ref={dialogRef}
+        className="sp-modal"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label="search"
+        tabIndex={-1}
+      >
         <input
           ref={inputRef}
           className="sp-input"

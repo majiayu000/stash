@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useReducedMotion } from './useReducedMotion';
 
 export interface CountUpProps {
   to: number;
@@ -15,8 +16,15 @@ export function CountUp({
 }: CountUpProps) {
   const [val, setVal] = useState(0);
   const startRef = useRef<number | null>(null);
+  const reducedMotion = useReducedMotion();
 
   useEffect(() => {
+    if (reducedMotion) {
+      setVal(to);
+      return;
+    }
+
+    startRef.current = null;
     let raf: number;
     const tick = (ts: number) => {
       if (startRef.current === null) startRef.current = ts;
@@ -27,7 +35,7 @@ export function CountUp({
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [to, duration]);
+  }, [to, duration, reducedMotion]);
 
   return <span className={className}>{format(val)}</span>;
 }
