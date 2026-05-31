@@ -42,6 +42,7 @@ export default defineConfig({
         STASH_ALLOWED_ORIGINS: CLIENT_ORIGINS,
         CLAUDE_ROOT: CLAUDE_FIXTURE_ROOT,
         CODEX_ROOT: CODEX_FIXTURE_ROOT,
+        STASH_SESSION_SPAWN_MODE: 'disabled',
       },
       reuseExistingServer,
       timeout: 30_000,

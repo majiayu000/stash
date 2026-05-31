@@ -4,6 +4,7 @@ import { defaultDbPath, loadConfig } from './config';
 
 const originalStashHost = process.env.STASH_HOST;
 const originalAllowedOrigins = process.env.STASH_ALLOWED_ORIGINS;
+const originalSessionSpawnMode = process.env.STASH_SESSION_SPAWN_MODE;
 
 afterEach(() => {
   if (originalStashHost === undefined) {
@@ -15,6 +16,11 @@ afterEach(() => {
     delete process.env.STASH_ALLOWED_ORIGINS;
   } else {
     process.env.STASH_ALLOWED_ORIGINS = originalAllowedOrigins;
+  }
+  if (originalSessionSpawnMode === undefined) {
+    delete process.env.STASH_SESSION_SPAWN_MODE;
+  } else {
+    process.env.STASH_SESSION_SPAWN_MODE = originalSessionSpawnMode;
   }
 });
 
@@ -110,5 +116,25 @@ describe('loadConfig local API security', () => {
       'http://localhost:5273',
       'http://127.0.0.1:5273',
     ]);
+  });
+
+  test('allows disabling session spawn for deterministic e2e runs', () => {
+    process.env.STASH_SESSION_SPAWN_MODE = 'disabled';
+
+    expect(loadConfig({ dbPath: ':memory:' }).sessionSpawnMode).toBe('disabled');
+  });
+
+  test('defaults session spawn mode to real runtime behavior', () => {
+    delete process.env.STASH_SESSION_SPAWN_MODE;
+
+    expect(loadConfig({ dbPath: ':memory:' }).sessionSpawnMode).toBe('real');
+  });
+
+  test('rejects invalid session spawn mode', () => {
+    process.env.STASH_SESSION_SPAWN_MODE = 'stub';
+
+    expect(() => loadConfig({ dbPath: ':memory:' })).toThrow(
+      'env STASH_SESSION_SPAWN_MODE must be one of real, disabled, got stub',
+    );
   });
 });
