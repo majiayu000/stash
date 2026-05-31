@@ -5,6 +5,7 @@ import { AreaService } from '../area/service.js';
 import { ProjectKnowledgeService } from '../project-knowledge/service.js';
 import { SkillService } from '../skill/service.js';
 import { WorkItemService } from '../work-item/service.js';
+import { DispatchRunService } from './runs.js';
 import { SessionDispatchService } from './service.js';
 
 describe('SessionDispatchService.composePrompt', () => {
@@ -24,10 +25,11 @@ describe('SessionDispatchService.composePrompt', () => {
     areas = new AreaService({ db, clock });
     knowledge = new ProjectKnowledgeService({ db, clock });
     skills = new SkillService({ db, clock });
+    const runs = new DispatchRunService({ db, clock });
     writes = [];
     spawns = [];
     dispatch = new SessionDispatchService({
-      workItems, areas, knowledge, skills, clock,
+      workItems, areas, knowledge, skills, clock, runs, cwd: '/repo',
       writeFileImpl: (path, contents) => { writes.push({ path, contents }); },
       spawnImpl: (cmd, args, stdin) => { spawns.push({ cmd, args, stdin }); return { pid: 12345 }; },
     });
@@ -39,6 +41,10 @@ describe('SessionDispatchService.composePrompt', () => {
 
     expect(res.spawned).toBe(true);
     expect(res.pid).toBe(12345);
+    expect(res.run.status).toBe('spawned');
+    expect(res.run.pid).toBe(12345);
+    expect(res.run.cwd).toBe('/repo');
+    expect(res.run.promptHash).toHaveLength(64);
     expect(res.prompt).toContain('# Task: fix the failing auth test');
     expect(res.prompt).toContain('Begin.');
     expect(writes.length).toBe(1);
@@ -88,17 +94,50 @@ describe('SessionDispatchService.composePrompt', () => {
   });
 
   test('spawn failure returns spawned=false + error + suggested command', () => {
+    const db = freshDb();
+    const clock = fixedClock(at);
+    const localWorkItems = new WorkItemService({ db, clock });
+    const localAreas = new AreaService({ db, clock });
+    const localKnowledge = new ProjectKnowledgeService({ db, clock });
+    const localSkills = new SkillService({ db, clock });
+    const localRuns = new DispatchRunService({ db, clock });
     const failing = new SessionDispatchService({
-      workItems, areas, knowledge, skills, clock: fixedClock(at),
+      workItems: localWorkItems, areas: localAreas, knowledge: localKnowledge, skills: localSkills, clock, runs: localRuns,
       writeFileImpl: (path, contents) => { writes.push({ path, contents }); },
       spawnImpl: () => ({ error: 'spawn claude ENOENT' }),
     });
-    const item = workItems.create({ title: 'try it anyway' });
+    const item = localWorkItems.create({ title: 'try it anyway' });
     const res = failing.dispatch({ workItemId: item.id, tool: 'claude' });
     expect(res.spawned).toBe(false);
     expect(res.pid).toBeUndefined();
     expect(res.spawnError).toMatch(/ENOENT/);
+    expect(res.run.status).toBe('failed');
+    expect(res.run.error).toMatch(/ENOENT/);
     expect(res.suggestedCommand).toMatch(/^claude < /);
+  });
+
+  test('dispatch run can be matched and closed', () => {
+    const db = freshDb();
+    const clock = fixedClock(at);
+    const localWorkItems = new WorkItemService({ db, clock });
+    const localAreas = new AreaService({ db, clock });
+    const localKnowledge = new ProjectKnowledgeService({ db, clock });
+    const localSkills = new SkillService({ db, clock });
+    const localRuns = new DispatchRunService({ db, clock });
+    const service = new SessionDispatchService({
+      workItems: localWorkItems, areas: localAreas, knowledge: localKnowledge, skills: localSkills, clock, runs: localRuns,
+      writeFileImpl: (path, contents) => { writes.push({ path, contents }); },
+      spawnImpl: () => ({ pid: 456 }),
+    });
+    const item = localWorkItems.create({ title: 'track me' });
+    const res = service.dispatch({ workItemId: item.id, tool: 'codex' });
+    expect(localRuns.list({ workItemId: item.id }).map((r) => r.id)).toEqual([res.run.id]);
+    const matched = localRuns.markMatched(res.run.id, 'sess-123');
+    expect(matched.status).toBe('matched');
+    expect(matched.matchedSessionId).toBe('sess-123');
+    const closed = localRuns.close(res.run.id);
+    expect(closed.status).toBe('closed');
+    expect(closed.closedAt).toBe(at);
   });
 
   test('extra instructions land in a Notes section', () => {
