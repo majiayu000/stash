@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-const API = 'http://localhost:4174/api';
+const API = process.env.STASH_E2E_API_URL ?? 'http://localhost:4174/api';
 
 /**
  * SPEC v0.3 §3f — Quick Capture modal end-to-end.

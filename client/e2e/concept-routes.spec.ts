@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-const API = 'http://localhost:4174/api';
+const API = process.env.STASH_E2E_API_URL ?? 'http://localhost:4174/api';
 
 test('invalid concept ids render a recoverable state', async ({ page }) => {
   await page.goto('/c/unknown');

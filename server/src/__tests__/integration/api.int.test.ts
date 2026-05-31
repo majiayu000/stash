@@ -6,10 +6,14 @@ import { migrate } from '../../db/migrate.js';
 import { createApp } from '../../web/app-factory.js';
 import type { Hono } from 'hono';
 
-function setupApp(): { app: Hono; db: Database } {
+function setupApp(options: { allowedOrigins?: string[] } = {}): { app: Hono; db: Database } {
   const db = openDatabase({ path: ':memory:', inMemory: true });
   migrate(db);
-  const app = createApp({ db, clock: fixedClock('2026-05-14T10:00:00.000Z') });
+  const app = createApp({
+    db,
+    clock: fixedClock('2026-05-14T10:00:00.000Z'),
+    allowedOrigins: options.allowedOrigins,
+  });
   return { app, db };
 }
 
@@ -38,6 +42,45 @@ describe('GET /health', () => {
     const res = await jsonRequest(app, 'GET', '/health');
     expect(res.status).toBe(200);
     expect(res.body.ok).toBe(true);
+  });
+});
+
+describe('browser origin guard', () => {
+  test('rejects a non-allowlisted Origin before reaching routes', async () => {
+    const { app } = setupApp();
+    const res = await app.request('/api/sessions/start', {
+      method: 'POST',
+      headers: {
+        origin: 'https://evil.example',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ workItemId: 'wi-1', tool: 'codex' }),
+    });
+
+    expect(res.status).toBe(403);
+    expect(res.headers.get('access-control-allow-origin')).toBeNull();
+    const body = (await res.json()) as any;
+    expect(body.error.code).toBe('FORBIDDEN_ORIGIN');
+  });
+
+  test('allows the local Vite client origin', async () => {
+    const { app } = setupApp();
+    const res = await app.request('/health', {
+      headers: { origin: 'http://localhost:5173' },
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('access-control-allow-origin')).toBe('http://localhost:5173');
+  });
+
+  test('allows explicitly configured client origins', async () => {
+    const { app } = setupApp({ allowedOrigins: ['http://localhost:5273'] });
+    const res = await app.request('/health', {
+      headers: { origin: 'http://localhost:5273' },
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('access-control-allow-origin')).toBe('http://localhost:5273');
   });
 });
 

@@ -17,6 +17,20 @@ function envPath(name: string, fallback: string): string {
   return raw && raw.length > 0 ? raw : fallback;
 }
 
+function envList(name: string): string[] {
+  const raw = process.env[name];
+  return raw ? raw.split(',').map((value) => value.trim()).filter(Boolean) : [];
+}
+
+function envLoopbackHost(name: string, fallback: string): string {
+  const raw = process.env[name];
+  const host = raw && raw.length > 0 ? raw : fallback;
+  if (!['127.0.0.1', '::1'].includes(host)) {
+    throw new Error(`env ${name} must be a loopback host, got ${host}`);
+  }
+  return host;
+}
+
 const home = homedir();
 
 export interface DefaultDbPathOptions {
@@ -54,11 +68,13 @@ export function defaultDbPath(options: DefaultDbPathOptions = {}): string {
 }
 
 export interface Config {
+  host: string;
   port: number;
   dbPath: string;
   backupDir: string;
   claudeRoot: string;
   codexRoot: string;
+  allowedOrigins: string[];
   // When true, the connection layer creates an in-memory DB for tests.
   inMemoryDb: boolean;
 }
@@ -66,11 +82,13 @@ export interface Config {
 export function loadConfig(overrides: Partial<Config> = {}): Config {
   const dbPath = overrides.dbPath ?? envPath('STASH_DB_PATH', defaultDbPath());
   return {
+    host: envLoopbackHost('STASH_HOST', '127.0.0.1'),
     port: envInt('PORT', 4174),
     dbPath,
     backupDir: overrides.backupDir ?? envPath('STASH_BACKUP_DIR', join(dirname(dbPath), 'backups')),
     claudeRoot: envPath('CLAUDE_ROOT', join(home, '.claude')),
     codexRoot: envPath('CODEX_ROOT', join(home, '.codex')),
+    allowedOrigins: envList('STASH_ALLOWED_ORIGINS'),
     inMemoryDb: process.env.STASH_IN_MEMORY === '1',
     ...overrides,
   };

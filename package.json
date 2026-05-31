@@ -1,6 +1,6 @@
 {
   "name": "stash",
-  "version": "0.1.12",
+  "version": "0.1.13",
   "private": true,
   "description": "Todo + Agent Workboard — Inbox-first task capture with Claude/Codex session evidence",
   "type": "module",
@@ -18,6 +18,8 @@
     "typecheck": "bun run server:typecheck && bun run client:typecheck",
     "test:all": "bun test scripts/doctor.test.ts && bun run server:test && bun run client:test",
     "doctor": "bun run scripts/doctor.ts",
+    "verify": "bun run scripts/verify.ts",
+    "verify:ci": "bun run scripts/verify.ts --ci",
     "db:backup": "bun run server/scripts/db-backup.ts",
     "db:restore": "bun run server/scripts/db-restore.ts",
     "seed": "bun run server/fixtures/seed.ts",
