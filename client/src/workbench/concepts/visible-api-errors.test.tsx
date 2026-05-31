@@ -47,6 +47,7 @@ const data: WBData = {
   projects: [],
   sessions: [],
   todos: [],
+  sourceErrors: [],
   stats: {
     activeSessions: 0,
     totalTokens24h: 0,

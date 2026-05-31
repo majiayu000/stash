@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import './styles/brand.css';
 import './styles/dashboard.css';
 import { ThemeSwitcher } from '../components/ThemeSwitcher';
+import { ApiError } from '../api/client';
 import { useWorkbenchData } from './useWorkbenchData';
 import { findConcept } from './concepts/registry';
 import { renderConcept } from './concepts/render';
@@ -12,6 +13,7 @@ import { ReminderTicker } from './ReminderTicker';
 import { QuickCapture } from './QuickCapture';
 import { SearchPalette } from './SearchPalette';
 import { SmartLists } from './SmartLists';
+import { SourceHealthBanner } from './SourceHealthBanner';
 import { TodayTriage } from './TodayTriage';
 
 type WorkbenchRouteParams = {
@@ -78,9 +80,17 @@ export function Workbench() {
     );
   }
   if (error) {
+    const api = error instanceof ApiError ? ` (${error.status || 'network'} ${error.code})` : '';
     return (
-      <div style={{ padding: '2rem', color: 'var(--neon-pink)', fontFamily: 'var(--font-mono)' }}>
-        Failed to load data: {error.message}
+      <div style={{ padding: '2rem', color: 'var(--neon-pink)', fontFamily: 'var(--font-mono)', display: 'grid', gap: '12px', justifyItems: 'start' }}>
+        <div>Failed to load data{api}: {error.message}</div>
+        <button
+          type="button"
+          onClick={reload}
+          style={{ border: '1px solid var(--neon-pink)', background: 'transparent', color: 'var(--neon-pink)', borderRadius: 6, padding: '6px 10px', font: 'inherit', cursor: 'pointer' }}
+        >
+          Retry
+        </button>
       </div>
     );
   }
@@ -101,6 +111,7 @@ export function Workbench() {
       <SmartLists />
       <ReminderTicker />
       <TodayTriage />
+      <SourceHealthBanner errors={data.sourceErrors} onRetry={reload} />
       {content}
 
       <style>{`
