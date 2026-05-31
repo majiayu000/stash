@@ -147,7 +147,8 @@ client/   React + Vite + 7-theme system
           • api/         one wrapper per backend domain
 tools/    stash CLI binary + install script (doctor probes /health; capture
           POSTs to /api/work-items/capture)
-docs/     SPEC v0.1 / v0.2 / v0.3 (workbench-design + friction-zero release)
+docs/     SPEC v0.1 / v0.2 / v0.3 / v0.4
+          (workbench design, friction-zero capture, Todo lifecycle + weekly review UX)
 ```
 
 The DB is one SQLite file. `STASH_DB_PATH` always wins. Without an override,
