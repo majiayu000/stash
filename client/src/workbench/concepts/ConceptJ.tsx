@@ -4,7 +4,7 @@ import { getWeeklySnapshot } from '../../api/analytics';
 import { listStale, listWorkItems } from '../../api/work-items';
 import { CountUp, ParticleField, ShinyText } from '../../components/effects';
 import { fmt, type WBData, type WBProject } from '../data';
-import { SessionRow, Topbar } from '../shared';
+import { LoadErrorPanel, SessionRow, Topbar, toError } from '../shared';
 
 /**
  * Concept J — Weekly Review.
@@ -20,9 +20,13 @@ export function ConceptJ({ data }: { data: WBData; reload: () => void }) {
   const [doneItems, setDoneItems] = useState<WorkItem[]>([]);
   const [stale, setStale] = useState<WorkItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<Error | null>(null);
+  const [retryTick, setRetryTick] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
+    setLoading(true);
+    setLoadError(null);
     Promise.all([
       getWeeklySnapshot(),
       listWorkItems({ status: ['done'] }),
@@ -39,14 +43,34 @@ export function ConceptJ({ data }: { data: WBData; reload: () => void }) {
         setStale(staleItems);
         setLoading(false);
       })
-      .catch(() => { if (!cancelled) setLoading(false); });
+      .catch((e: unknown) => {
+        if (!cancelled) {
+          setLoadError(toError(e));
+          setLoading(false);
+        }
+      });
     return () => { cancelled = true; };
-  }, []);
+  }, [retryTick]);
 
-  if (loading || !week) {
+  if (loading) {
     return (
       <div className="dashboard-canvas">
         <div className="inner"><Topbar data={data} /><div style={{ padding: '4rem', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>loading weekly review…</div></div>
+      </div>
+    );
+  }
+  if (loadError || !week) {
+    return (
+      <div className="dashboard-canvas">
+        <div className="inner">
+          <Topbar data={data} />
+          <LoadErrorPanel
+            title="weekly review failed to load"
+            endpoint="/api/analytics/weekly + /api/work-items?status=done + /api/work-items/stale?days=30"
+            error={loadError ?? new Error('weekly review returned no data')}
+            onRetry={() => setRetryTick((t) => t + 1)}
+          />
+        </div>
       </div>
     );
   }

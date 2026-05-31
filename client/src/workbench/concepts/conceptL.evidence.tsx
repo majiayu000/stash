@@ -7,6 +7,7 @@ import {
   listEvidence,
   rejectCompletion,
 } from '../../api/evidence';
+import { reportAsyncError } from '../reportAsyncError';
 
 interface UsePendingEvidenceArgs {
   workItemId: string;
@@ -39,7 +40,12 @@ export function usePendingEvidence(args: UsePendingEvidenceArgs): PendingEvidenc
     let cancelled = false;
     listEvidence({ workItemId, pendingOnly: true })
       .then((rows) => { if (!cancelled) setEvidence(rows); })
-      .catch(() => { if (!cancelled) setEvidence([]); });
+      .catch((error) => {
+        if (!cancelled) {
+          setEvidence([]);
+          reportAsyncError('load pending evidence', error);
+        }
+      });
     return () => { cancelled = true; };
   }, [workItemId]);
 
