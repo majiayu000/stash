@@ -54,6 +54,17 @@ stash doctor
 stash add "fix login #aurora ^p1 !tomorrow @auth *45m"
 ```
 
+## Verification
+
+Use the verify gate before handing off a change:
+
+```sh
+bun run verify     # local gate: strict doctor + typecheck/tests/build/e2e
+bun run verify:ci  # CI gate: isolated e2e ports and database
+```
+
+GitHub Actions runs `bun run verify:ci` for pull requests and pushes to `main`.
+
 ## Daily flow
 
 ```
