@@ -219,7 +219,7 @@ Current highest-priority gaps:
 
 ## What ships vs what's deferred
 
-**Shipped today** (0.1.12):
+**Shipped today** (0.1.13):
 - All 16 concept pages render from real backend data
 - Quick Capture + CLI capture with token grammar
 - Inbox triage keyboard layer with multi-select + undo + help overlay (`?`)
@@ -255,7 +255,25 @@ Current highest-priority gaps:
 See [`docs/SPEC_v0.3.md`](./docs/SPEC_v0.3.md) for the most recent SPEC and
 [`docs/SPEC_v0.2.md`](./docs/SPEC_v0.2.md) for the original workbench design.
 
-## License
+## Access, license, and launch boundary
 
-Personal use only for now. No license file = no permission to redistribute.
-File an issue if you want one.
+This repository is public for personal transparency and review, but it is not an
+open-source release. There is intentionally no `LICENSE` file, which means no
+permission is granted to copy, modify, redistribute, package, or operate stash
+for others.
+
+Current access status:
+- Personal-use local beta.
+- No hosted service, release artifact, support SLA, security program, or public
+  plugin ecosystem.
+- GitHub issues are for project tracking, not guaranteed support.
+
+Current caveats:
+- Designed for a single trusted local user.
+- Not hardened for multi-user auth, public network exposure, or shared machines.
+- Reads local Claude/Codex session files; review configured paths before use.
+- Back up SQLite data before migration or distribution experiments.
+
+If this becomes a real OSS launch later, the required next steps are: choose and
+add a license, add contributing/security/support docs, publish release artifacts,
+and update repository topics and launch copy to match the granted permissions.
