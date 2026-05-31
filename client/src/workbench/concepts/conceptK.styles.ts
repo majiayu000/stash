@@ -14,11 +14,54 @@ const conceptKStyles = `
   background: var(--gradient-primary);
 }
 .kw-hero-row { display: flex; align-items: flex-start; gap: 1rem; }
+.kw-hero-identity {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  flex: 1;
+  min-width: 0;
+}
+.kw-hero-icon {
+  font-size: 3.2rem;
+  filter: drop-shadow(0 0 20px var(--neon-cyan));
+  animation: pulse 3s ease-in-out infinite;
+  flex-shrink: 0;
+  line-height: 1;
+}
+.kw-hero-actions {
+  display: flex;
+  gap: 0.4rem;
+  flex-shrink: 0;
+}
+.kw-hero-stats {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 1fr;
+  gap: 1rem;
+  margin-top: 1.25rem;
+}
+.kw-main-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 1.25rem;
+  flex: 1;
+  min-height: 0;
+  margin-top: 1.25rem;
+}
+.kw-main-left,
+.kw-main-right {
+  min-width: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+.kw-main-left { padding-right: 0.25rem; }
 .kw-crumb {
   font-family: var(--font-mono);
   font-size: 0.72rem;
   color: var(--text-muted);
   margin-bottom: 0.4rem;
+  overflow-wrap: anywhere;
 }
 .kw-name {
   font-family: var(--font-mono);
@@ -29,6 +72,7 @@ const conceptKStyles = `
   text-shadow: 0 0 24px rgba(0,255,242,0.4);
   line-height: 1.1;
   margin: 0;
+  overflow-wrap: anywhere;
 }
 .sd-action {
   padding: 0.45rem 0.75rem;
@@ -214,5 +258,49 @@ const conceptKStyles = `
 .kw-skill-toggle.on .kw-skill-toggle-knob {
   background: var(--bg-void);
   left: 13px;
+}
+
+@media (max-width: 760px) {
+  .kw-hero {
+    padding: 1rem;
+  }
+  .kw-hero-row {
+    flex-direction: column;
+  }
+  .kw-hero-identity {
+    width: 100%;
+    gap: 0.75rem;
+  }
+  .kw-hero-icon {
+    font-size: 2.2rem;
+    filter: drop-shadow(0 0 12px var(--neon-cyan));
+  }
+  .kw-name {
+    font-size: 1.35rem;
+    line-height: 1.18;
+    text-shadow: none;
+  }
+  .kw-hero-actions {
+    width: 100%;
+    overflow-x: auto;
+    justify-content: flex-start;
+    padding-bottom: 0.15rem;
+  }
+  .kw-hero-actions .sd-action {
+    white-space: nowrap;
+  }
+  .kw-hero-stats,
+  .kw-main-grid,
+  .kw-lessons {
+    grid-template-columns: 1fr;
+  }
+  .kw-main-grid {
+    min-height: auto;
+  }
+  .kw-main-left,
+  .kw-main-right {
+    overflow: visible;
+    padding-right: 0;
+  }
 }
 `;

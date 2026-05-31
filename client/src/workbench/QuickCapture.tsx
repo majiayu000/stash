@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { captureWorkItem } from '../api/work-items';
+import { useDialogA11y } from './useDialogA11y';
 
 /**
  * SPEC v0.3 §3f — global Quick Capture modal.
@@ -15,18 +16,14 @@ export function QuickCapture() {
   const [toast, setToast] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const closeDialog = useCallback(() => setOpen(false), []);
+  const dialogRef = useDialogA11y(open, closeDialog, inputRef);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       const tag = (e.target as HTMLElement | null)?.tagName?.toLowerCase();
       const editing = tag === 'input' || tag === 'textarea' || (e.target as HTMLElement | null)?.isContentEditable;
-      if (open) {
-        if (e.key === 'Escape') {
-          e.preventDefault();
-          setOpen(false);
-        }
-        return;
-      }
+      if (open) return;
       if (editing) return;
       if (e.key === 'c' && !e.metaKey && !e.ctrlKey && !e.altKey) {
         e.preventDefault();
@@ -38,10 +35,7 @@ export function QuickCapture() {
   }, [open]);
 
   useEffect(() => {
-    if (open) {
-      // Focus next tick — modal mounted, input rendered.
-      setTimeout(() => inputRef.current?.focus(), 0);
-    } else {
+    if (!open) {
       setText('');
     }
   }, [open]);
@@ -75,7 +69,15 @@ export function QuickCapture() {
     <>
       {open && (
         <div className="qc-overlay" onClick={() => setOpen(false)} role="presentation">
-          <div className="qc-modal" onClick={(e) => e.stopPropagation()} role="dialog">
+          <div
+            ref={dialogRef}
+            className="qc-modal"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label="quick capture"
+            tabIndex={-1}
+          >
             <div className="qc-head">
               <span className="qc-prompt">▶</span>
               <span className="qc-title">quick capture</span>

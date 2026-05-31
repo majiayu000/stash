@@ -197,8 +197,8 @@ export function ConceptK({ data }: { data: WBData; reload: () => void }) {
         {/* Project hero */}
         <div className="kw-hero">
           <div className="kw-hero-row">
-            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '1rem', flex: 1, minWidth: 0 }}>
-              <span style={{ fontSize: '3.2rem', filter: 'drop-shadow(0 0 20px var(--neon-cyan))', animation: 'pulse 3s ease-in-out infinite', flexShrink: 0, lineHeight: 1 }}>{p.emoji}</span>
+            <div className="kw-hero-identity">
+              <span className="kw-hero-icon">{p.emoji}</span>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div className="kw-crumb">workbench &nbsp;/&nbsp; <span style={{ color: 'var(--text-secondary)' }}>projects</span> &nbsp;/&nbsp; <span style={{ color: 'var(--neon-cyan)' }}>{p.name}</span></div>
                 <h2 className="kw-name">{p.name}</h2>
@@ -209,14 +209,14 @@ export function ConceptK({ data }: { data: WBData; reload: () => void }) {
                 </div>
               </div>
             </div>
-            <div style={{ display: 'flex', gap: '0.4rem', flexShrink: 0 }}>
+            <div className="kw-hero-actions">
               <button className="sd-action" type="button">📁 open</button>
               <button className="sd-action" type="button">▶ start session</button>
               <button className="sd-action" type="button">⚙ settings</button>
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 1fr', gap: '1rem', marginTop: '1.25rem' }}>
+          <div className="kw-hero-stats">
             <div style={{ padding: '0.75rem 0.9rem', background: 'var(--bg-glass)', border: '1px solid var(--border-hair)', borderRadius: 'var(--radius-md)' }}>
               <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 6 }}>
                 <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.65rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>overall progress</span>
@@ -237,9 +237,9 @@ export function ConceptK({ data }: { data: WBData; reload: () => void }) {
         </div>
 
         {/* Main body */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 360px', gap: '1.25rem', flex: 1, minHeight: 0, marginTop: '1.25rem' }}>
+        <div className="kw-main-grid">
           {/* LEFT — knowledge column */}
-          <div style={{ minWidth: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '1rem', paddingRight: '0.25rem' }}>
+          <div className="kw-main-left">
             <KnowledgeIntentEditor      projectId={p.id} value={kb.intent}      onChange={loadKb} />
             <KnowledgeMilestonesEditor  projectId={p.id} value={kb.milestones}  onChange={loadKb} />
             <KnowledgeDecisionsEditor   projectId={p.id} value={kb.decisions}   onChange={loadKb} />
@@ -248,7 +248,7 @@ export function ConceptK({ data }: { data: WBData; reload: () => void }) {
           </div>
 
           {/* RIGHT — sidebar */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', minWidth: 0, overflowY: 'auto' }}>
+          <div className="kw-main-right">
             <div className="surface kw-skills">
               <div className="sec-head" style={{ marginBottom: '0.75rem' }}>
                 <span className="prompt">&gt;</span> 🧩 skills <span className="count">— {mySkills.length}</span>
