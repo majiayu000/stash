@@ -266,7 +266,13 @@ Blocking backup warnings:
 
 ## 9. Verification Commands
 
-Run the current expanded gate:
+Run the current handoff gate:
+
+```sh
+bun run verify
+```
+
+For debugging, the expanded commands are:
 
 ```sh
 bun run typecheck
@@ -277,12 +283,8 @@ bun run client:e2e
 bun run test:all
 ```
 
-When `bun run verify` is available, it becomes the required handoff command and
-its output must be pasted into the release notes:
-
-```sh
-bun run verify
-```
+`bun run client:e2e` must cover every README concept route, all ConceptSwitcher
+entries, and the documented G/K/L deep links.
 
 Record results:
 
@@ -294,7 +296,7 @@ Record results:
 | `bun run client:build` |  |  |
 | `bun run client:e2e` |  |  |
 | `bun run test:all` |  |  |
-| `bun run verify` once available |  |  |
+| `bun run verify` |  |  |
 
 Blocking verification warnings:
 
@@ -303,7 +305,6 @@ Blocking verification warnings:
 | Typecheck, unit, build, or e2e command exits non-zero | Yes | Fix before release. |
 | Playwright browser is missing locally | No | Run `bun x playwright install chromium`, then rerun e2e. |
 | E2E fails because a port is occupied | Yes | Rerun in an isolated environment and record the clean result. |
-| `bun run verify` is unavailable on this branch | No | Use the expanded gate and keep this warning until verify lands. |
 | `bun run verify` exists but fails | Yes | Fix before release. |
 
 ## 10. Rollback

@@ -193,9 +193,9 @@ Claude/Codex JSONL roots: `CLAUDE_ROOT` (default `~/.claude`), `CODEX_ROOT`
 
 ```sh
 bun run typecheck        # server + client TypeScript
-bun run server:test      # 204 domain + route tests
-bun run client:test      # 2 vitest hook tests
-bun run client:e2e       # 9 Playwright golden paths
+bun run server:test      # server domain + route tests
+bun run client:test      # client unit/component tests
+bun run client:e2e       # Playwright golden paths + every README concept route
 bun run test:all
 bun run doctor           # local install / paths / port checks
 bun run doctor --strict  # fail on missing first-run state or unreachable dev servers
