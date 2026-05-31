@@ -6,9 +6,15 @@ export interface AgentSessionWithLinks extends AgentSession {
   linkedWorkItemIds: string[];
 }
 
+export interface SourceHealthError {
+  provider: string;
+  sourcePath: string;
+  message: string;
+}
+
 interface ListResponse {
   data: AgentSessionWithLinks[];
-  errors: { provider: string; sourcePath: string; message: string }[];
+  errors: SourceHealthError[];
   count: number;
 }
 
@@ -19,7 +25,7 @@ interface EventsResponse {
 
 export interface SessionsScan {
   sessions: AgentSessionWithLinks[];
-  errors: { provider: string; sourcePath: string; message: string }[];
+  errors: SourceHealthError[];
 }
 
 export async function listAgentSessions(provider: AgentProvider | 'all' = 'all'): Promise<SessionsScan> {

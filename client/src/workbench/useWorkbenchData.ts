@@ -24,7 +24,13 @@ export function useWorkbenchData(): {
       getWorkboard(),
       listAreas(),
     ]);
-    return { items, sessions: sessionsRes.sessions, workboardProjects: workboard.projects, areas };
+    return {
+      items,
+      sessions: sessionsRes.sessions,
+      sourceErrors: sessionsRes.errors,
+      workboardProjects: workboard.projects,
+      areas,
+    };
   }, []);
 
   const data = useMemo(() => {
