@@ -3,11 +3,10 @@ import { test, expect } from '@playwright/test';
 const API = process.env.STASH_E2E_API_URL ?? 'http://localhost:4174/api';
 
 /**
- * v1.0 — Concept O dispatch button composes a real prompt and either spawns
- * the CLI or returns the prompt + suggested command. We don't assert on
- * spawn-success (CI machines have no `claude` binary), only that the
- * round-trip happens and the result modal shows the composed prompt
- * containing the todo title.
+ * v1.1 — Concept O dispatch button composes a real prompt through
+ * /api/sessions/start while Playwright runs the server with agent spawning
+ * disabled. The assertion proves the result modal renders without launching
+ * a local Claude/Codex CLI.
  */
 test('Concept O dispatch composes a prompt from a real todo', async ({ page, request }) => {
   const stamp = Date.now();
@@ -24,7 +23,10 @@ test('Concept O dispatch composes a prompt from a real todo', async ({ page, req
 
   await page.getByTestId('dispatch-now').click();
 
-  // Result modal renders the composed prompt — assertion proves the
-  // /api/sessions/start round-trip succeeded.
-  await expect(page.getByTestId('ss-result-prompt')).toContainText(`# Task: e2e-dispatch-${stamp}`, { timeout: 5000 });
+  // Result modal renders the composed prompt without a spawned CLI.
+  await expect(page.getByText('prompt composed (cli not spawned)')).toBeVisible({ timeout: 5000 });
+  await expect(page.getByTestId('ss-result-prompt')).toContainText(
+    `# Task: e2e-dispatch-${stamp}`,
+    { timeout: 5000 },
+  );
 });

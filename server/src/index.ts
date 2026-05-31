@@ -18,6 +18,7 @@ const app = createApp({
   claudeRoot: config.claudeRoot,
   codexRoot: config.codexRoot,
   allowedOrigins: config.allowedOrigins,
+  sessionSpawnMode: config.sessionSpawnMode,
   logger: (msg) => process.stderr.write(`${msg}\n`),
 });
 

@@ -3,6 +3,7 @@ import { cors } from 'hono/cors';
 import { logger as honoLogger } from 'hono/logger';
 import type { Database } from 'bun:sqlite';
 import { systemClock, type AgentProvider, type Clock } from '@stash/shared';
+import type { SessionSpawnMode } from '../config.js';
 import { AgentSourceAggregator } from '../adapters/aggregator.js';
 import { ClaudeSource } from '../adapters/claude/scanner.js';
 import { CodexSource } from '../adapters/codex/scanner.js';
@@ -14,7 +15,10 @@ import { BurnService } from '../domain/analytics/burn.js';
 import { BudgetService } from '../domain/budget/service.js';
 import { DecisionCandidateService } from '../domain/capture/decision-candidates.js';
 import { DispatchRunService } from '../domain/session-dispatch/runs.js';
-import { SessionDispatchService } from '../domain/session-dispatch/service.js';
+import {
+  SessionDispatchService,
+  type SessionDispatchServiceDeps,
+} from '../domain/session-dispatch/service.js';
 import { WeeklyReviewService } from '../domain/analytics/weekly.js';
 import { ProjectKnowledgeService } from '../domain/project-knowledge/service.js';
 import { SkillService } from '../domain/skill/service.js';
@@ -66,8 +70,17 @@ export interface AppContext {
   allowedOrigins?: readonly string[];
   /** Test override: replace the default Claude/Codex sources. */
   sourcesOverride?: Map<AgentProvider, { source: AgentSource; root: string }>;
+  /** Disables real CLI spawning for deterministic test/browser runs. */
+  sessionSpawnMode?: SessionSpawnMode;
   /** When set, every request gets logged via Hono's logger middleware. */
   logger?: (msg: string) => void;
+}
+
+type SpawnImpl = NonNullable<SessionDispatchServiceDeps['spawnImpl']>;
+
+function spawnImplForMode(mode: SessionSpawnMode): SpawnImpl | undefined {
+  if (mode === 'real') return undefined;
+  return () => ({ error: 'agent spawn disabled by STASH_SESSION_SPAWN_MODE=disabled' });
 }
 
 export function createApp(ctx: AppContext): Hono {
@@ -89,6 +102,7 @@ export function createApp(ctx: AppContext): Hono {
     skills: skillService,
     clock,
     runs: dispatchRunService,
+    spawnImpl: spawnImplForMode(ctx.sessionSpawnMode ?? 'real'),
   });
 
   const sources =

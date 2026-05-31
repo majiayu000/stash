@@ -6,18 +6,21 @@ import { fileURLToPath } from 'url';
 import { fixedClock } from '@stash/shared';
 import { openDatabase } from '../../db/connection.js';
 import { migrate } from '../../db/migrate.js';
-import { createApp } from '../../web/app-factory.js';
+import { createApp, type AppContext } from '../../web/app-factory.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const CLAUDE_FIXTURE_ROOT = join(here, '..', '..', 'adapters', 'claude', 'fixtures');
 
-function setupApp(): { app: Hono; db: Database } {
+function setupApp(
+  overrides: Pick<Partial<AppContext>, 'sessionSpawnMode'> = {},
+): { app: Hono; db: Database } {
   const db = openDatabase({ path: ':memory:', inMemory: true });
   migrate(db);
   const app = createApp({
     db,
     clock: fixedClock('2026-05-14T10:00:00.000Z'),
     claudeRoot: CLAUDE_FIXTURE_ROOT,
+    ...overrides,
   });
   return { app, db };
 }
@@ -102,6 +105,27 @@ describe('decision candidate mutation errors', () => {
 
     expect(res.status).toBe(404);
     expect(res.body.error.code).toBe('NOT_FOUND');
+  });
+});
+
+describe('POST /api/sessions/start', () => {
+  test('disabled spawn mode composes without launching an agent CLI', async () => {
+    const { app } = setupApp({ sessionSpawnMode: 'disabled' });
+    const create = await jsonReq(app, 'POST', '/api/work-items', {
+      title: 'safe dispatch from e2e',
+    });
+    const id = create.body.data.id;
+
+    const res = await jsonReq(app, 'POST', '/api/sessions/start', {
+      workItemId: id,
+      tool: 'claude',
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.spawned).toBe(false);
+    expect(res.body.data.pid).toBeUndefined();
+    expect(res.body.data.spawnError).toContain('disabled');
+    expect(res.body.data.prompt).toContain('# Task: safe dispatch from e2e');
   });
 });
 
