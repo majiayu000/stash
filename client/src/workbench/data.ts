@@ -45,10 +45,17 @@ export interface WBTodo {
   tags: string[];
   done: boolean;
   /** Raw work-item status — needed by InboxTriage to match what the API filters on. */
-  status: 'inbox' | 'planned' | 'active' | 'waiting' | 'blocked' | 'someday' | 'done';
+  status: 'inbox' | 'planned' | 'active' | 'waiting' | 'blocked' | 'someday' | 'done' | 'dropped';
   priority: 'high' | 'med' | 'low';
   kind: 'task' | 'idea';
   due?: 'today' | 'this-week' | 'someday';
+  scheduledFor?: string;
+  startAt?: string;
+  dueAt?: string;
+  todayPinned: boolean;
+  sortOrder?: number;
+  updatedAt: string;
+  completedAt?: string;
   /** v0.6 — visual flags for TodoItem chrome. */
   recurring: boolean;
   reminding: boolean;
@@ -202,6 +209,13 @@ export function adaptToWorkbenchData(input: AdaptInput): WBData {
       priority: PRIORITY_MAP[i.priority] ?? 'med',
       kind: i.kind === 'idea' ? 'idea' : 'task',
       due: todoDue(i, today),
+      scheduledFor: i.scheduledFor,
+      startAt: i.startAt,
+      dueAt: i.dueAt,
+      todayPinned: i.todayPinned,
+      sortOrder: i.sortOrder,
+      updatedAt: i.updatedAt,
+      completedAt: i.completedAt,
       recurring: i.recurrence !== undefined,
       reminding: i.reminderAt !== undefined,
     }));

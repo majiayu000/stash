@@ -52,3 +52,48 @@ test('ConceptL: title editable + mark done round-trips to API', async ({ page, r
   // Footer flipped to reopen
   await expect(doneBtn).toHaveText(/reopen/);
 });
+
+test('ConceptJ: completed item opens Todo Detail from weekly review', async ({ page, request }) => {
+  const stamp = Date.now();
+  const title = `e2e-weekly-done-${stamp}`;
+  const create = await request.post(`${API}/work-items`, {
+    data: { title, status: 'done' },
+  });
+  expect(create.ok()).toBeTruthy();
+  const id = ((await create.json()) as { data: { id: string } }).data.id;
+
+  await page.goto('/c/j');
+  const doneItem = page.getByRole('button', { name: new RegExp(title) });
+  await expect(doneItem).toBeVisible({ timeout: 10_000 });
+  await doneItem.click();
+
+  await expect(page).toHaveURL(new RegExp(`/c/l/${id}`));
+  await expect(page.getByTestId('td-title')).toHaveValue(title, { timeout: 10_000 });
+});
+
+test('ConceptE: dragging a todo to Done persists completion', async ({ page, request }) => {
+  const stamp = Date.now();
+  const title = `e2e-done-drop-${stamp}`;
+  const create = await request.post(`${API}/work-items`, {
+    data: { title, status: 'active' },
+  });
+  expect(create.ok()).toBeTruthy();
+  const id = ((await create.json()) as { data: { id: string } }).data.id;
+
+  await page.goto('/');
+  await expect(page.getByTestId('board-col-doing')).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator('.todo').filter({ hasText: title })).toBeVisible();
+  await page.getByTestId('done-drop-zone').evaluate((target, todoId) => {
+    const dataTransfer = new DataTransfer();
+    dataTransfer.setData('application/stash-todo', todoId);
+    target.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer }));
+    target.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer }));
+  }, id);
+
+  await expect.poll(async () => {
+    const res = await request.get(`${API}/work-items/${id}`);
+    const json = (await res.json()) as { data: { status: string } };
+    return json.data.status;
+  }, { timeout: 5000 }).toBe('done');
+  await expect(page.getByTestId('ce-feedback')).toHaveText(/Marked done/);
+});

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import type { FeatureAdvancedRow, WeeklySnapshot, WorkItem } from '@stash/shared';
 import { getWeeklySnapshot } from '../../api/analytics';
 import { listStale, listWorkItems } from '../../api/work-items';
@@ -15,6 +16,7 @@ import { LoadErrorPanel, SessionRow, Topbar, toError } from '../shared';
  * done-by-project grouping. Narrative is deterministic per SPEC §8 (LLM in v0.3).
  */
 export function ConceptJ({ data }: { data: WBData; reload: () => void }) {
+  const navigate = useNavigate();
   const { projects, sessions } = data;
   const [week, setWeek] = useState<WeeklySnapshot | null>(null);
   const [doneItems, setDoneItems] = useState<WorkItem[]>([]);
@@ -159,7 +161,7 @@ export function ConceptJ({ data }: { data: WBData; reload: () => void }) {
               {doneByProject.length === 0 ? (
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)' }}>(nothing completed yet this week)</div>
               ) : doneByProject.map((g) => (
-                <DoneGroup key={g.project.id} project={g.project} items={g.items.map((it) => it.title)} />
+                <DoneGroup key={g.project.id} project={g.project} items={g.items} onOpen={(id) => navigate(`/c/l/${id}`)} />
               ))}
             </div>
           </div>
@@ -263,6 +265,28 @@ function groupDoneByProject(items: WorkItem[], projects: WBProject[]): { project
     const buc = byArea.get(p.id);
     if (buc && buc.length > 0) out.push({ project: p, items: buc });
   }
+  const unassigned = byArea.get('__unassigned__');
+  if (unassigned && unassigned.length > 0) {
+    out.push({
+      project: {
+        id: '__unassigned__',
+        name: 'No project',
+        emoji: '•',
+        progress: 0,
+        status: 'fresh',
+        doing: 'unassigned work',
+        features: [],
+        todoCount: unassigned.length,
+        todoDone: unassigned.length,
+        sessions: 0,
+        tokens24h: 0,
+        cost24h: 0,
+        lastModel: '—',
+        lastTouched: Date.now(),
+      },
+      items: unassigned,
+    });
+  }
   out.sort((a, b) => b.items.length - a.items.length);
   return out;
 }
@@ -285,7 +309,7 @@ function KpiTile({ label, value, wow, unit, color, warn }: { label: string; valu
   );
 }
 
-function DoneGroup({ project, items }: { project: WBProject; items: string[] }) {
+function DoneGroup({ project, items, onOpen }: { project: WBProject; items: WorkItem[]; onOpen: (id: string) => void }) {
   if (items.length === 0) return null;
   return (
     <div className="wr-done-group">
@@ -295,11 +319,11 @@ function DoneGroup({ project, items }: { project: WBProject; items: string[] }) 
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', color: 'var(--neon-green)', marginLeft: 'auto', background: 'rgba(48,209,88,0.1)', padding: '1px 7px', borderRadius: 'var(--radius-pill)' }}>✓ {items.length}</span>
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 3, marginTop: 6 }}>
-        {items.map((t, i) => (
-          <div key={i} className="wr-done-item">
+        {items.map((item) => (
+          <button key={item.id} type="button" className="wr-done-item" onClick={() => onOpen(item.id)}>
             <span className="wr-done-check">✓</span>
-            <span className="wr-done-text">{t}</span>
-          </div>
+            <span className="wr-done-text">{item.title}</span>
+          </button>
         ))}
       </div>
     </div>
@@ -428,7 +452,8 @@ const conceptJStyles = `
 
 .wr-done-group { padding: 0.7rem 0.85rem; background: rgba(48,209,88,0.03); border: 1px solid rgba(48,209,88,0.15); border-radius: var(--radius-md); }
 .wr-done-head { display: flex; align-items: center; gap: 0.5rem; }
-.wr-done-item { display: flex; align-items: flex-start; gap: 0.5rem; font-family: var(--font-mono); font-size: 0.76rem; color: var(--text-secondary); padding: 2px 0; }
+.wr-done-item { display: flex; align-items: flex-start; gap: 0.5rem; font-family: var(--font-mono); font-size: 0.76rem; color: var(--text-secondary); padding: 2px 0; background: transparent; border: 0; text-align: left; cursor: pointer; border-radius: var(--radius-sm); }
+.wr-done-item:hover { color: var(--text-primary); background: rgba(48,209,88,0.06); }
 .wr-done-check { color: var(--neon-green); font-weight: 700; text-shadow: 0 0 8px rgba(48,209,88,0.6); flex-shrink: 0; }
 .wr-done-text { line-height: 1.5; }
 

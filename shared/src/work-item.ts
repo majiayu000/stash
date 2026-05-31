@@ -126,9 +126,30 @@ export interface CreateWorkItemInput {
   rawInput?: string;
 }
 
-export type UpdateWorkItemInput = Partial<
-  Omit<CreateWorkItemInput, 'title'> & { title: string }
->;
+type ClearableWorkItemInputField =
+  | 'projectId'
+  | 'areaId'
+  | 'parentId'
+  | 'description'
+  | 'outcome'
+  | 'context'
+  | 'estimateMinutes'
+  | 'reminderAt'
+  | 'blockedBy'
+  | 'waitingOn'
+  | 'reviewAt'
+  | 'startAt'
+  | 'dueAt'
+  | 'scheduledFor'
+  | 'sortOrder'
+  | 'recurrence'
+  | 'rawInput';
+
+type WorkItemUpdateBase = Omit<CreateWorkItemInput, 'title'> & { title: string };
+
+export type UpdateWorkItemInput = Partial<Omit<WorkItemUpdateBase, ClearableWorkItemInputField>> & {
+  [K in ClearableWorkItemInputField]?: WorkItemUpdateBase[K] | null;
+};
 
 export const WORK_ITEM_KINDS: readonly WorkItemKind[] = [
   'epic',
