@@ -343,9 +343,15 @@ export function TodoItem({ t, projects, showProject = true }: { t: WBTodo; proje
   // SPEC v0.3 §3e — inbox rows participate in the triage cursor; gated on real
   // work-item status, not on absence of project (planned items can also lack a project).
   const inboxAttr = t.status === 'inbox' ? { 'data-inbox-item': t.id } : {};
-  // v0.9 — today rows participate in TodayTriage. "today" is approximated client-side
-  // by `due === 'today'`; the server's canonical Today list is the source of truth.
-  const todayAttr = t.due === 'today' && !t.done ? { 'data-today-item': t.id } : {};
+  const nowIso = new Date().toISOString();
+  const today = nowIso.slice(0, 10);
+  const isToday =
+    !t.done &&
+    (t.todayPinned ||
+      (t.startAt !== undefined && t.startAt <= nowIso) ||
+      (t.dueAt !== undefined && t.dueAt < nowIso) ||
+      t.scheduledFor === today);
+  const todayAttr = isToday ? { 'data-today-item': t.id } : {};
 
   async function toggleDone(e: React.MouseEvent | React.KeyboardEvent) {
     e.stopPropagation();

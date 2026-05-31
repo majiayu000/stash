@@ -157,6 +157,40 @@ describe('WorkItemService.update', () => {
     expect(updated.completedAt).toBeUndefined();
   });
 
+  test('clears date and context fields when patching them to null', () => {
+    const item = service.create({
+      title: 'thing',
+      status: 'active',
+      description: 'notes',
+      context: 'ctx',
+      scheduledFor: '2026-05-14',
+      startAt: '2026-05-14T09:00:00.000Z',
+      dueAt: '2026-05-14T18:00:00.000Z',
+      sortOrder: 1000,
+    });
+
+    const updated = service.update(item.id, {
+      status: 'planned',
+      todayPinned: false,
+      description: null,
+      context: null,
+      scheduledFor: null,
+      startAt: null,
+      dueAt: null,
+      sortOrder: null,
+    });
+
+    expect(updated.status).toBe('planned');
+    expect(updated.todayPinned).toBe(false);
+    expect(updated.description).toBeUndefined();
+    expect(updated.context).toBeUndefined();
+    expect(updated.scheduledFor).toBeUndefined();
+    expect(updated.startAt).toBeUndefined();
+    expect(updated.dueAt).toBeUndefined();
+    expect(updated.sortOrder).toBeUndefined();
+    expect(service.today().some((candidate) => candidate.id === item.id)).toBe(false);
+  });
+
   test('throws when item missing', () => {
     expect(() => service.update('nope', { title: 'x' })).toThrow(WorkItemNotFoundError);
   });

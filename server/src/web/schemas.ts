@@ -90,7 +90,25 @@ export const CreateWorkItemBody = z.object({
   rawInput: z.string().optional(),
 });
 
-export const UpdateWorkItemBody = CreateWorkItemBody.partial();
+export const UpdateWorkItemBody = CreateWorkItemBody.partial().extend({
+  projectId: z.string().nullable().optional(),
+  areaId: z.string().nullable().optional(),
+  parentId: z.string().nullable().optional(),
+  description: z.string().nullable().optional(),
+  outcome: z.string().nullable().optional(),
+  context: z.string().nullable().optional(),
+  estimateMinutes: z.number().int().nonnegative().nullable().optional(),
+  reminderAt: z.string().nullable().optional(),
+  blockedBy: z.string().nullable().optional(),
+  waitingOn: z.string().nullable().optional(),
+  reviewAt: z.string().nullable().optional(),
+  startAt: z.string().nullable().optional(),
+  dueAt: z.string().nullable().optional(),
+  scheduledFor: z.string().nullable().optional(),
+  sortOrder: z.number().nullable().optional(),
+  recurrence: Recurrence.nullable().optional(),
+  rawInput: z.string().nullable().optional(),
+});
 
 export const ListWorkItemsQuery = z.object({
   status: z

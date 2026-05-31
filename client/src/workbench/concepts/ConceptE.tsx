@@ -3,6 +3,13 @@ import { CountUp, LiveDot, ParticleField, Typewriter } from '../../components/ef
 import { createWorkItem, updateWorkItem } from '../../api/work-items';
 import type { WBData, WBProject, WBTodo } from '../data';
 import { ProgressBar, Topbar, TodoItem } from '../shared';
+import {
+  doneMoveInput,
+  groupTodosForBoard,
+  moveInputForColumn,
+  todayIso,
+  type TodoBoardColumn,
+} from './conceptE.lifecycle';
 
 /**
  * Concept E — Capture & Plan (todo-first).
@@ -14,12 +21,15 @@ export function ConceptE({ data, reload }: { data: WBData; reload: () => void })
   const { projects, todos, sessions } = data;
   const [submitting, setSubmitting] = useState(false);
   const [captureText, setCaptureText] = useState('');
+  const [feedback, setFeedback] = useState<{ message: string; tone: 'ok' | 'error' } | null>(null);
 
   const liveProjectIds = new Set(sessions.filter((s) => s.state === 'live').map((s) => s.project));
-  const inbox = todos.filter((t) => !t.project && !t.done);
-  const doing = todos.filter((t) => t.project && liveProjectIds.has(t.project) && !t.done);
-  const today = todos.filter((t) => t.project && !liveProjectIds.has(t.project) && t.due === 'today' && !t.done);
-  const later = todos.filter((t) => t.project && !liveProjectIds.has(t.project) && (t.due === 'this-week' || t.due === 'someday') && !t.done);
+  const board = groupTodosForBoard(todos, liveProjectIds);
+
+  function showFeedback(message: string, tone: 'ok' | 'error' = 'ok') {
+    setFeedback({ message, tone });
+    window.setTimeout(() => setFeedback((current) => current?.message === message ? null : current), 3200);
+  }
 
   async function submitCapture(e: React.FormEvent) {
     e.preventDefault();
@@ -29,7 +39,10 @@ export function ConceptE({ data, reload }: { data: WBData; reload: () => void })
     try {
       await createWorkItem({ title: trimmed, kind: 'idea', status: 'inbox' });
       setCaptureText('');
+      showFeedback('Captured to inbox');
       reload();
+    } catch (error) {
+      showFeedback(error instanceof Error ? error.message : String(error), 'error');
     } finally {
       setSubmitting(false);
     }
@@ -90,19 +103,24 @@ export function ConceptE({ data, reload }: { data: WBData; reload: () => void })
               <span style={{ marginLeft: 'auto', color: 'var(--text-muted)' }}>
                 <CountUp to={todos.filter((t) => !t.done).length} duration={800} /> open ·{' '}
                 <CountUp to={todos.filter((t) => t.done).length} duration={800} /> done ·{' '}
-                <CountUp to={inbox.length} duration={800} /> in inbox
+                <CountUp to={board.inbox.length} duration={800} /> in inbox
               </span>
             </div>
           </div>
         </div>
+        {feedback && (
+          <div className={`ce-feedback ${feedback.tone}`} role="status" data-testid="ce-feedback">
+            {feedback.message}
+          </div>
+        )}
 
         {/* Main split: 4-column board + right rail */}
         <div id="inbox-board" style={{ display: 'grid', gridTemplateColumns: '1fr 290px', gap: '1.25rem', flex: 1, minHeight: 0 }}>
           <div style={{ minWidth: 0, display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.85rem', minHeight: 0 }}>
-            <BoardCol icon="📥" name="inbox"  tone="orange" hint="ideas & quick captures"     items={inbox}  projects={projects} />
-            <BoardCol icon="🌅" name="today"  tone="cyan"   hint="planned for today"          items={today}  projects={projects} />
-            <BoardCol icon="🚧" name="doing"  tone="green"  hint="agent is on it right now"   items={doing}  projects={projects} live />
-            <BoardCol icon="📅" name="later"  tone="purple" hint="this week · someday"        items={later}  projects={projects} />
+            <BoardCol icon="📥" name="inbox"  tone="orange" hint="ideas & quick captures"     items={board.inbox}  projects={projects} onFeedback={showFeedback} />
+            <BoardCol icon="🌅" name="today"  tone="cyan"   hint="planned for today"          items={board.today}  projects={projects} onFeedback={showFeedback} />
+            <BoardCol icon="🚧" name="doing"  tone="green"  hint="active or live-agent work"  items={board.doing}  projects={projects} live onFeedback={showFeedback} />
+            <BoardCol icon="📅" name="later"  tone="purple" hint="planned · waiting · someday" items={board.later}  projects={projects} onFeedback={showFeedback} />
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', minHeight: 0 }}>
@@ -117,7 +135,7 @@ export function ConceptE({ data, reload }: { data: WBData; reload: () => void })
                 ? <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)' }}>no projects yet — set <code>projectId</code> on work items</div>
                 : projects.map((p) => <ProjectChipRow key={p.id} p={p} />)}
             </div>
-            <div className="surface" style={{ padding: '0.75rem 0.9rem', marginTop: 'auto' }}>
+            <div className="surface" style={{ padding: '0.75rem 0.9rem' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem' }}>
                 <LiveDot color="var(--neon-green)" />
                 <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', color: 'var(--text-primary)', fontWeight: 600 }}>
@@ -139,6 +157,7 @@ export function ConceptE({ data, reload }: { data: WBData; reload: () => void })
                 )}
               </div>
             </div>
+            <DoneDropZone items={board.done} projects={projects} onFeedback={showFeedback} />
           </div>
         </div>
       </div>
@@ -149,28 +168,46 @@ export function ConceptE({ data, reload }: { data: WBData; reload: () => void })
 }
 
 // Map BoardCol name → defaults for a new work item dropped into that column.
-function colCreateOpts(col: string): Partial<Parameters<typeof createWorkItem>[0]> {
+function colCreateOpts(col: TodoBoardColumn): Partial<Parameters<typeof createWorkItem>[0]> {
   switch (col) {
     case 'inbox':  return { kind: 'idea', status: 'inbox' };
-    case 'today':  return { kind: 'task', status: 'planned', todayPinned: true, scheduledFor: new Date().toISOString().slice(0, 10) };
+    case 'today':  return { kind: 'task', status: 'planned', todayPinned: true, scheduledFor: todayIso() };
     case 'doing':  return { kind: 'task', status: 'active' };
     case 'later':  return { kind: 'task', status: 'planned' };
-    default:       return { kind: 'task', status: 'inbox' };
   }
 }
 
-function emptyCopyFor(col: string): string {
+function emptyCopyFor(col: TodoBoardColumn): string {
   // SPEC v0.3 §3i — actionable empty states, no fake data.
   switch (col) {
     case 'inbox':  return 'Inbox empty. Press `c` to capture.';
     case 'today':  return 'Nothing planned for today.';
     case 'doing':  return 'No active work.';
     case 'later':  return 'No items scheduled later.';
-    default:       return '— empty —';
   }
 }
 
-function BoardCol({ icon, name, tone, hint, items, count, live, projects }: { icon: string; name: string; tone: 'orange' | 'cyan' | 'green' | 'purple'; hint: string; items: WBTodo[]; count?: number; live?: boolean; projects: WBProject[] }) {
+function BoardCol({
+  icon,
+  name,
+  tone,
+  hint,
+  items,
+  count,
+  live,
+  projects,
+  onFeedback,
+}: {
+  icon: string;
+  name: TodoBoardColumn;
+  tone: 'orange' | 'cyan' | 'green' | 'purple';
+  hint: string;
+  items: WBTodo[];
+  count?: number;
+  live?: boolean;
+  projects: WBProject[];
+  onFeedback: (message: string, tone?: 'ok' | 'error') => void;
+}) {
   const c = count ?? items.length;
   const draggable = name === 'today';
   const [dragOver, setDragOver] = useState(false);
@@ -182,7 +219,10 @@ function BoardCol({ icon, name, tone, hint, items, count, live, projects }: { ic
       const opts = colCreateOpts(name);
       await createWorkItem({ title: title.trim(), ...opts });
       window.dispatchEvent(new CustomEvent('stash:captured'));
-    } catch (e) { window.alert(e instanceof Error ? e.message : String(e)); }
+      onFeedback(`Added to ${name}`);
+    } catch (e) {
+      onFeedback(e instanceof Error ? e.message : String(e), 'error');
+    }
   }
 
   function onDragOver(e: React.DragEvent) {
@@ -198,11 +238,14 @@ function BoardCol({ icon, name, tone, hint, items, count, live, projects }: { ic
     setDragOver(false);
     const id = e.dataTransfer.getData('application/stash-todo');
     if (!id) return;
-    const opts = colMoveOpts(name);
+    const opts = moveInputForColumn(name);
     try {
       await updateWorkItem(id, opts);
       window.dispatchEvent(new CustomEvent('stash:captured'));
-    } catch (err) { window.alert(err instanceof Error ? err.message : String(err)); }
+      onFeedback(`Moved to ${name}`);
+    } catch (err) {
+      onFeedback(err instanceof Error ? err.message : String(err), 'error');
+    }
   }
 
   return (
@@ -223,7 +266,7 @@ function BoardCol({ icon, name, tone, hint, items, count, live, projects }: { ic
         {items.length === 0 ? (
           <div className="board-col-empty">{emptyCopyFor(name)}</div>
         ) : draggable ? (
-          <DraggableList items={items} projects={projects} />
+          <DraggableList items={items} projects={projects} onFeedback={onFeedback} />
         ) : (
           items.map((t) => <DraggableRow key={t.id} t={t} projects={projects} />)
         )}
@@ -231,20 +274,6 @@ function BoardCol({ icon, name, tone, hint, items, count, live, projects }: { ic
       </div>
     </div>
   );
-}
-
-/**
- * Map a target column → the status/pin transition to apply when a row is
- * dropped on it. Mirror of colCreateOpts but for existing items.
- */
-function colMoveOpts(col: string): Parameters<typeof updateWorkItem>[1] {
-  switch (col) {
-    case 'inbox':  return { status: 'inbox',   todayPinned: false };
-    case 'today':  return { status: 'planned', todayPinned: true, scheduledFor: new Date().toISOString().slice(0, 10) };
-    case 'doing':  return { status: 'active',  todayPinned: false };
-    case 'later':  return { status: 'planned', todayPinned: false };
-    default:       return {};
-  }
 }
 
 /** Wrap a TodoItem in an outer <div> that supports HTML5 drag for cross-column moves. */
@@ -272,7 +301,15 @@ function DraggableRow({ t, projects }: { t: WBTodo; projects: WBProject[] }) {
  * Optimistic local reorder; PATCHes only the moved row; emits stash:captured
  * so the workbench refetches in canonical order.
  */
-function DraggableList({ items, projects }: { items: WBTodo[]; projects: WBProject[] }) {
+function DraggableList({
+  items,
+  projects,
+  onFeedback,
+}: {
+  items: WBTodo[];
+  projects: WBProject[];
+  onFeedback: (message: string, tone?: 'ok' | 'error') => void;
+}) {
   const [order, setOrder] = useState<WBTodo[]>(items);
   const [draggingId, setDraggingId] = useState<string | null>(null);
 
@@ -327,7 +364,10 @@ function DraggableList({ items, projects }: { items: WBTodo[]; projects: WBProje
     try {
       await updateWorkItem(movedId, { sortOrder: newOrder });
       window.dispatchEvent(new CustomEvent('stash:captured'));
-    } catch { /* swallow */ }
+      onFeedback('Today order saved');
+    } catch (error) {
+      onFeedback(error instanceof Error ? error.message : String(error), 'error');
+    }
   }
 
   return (
@@ -346,6 +386,62 @@ function DraggableList({ items, projects }: { items: WBTodo[]; projects: WBProje
         </div>
       ))}
     </>
+  );
+}
+
+function DoneDropZone({
+  items,
+  projects,
+  onFeedback,
+}: {
+  items: WBTodo[];
+  projects: WBProject[];
+  onFeedback: (message: string, tone?: 'ok' | 'error') => void;
+}) {
+  const [dragOver, setDragOver] = useState(false);
+
+  function onDragOver(e: React.DragEvent) {
+    if (!e.dataTransfer.types.includes('application/stash-todo')) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setDragOver(true);
+  }
+
+  async function onDrop(e: React.DragEvent) {
+    e.preventDefault();
+    setDragOver(false);
+    const id = e.dataTransfer.getData('application/stash-todo');
+    if (!id) return;
+    try {
+      await updateWorkItem(id, doneMoveInput());
+      window.dispatchEvent(new CustomEvent('stash:captured'));
+      onFeedback('Marked done');
+    } catch (error) {
+      onFeedback(error instanceof Error ? error.message : String(error), 'error');
+    }
+  }
+
+  return (
+    <section
+      className={`done-drop-zone ${dragOver ? 'drag-over' : ''}`}
+      aria-label="Done drop zone"
+      data-testid="done-drop-zone"
+      onDragOver={onDragOver}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={onDrop}
+    >
+      <div className="done-drop-head">
+        <span>✓ done</span>
+        <strong>{items.length}</strong>
+      </div>
+      <div className="done-drop-copy">Drop finished work here. Recent completions stay reviewable in Weekly Review.</div>
+      <div className="done-drop-list">
+        {items.slice(0, 3).map((todo) => (
+          <TodoItem key={todo.id} t={todo} projects={projects} showProject={false} />
+        ))}
+        {items.length === 0 && <div className="board-col-empty">No completed items yet.</div>}
+      </div>
+    </section>
   );
 }
 
@@ -469,6 +565,22 @@ const conceptEStyles = `
   margin-right: 4px;
 }
 
+.ce-feedback {
+  margin: -0.55rem 0 0.75rem;
+  border: 1px solid rgba(48,209,88,0.32);
+  background: rgba(48,209,88,0.08);
+  color: var(--neon-green);
+  border-radius: var(--radius-md);
+  padding: 0.45rem 0.7rem;
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+}
+.ce-feedback.error {
+  border-color: rgba(255,55,95,0.35);
+  background: rgba(255,55,95,0.08);
+  color: var(--neon-pink);
+}
+
 .board-col {
   background: var(--bg-glass);
   backdrop-filter: blur(20px);
@@ -522,6 +634,44 @@ const conceptEStyles = `
   transition: all 0.2s; text-align: left;
 }
 .todo-add:hover { border-color: var(--neon-cyan); color: var(--neon-cyan); background: rgba(0,255,242,0.04); }
+
+.done-drop-zone {
+  border: 1px solid rgba(48,209,88,0.28);
+  background: rgba(48,209,88,0.06);
+  border-radius: var(--radius-lg);
+  padding: 0.85rem;
+  transition: border-color 0.16s, background 0.16s, box-shadow 0.16s;
+}
+.done-drop-zone.drag-over {
+  border-color: var(--neon-green);
+  background: rgba(48,209,88,0.12);
+  box-shadow: 0 0 0 1px rgba(48,209,88,0.12), 0 14px 32px rgba(48,209,88,0.1);
+}
+.done-drop-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  font-family: var(--font-mono);
+  color: var(--neon-green);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+.done-drop-copy {
+  margin-top: 0.35rem;
+  color: var(--text-muted);
+  font-size: 0.74rem;
+  line-height: 1.45;
+}
+.done-drop-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-top: 0.7rem;
+  max-height: 170px;
+  overflow-y: auto;
+}
 
 .new-proj-btn {
   background: var(--gradient-primary);

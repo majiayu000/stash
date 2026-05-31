@@ -180,17 +180,29 @@ export class WorkItemService {
 
     const merged: WorkItem = {
       ...existing,
-      ...stripUndefined(input),
+      ...(stripUndefined(input) as Partial<WorkItem>),
+      projectId: clearable(input.projectId, existing.projectId),
+      areaId: clearable(input.areaId, existing.areaId),
+      parentId: clearable(input.parentId, existing.parentId),
       title: input.title?.trim() ?? existing.title,
-      description: input.description !== undefined ? input.description?.trim() || undefined : existing.description,
-      outcome: input.outcome !== undefined ? input.outcome?.trim() || undefined : existing.outcome,
-      context: input.context !== undefined ? input.context?.trim() || undefined : existing.context,
-      blockedBy: input.blockedBy !== undefined ? input.blockedBy?.trim() || undefined : existing.blockedBy,
-      waitingOn: input.waitingOn !== undefined ? input.waitingOn?.trim() || undefined : existing.waitingOn,
+      description: clearableTrimmed(input.description, existing.description),
+      outcome: clearableTrimmed(input.outcome, existing.outcome),
+      context: clearableTrimmed(input.context, existing.context),
+      estimateMinutes: clearable(input.estimateMinutes, existing.estimateMinutes),
+      reminderAt: clearable(input.reminderAt, existing.reminderAt),
+      blockedBy: clearableTrimmed(input.blockedBy, existing.blockedBy),
+      waitingOn: clearableTrimmed(input.waitingOn, existing.waitingOn),
+      reviewAt: clearable(input.reviewAt, existing.reviewAt),
+      startAt: clearable(input.startAt, existing.startAt),
+      dueAt: clearable(input.dueAt, existing.dueAt),
+      scheduledFor: clearable(input.scheduledFor, existing.scheduledFor),
       status: nextStatus,
       labels: input.labels ?? existing.labels,
       checklist: input.checklist ?? existing.checklist,
       links: input.links ?? existing.links,
+      sortOrder: clearable(input.sortOrder, existing.sortOrder),
+      recurrence: clearable(input.recurrence, existing.recurrence),
+      rawInput: clearable(input.rawInput, existing.rawInput),
       updatedAt: this.clock.nowIso(),
       completedAt,
     };
@@ -280,4 +292,14 @@ function stripUndefined<T extends object>(o: T): T {
     if (v !== undefined) (out as Record<string, unknown>)[k] = v;
   }
   return out;
+}
+
+function clearable<T>(next: T | null | undefined, existing: T | undefined): T | undefined {
+  if (next === undefined) return existing;
+  return next ?? undefined;
+}
+
+function clearableTrimmed(next: string | null | undefined, existing: string | undefined): string | undefined {
+  if (next === undefined) return existing;
+  return next?.trim() || undefined;
 }
