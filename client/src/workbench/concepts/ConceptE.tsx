@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { type UpdateWorkItemInput } from '@stash/shared';
-import { CountUp, LiveDot, ParticleField, Typewriter } from '../../components/effects';
+import { CountUp, LiveDot, ParticleField } from '../../components/effects';
 import { captureWorkItem, createWorkItem, updateWorkItem } from '../../api/work-items';
 import type { WBData, WBProject, WBTodo } from '../data';
 import { Topbar, TodoItem } from '../shared';
@@ -136,20 +136,6 @@ export function ConceptE({ data, reload }: { data: WBData; reload: () => void })
                   className="capture-real-input"
                   disabled={submitting}
                 />
-                {!captureText && (
-                  <span className="capture-typewriter" aria-hidden>
-                    <Typewriter
-                      phrases={[
-                        'Write a task, idea, or reminder here',
-                        'Add #project to file it under a project',
-                        'Use ^p1 for priority and !today for schedule',
-                        'Use @tag to add a label',
-                      ]}
-                      speed={48}
-                      pause={1900}
-                    />
-                  </span>
-                )}
               </div>
               <button
                 type="submit"
@@ -188,8 +174,12 @@ export function ConceptE({ data, reload }: { data: WBData; reload: () => void })
               doneToday: doneToday.length,
             }}
             suggestions={suggestions}
+            allTodos={todos}
+            draggingTodo={draggingTodo}
             onViewChange={setView}
             onSelectTodo={(todo) => setSelectedTodoId(todo.id)}
+            onDragEnd={() => setDraggingTodo(null)}
+            onFlash={flash}
           />
 
           <main className="todo-flow-panel" data-testid="todo-flow-panel">
@@ -630,17 +620,6 @@ const conceptEStyles = `
   color: var(--text-primary);
   caret-color: var(--neon-cyan);
 }
-.capture-typewriter {
-  position: absolute; inset: 0;
-  pointer-events: none;
-  display: flex; align-items: center;
-  font-family: var(--font-mono);
-  font-size: 1.1rem;
-  color: var(--text-muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .capture-submit-btn {
   font-family: var(--font-mono);
   font-size: 0.8rem;
@@ -743,8 +722,7 @@ const conceptEStyles = `
     gap: 0.55rem;
     padding: 0.72rem 0.75rem;
   }
-  .capture-real-input,
-  .capture-typewriter {
+  .capture-real-input {
     font-size: 0.95rem;
   }
   .capture-submit-btn {
