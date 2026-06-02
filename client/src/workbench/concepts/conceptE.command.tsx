@@ -1,10 +1,11 @@
+import { useState, type DragEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { WorkItemStatus } from '@stash/shared';
 import { updateWorkItem } from '../../api/work-items';
 import type { WBProject, WBSession, WBTodo } from '../data';
 import { fmt } from '../data';
 import { ProjectIcon } from '../shared';
-import { invalidMoveMessage, isStatusMoveAllowed, type ToastAction, type ToastTone } from './conceptE.dnd';
+import { completeDroppedTodo, invalidMoveMessage, isStatusMoveAllowed, type ToastAction, type ToastTone } from './conceptE.dnd';
 
 export type TodoViewId = 'command' | 'inbox' | 'today' | 'active' | 'waiting' | 'later' | 'done';
 
@@ -68,15 +69,24 @@ export function TodoCommandRail({
   view,
   counts,
   suggestions,
+  allTodos,
+  draggingTodo,
   onViewChange,
   onSelectTodo,
+  onDragEnd,
+  onFlash,
 }: {
   view: TodoViewId;
   counts: TodoViewCounts;
   suggestions: WBTodo[];
+  allTodos: WBTodo[];
+  draggingTodo: WBTodo | null;
   onViewChange: (view: TodoViewId) => void;
   onSelectTodo: (todo: WBTodo) => void;
+  onDragEnd: () => void;
+  onFlash: Flash;
 }) {
+  const [doneDragOver, setDoneDragOver] = useState(false);
   const views: Array<{ id: TodoViewId; label: string; count: number; tone: string }> = [
     { id: 'command', label: 'Command', count: counts.inbox + counts.today + counts.active + counts.waiting, tone: 'cyan' },
     { id: 'inbox', label: 'Inbox', count: counts.inbox, tone: 'orange' },
@@ -86,6 +96,22 @@ export function TodoCommandRail({
     { id: 'later', label: 'Later', count: counts.later, tone: 'purple' },
     { id: 'done', label: 'Done', count: counts.doneToday, tone: 'done' },
   ];
+  const doneDropInvalid = Boolean(draggingTodo && !isStatusMoveAllowed(draggingTodo.status, 'done'));
+
+  function onDoneDragOver(e: DragEvent<HTMLButtonElement>) {
+    if (!e.dataTransfer.types.includes('application/stash-todo')) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setDoneDragOver(true);
+  }
+
+  async function onDoneDrop(e: DragEvent<HTMLButtonElement>) {
+    e.preventDefault();
+    setDoneDragOver(false);
+    onDragEnd();
+    const id = e.dataTransfer.getData('application/stash-todo');
+    await completeDroppedTodo(id, allTodos, onFlash);
+  }
 
   return (
     <aside className="todo-command-rail" aria-label="Todo command views">
@@ -95,18 +121,28 @@ export function TodoCommandRail({
       </div>
 
       <div className="todo-view-stack">
-        {views.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            className={`todo-view-chip ${item.tone} ${view === item.id ? 'active' : ''}`}
-            onClick={() => onViewChange(item.id)}
-            data-testid={`todo-view-${item.id}`}
-          >
-            <span>{item.label}</span>
-            <strong>{item.count}</strong>
-          </button>
-        ))}
+        {views.map((item) => {
+          const isDone = item.id === 'done';
+          return (
+            <button
+              key={item.id}
+              type="button"
+              className={`todo-view-chip ${item.tone} ${view === item.id ? 'active' : ''} ${isDone && draggingTodo ? 'drop-target' : ''} ${isDone && doneDragOver ? 'drop-over' : ''} ${isDone && doneDragOver && doneDropInvalid ? 'invalid-over' : ''}`}
+              onClick={() => {
+                if (isDone && draggingTodo) return;
+                onViewChange(item.id);
+              }}
+              onDragOver={isDone ? onDoneDragOver : undefined}
+              onDragLeave={isDone ? () => setDoneDragOver(false) : undefined}
+              onDrop={isDone ? onDoneDrop : undefined}
+              data-testid={`todo-view-${item.id}`}
+              title={isDone ? 'Drop a task here to mark it done' : undefined}
+            >
+              <span>{item.label}</span>
+              <strong>{item.count}</strong>
+            </button>
+          );
+        })}
       </div>
 
       <section className="todo-next-panel" aria-label="Suggested next tasks">
@@ -385,6 +421,21 @@ export const todoCommandStyles = `
   border-color: rgba(0,255,242,0.5);
   background: rgba(0,255,242,0.08);
   color: var(--neon-cyan);
+}
+.todo-view-chip.drop-target {
+  border-color: rgba(48,209,88,0.5);
+  background: rgba(48,209,88,0.08);
+  color: var(--neon-green);
+}
+.todo-view-chip.drop-over {
+  outline: 2px dashed var(--neon-green);
+  outline-offset: 2px;
+  box-shadow: 0 0 24px rgba(48,209,88,0.16);
+}
+.todo-view-chip.invalid-over {
+  border-color: rgba(255,55,95,0.62);
+  background: rgba(255,55,95,0.08);
+  color: var(--neon-pink);
 }
 .todo-panel-title,
 .flow-panel-head {

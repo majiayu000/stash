@@ -52,6 +52,38 @@ async function restoreFromDone(id: string, previousStatus: WorkItemStatus) {
   }
 }
 
+export async function completeDroppedTodo(id: string, allTodos: WBTodo[], onFlash: Flash) {
+  if (!id) {
+    onFlash('无法识别拖拽任务', 'error');
+    return;
+  }
+  const todo = allTodos.find((t) => t.id === id);
+  if (!todo) {
+    onFlash('找不到拖拽任务', 'error');
+    return;
+  }
+  const invalid = invalidMoveMessage(todo, 'done');
+  if (invalid) {
+    onFlash(invalid, 'error');
+    return;
+  }
+  const previousStatus = todo.status;
+  try {
+    await updateWorkItem(id, { status: 'done' });
+    window.dispatchEvent(new CustomEvent('stash:captured'));
+    onFlash('已完成', 'ok', {
+      label: '撤销',
+      run: async () => {
+        await restoreFromDone(id, previousStatus);
+        window.dispatchEvent(new CustomEvent('stash:captured'));
+        onFlash('已恢复', 'info');
+      },
+    });
+  } catch (err) {
+    onFlash(err instanceof Error ? err.message : String(err), 'error');
+  }
+}
+
 export function DoneDropZone({
   active,
   allTodos,
@@ -82,29 +114,7 @@ export function DoneDropZone({
     setDragOver(false);
     onDragEnd();
     const id = e.dataTransfer.getData('application/stash-todo');
-    if (!id) return;
-    const todo = allTodos.find((t) => t.id === id);
-    if (!todo) return;
-    const invalid = invalidMoveMessage(todo, 'done');
-    if (invalid) {
-      onFlash(invalid, 'error');
-      return;
-    }
-    const previousStatus = todo.status;
-    try {
-      await updateWorkItem(id, { status: 'done' });
-      window.dispatchEvent(new CustomEvent('stash:captured'));
-      onFlash('已完成', 'ok', {
-        label: '撤销',
-        run: async () => {
-          await restoreFromDone(id, previousStatus);
-          window.dispatchEvent(new CustomEvent('stash:captured'));
-          onFlash('已恢复', 'info');
-        },
-      });
-    } catch (err) {
-      onFlash(err instanceof Error ? err.message : String(err), 'error');
-    }
+    await completeDroppedTodo(id, allTodos, onFlash);
   }
 
   function openDonePage() {
