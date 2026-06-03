@@ -147,6 +147,20 @@ test('ConceptSwitcher clicks through all 16 concept entries', async ({ page, req
   }
 });
 
+test('Topbar token summary is static, without typewriter cursor', async ({ page, request }) => {
+  await seedState(request);
+  await page.goto('/');
+
+  await expect(page.locator('.topbar-tag')).toContainText(/tokens spent today/);
+  await expect(page.locator('.topbar-tag .tw-cursor')).toHaveCount(0);
+
+  const tokenStat = page.locator('.topbar-stats .tb-stat').nth(1).locator('.tb-stat-val');
+  await expect(tokenStat).toContainText(/\d/);
+  const before = await tokenStat.textContent();
+  await page.waitForTimeout(300);
+  await expect(tokenStat).toHaveText(before ?? '');
+});
+
 test('README concept route table resolves, including documented deep links', async ({ page, request }) => {
   const state = await seedState(request);
 

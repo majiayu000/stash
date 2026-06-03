@@ -1,4 +1,3 @@
-export { Typewriter } from './Typewriter';
 export { ShinyText } from './ShinyText';
 export { LiveDot } from './LiveDot';
 export { CursorGlow } from './CursorGlow';

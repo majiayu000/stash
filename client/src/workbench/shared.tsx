@@ -1,7 +1,7 @@
 import { Fragment, type ReactNode } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { updateWorkItem } from '../api/work-items';
-import { CountUp, LiveDot, Typewriter } from '../components/effects';
+import { CountUp, LiveDot } from '../components/effects';
 import { fmt, type WBData, type WBProject, type WBSession, type WBTodo } from './data';
 import { reportAsyncError } from './reportAsyncError';
 
@@ -140,16 +140,7 @@ export function Topbar({ data, right }: { data: WBData; right?: ReactNode }) {
           <span className="topbar-logo">🎯</span>
           <span className="topbar-title">stash</span>
           <span className="topbar-tag">
-            <Typewriter
-              phrases={[
-                `> ${stats.projects} projects · ${stats.activeSessions} live sessions`,
-                `> ${fmt.k(stats.totalTokens24h)} tokens spent today`,
-                `> ${fmt.cost(stats.totalCost24h)} burn`,
-                '> claude-code + codex monitor',
-              ]}
-              speed={45}
-              pause={2200}
-            />
+            &gt; {fmt.k(stats.totalTokens24h)} tokens spent today
           </span>
         </div>
         <PrimaryFlowNav data={data} />
@@ -158,19 +149,19 @@ export function Topbar({ data, right }: { data: WBData; right?: ReactNode }) {
         <div className="topbar-stats">
           <div className="tb-stat">
             <span className="tb-stat-val gradient">
-              <CountUp to={stats.activeSessions} duration={1000} />
+              {stats.activeSessions}
             </span>
             <span className="tb-stat-label"><LiveDot /> &nbsp; live</span>
           </div>
           <div className="tb-stat">
             <span className="tb-stat-val gradient">
-              <CountUp to={stats.totalTokens24h} duration={1500} format={(n: number) => fmt.k(Math.round(n))} />
+              {fmt.k(stats.totalTokens24h)}
             </span>
             <span className="tb-stat-label">tokens · 24h</span>
           </div>
           <div className="tb-stat">
             <span className="tb-stat-val gradient">
-              <CountUp to={stats.totalCost24h} duration={1500} format={(n: number) => '$' + n.toFixed(2)} />
+              {fmt.cost(stats.totalCost24h)}
             </span>
             <span className="tb-stat-label">cost · 24h</span>
           </div>

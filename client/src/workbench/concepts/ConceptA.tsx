@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { BurnSnapshot } from '@stash/shared';
-import { CursorGlow, LiveDot, ParticleField, Typewriter } from '../../components/effects';
+import { CursorGlow, LiveDot, ParticleField } from '../../components/effects';
 import { getBurnSnapshot } from '../../api/analytics';
 import { createWorkItem } from '../../api/work-items';
 import { fmt, type WBData } from '../data';
@@ -145,16 +145,7 @@ export function ConceptA({ data, reload }: { data: WBData; reload: () => void })
                     />
                     {!captureText && (
                       <span aria-hidden style={{ position: 'absolute', inset: 0, fontFamily: 'var(--font-mono)', fontSize: '0.8rem', color: 'var(--text-muted)', pointerEvents: 'none' }}>
-                        <Typewriter
-                          phrases={[
-                            'fix rate limit edge case #aurora',
-                            'idea: wasm for lexer hot loop',
-                            'reply to sam re contract',
-                            'voice-to-todo via whisper 💡',
-                          ]}
-                          speed={50}
-                          pause={1900}
-                        />
+                        fix rate limit edge case #aurora
                       </span>
                     )}
                   </div>

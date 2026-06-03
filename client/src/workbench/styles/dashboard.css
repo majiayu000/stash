@@ -1,13 +1,6 @@
 /* dashboard.css — shared component styles for AI workbench prototype.
    Builds on tokens.css + brand.css. */
 
-/* ─── Effects ────────────────────────────────────────────────────────── */
-.tw-cursor {
-  display: inline-block;
-  color: var(--neon-cyan);
-  margin-left: 2px;
-  animation: blink 1s steps(1) infinite;
-}
 .shiny-text {
   background: linear-gradient(
     90deg,
