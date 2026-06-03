@@ -48,8 +48,8 @@ export function parseCaptureInput(raw: string, ctx: ParserContext): ParsedCaptur
   const stripped = raw.replace(TOKEN_RE, (match) => {
     const lower = match.toLowerCase();
     if (lower.startsWith('#')) {
-      const name = match.slice(1).toLowerCase();
-      const area = ctx.areas.find((a) => a.name.toLowerCase() === name);
+      const name = normalizeProjectToken(match.slice(1));
+      const area = ctx.areas.find((a) => normalizeProjectToken(a.name) === name);
       if (area) {
         projectId = area.id;
         areaId = area.id;
@@ -105,6 +105,10 @@ export function parseCaptureInput(raw: string, ctx: ParserContext): ParsedCaptur
     estimateMinutes,
     unresolved,
   };
+}
+
+function normalizeProjectToken(raw: string): string {
+  return raw.trim().toLowerCase().replace(/[_\s]+/g, '-');
 }
 
 /**
