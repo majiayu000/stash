@@ -18,6 +18,8 @@ test('Concept E capture → item lands in inbox column', async ({ page }) => {
   await expect(page.getByTestId('board-col-today')).toBeVisible();
   await expect(page.getByTestId('board-col-doing')).toBeVisible();
   await expect(page.getByTestId('board-col-later')).toBeVisible();
+  await expect(page.locator('.capture-typewriter')).toHaveCount(0);
+  await expect(page.getByTestId('capture-input')).toHaveAttribute('placeholder', '');
 
   // Capture an item
   const unique = `e2e ${Date.now()}`;

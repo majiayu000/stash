@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { CountUp, LiveDot, ParticleField, Typewriter } from '../../components/effects';
+import { CountUp, LiveDot, ParticleField } from '../../components/effects';
 import { createWorkItem, updateWorkItem } from '../../api/work-items';
 import type { WBData, WBProject, WBTodo } from '../data';
 import { ProgressBar, Topbar, TodoItem } from '../shared';
@@ -69,21 +69,6 @@ export function ConceptE({ data, reload }: { data: WBData; reload: () => void })
                   className="capture-real-input"
                   disabled={submitting}
                 />
-                {!captureText && (
-                  <span className="capture-typewriter" aria-hidden>
-                    <Typewriter
-                      phrases={[
-                        'fix oauth callback edge case #aurora !high',
-                        'idea: wasm + simd for lexer hot loop',
-                        'reply to sam re contract scope',
-                        'try voice-to-todo via whisper #idea',
-                        'ship haiku-bot v1.2 #haiku-bot !high today',
-                      ]}
-                      speed={48}
-                      pause={1900}
-                    />
-                  </span>
-                )}
               </div>
               <button
                 type="submit"
@@ -520,14 +505,6 @@ const conceptEStyles = `
   font-size: 1.1rem;
   color: var(--text-primary);
   caret-color: var(--neon-cyan);
-}
-.capture-typewriter {
-  position: absolute; inset: 0;
-  pointer-events: none;
-  display: flex; align-items: center;
-  font-family: var(--font-mono);
-  font-size: 1.1rem;
-  color: var(--text-muted);
 }
 .capture-kbd-btn {
   font-family: var(--font-mono);
