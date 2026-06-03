@@ -14,7 +14,7 @@ function area(id: string, name: string): Area {
   };
 }
 
-const AREAS: Area[] = [area('a1', 'aurora'), area('a2', 'borealis')];
+const AREAS: Area[] = [area('a1', 'aurora'), area('a2', 'borealis'), area('a3', 'AI tooling')];
 const CTX = { areas: AREAS, nowIso: NOW };
 
 describe('parseCaptureInput', () => {
@@ -89,6 +89,13 @@ describe('parseCaptureInput', () => {
   test('case-insensitive #project match', () => {
     const r = parseCaptureInput('thing #AURORA', CTX);
     expect(r.projectId).toBe('a1');
+  });
+
+  test('hyphenated #project token matches spaced area names', () => {
+    const r = parseCaptureInput('wire homepage #ai-tooling', CTX);
+    expect(r.title).toBe('wire homepage');
+    expect(r.projectId).toBe('a3');
+    expect(r.areaId).toBe('a3');
   });
 });
 
