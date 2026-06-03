@@ -17,7 +17,6 @@ vi.mock('../../components/effects', () => ({
   LiveDot: () => <span />,
   ParticleField: () => null,
   ShinyText: ({ children }: { children: ReactNode }) => <>{children}</>,
-  Typewriter: ({ phrases }: { phrases: string[] }) => <span>{phrases[0]}</span>,
 }));
 
 vi.mock('../../api/analytics', () => ({
