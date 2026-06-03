@@ -69,6 +69,11 @@ export function ConceptE({ data, reload }: { data: WBData; reload: () => void })
                   className="capture-real-input"
                   disabled={submitting}
                 />
+                {!captureText && (
+                  <span className="capture-placeholder" aria-hidden>
+                    fix oauth callback edge case #aurora !high
+                  </span>
+                )}
               </div>
               <button
                 type="submit"
@@ -505,6 +510,14 @@ const conceptEStyles = `
   font-size: 1.1rem;
   color: var(--text-primary);
   caret-color: var(--neon-cyan);
+}
+.capture-placeholder {
+  position: absolute; inset: 0;
+  pointer-events: none;
+  display: flex; align-items: center;
+  font-family: var(--font-mono);
+  font-size: 1.1rem;
+  color: var(--text-muted);
 }
 .capture-kbd-btn {
   font-family: var(--font-mono);

@@ -25,8 +25,7 @@
     }
     .particle-field { display: none !important; }
     .shiny-text,
-    .live-dot,
-    .tw-cursor {
+    .live-dot {
       animation: none !important;
     }
   }
@@ -172,14 +171,6 @@
 }
 
 /* ─── Effects keyframes & static styles ─── */
-.tw-cursor {
-  display: inline-block;
-  width: 0.5ch;
-  margin-left: 1px;
-  animation: tw-blink 1s steps(2, jump-none) infinite;
-}
-@keyframes tw-blink { 50% { opacity: 0; } }
-
 .shiny-text {
   background: linear-gradient(
     100deg,

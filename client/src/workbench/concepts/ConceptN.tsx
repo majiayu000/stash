@@ -18,7 +18,7 @@ const THEME_INFO: ThemeDescriptor[] = [
   { id: 'amber',     name: 'Amber CRT',          desc: 'Vintage amber phosphor. Single-hue warm orange. Cosy + serious.',                                          hex: ['#ffaa00', '#ff7700', '#cc6600', '#ffcc44'] },
   { id: 'glacier',   name: 'Glacier',            desc: "Light mode that doesn't look like a different product. Cool blue + violet, soft surfaces.",                  hex: ['#0072ce', '#6633cc', '#c026d3', '#059669'] },
   { id: 'paper',     name: 'Paper · square',     desc: 'Clean white, high contrast, square corners. GitHub Primer vibes — flat, hairline borders, no glow.',        hex: ['#0969da', '#1a7f37', '#8250df', '#cf222e'] },
-  { id: 'mono',      name: 'Mono · typewriter',  desc: 'Pure black & white. Square frames, brutalist hard shadows, JetBrains Mono everywhere. State by weight + fill, not color.', hex: ['#000000', '#404040', '#909090', '#cccccc'] },
+  { id: 'mono',      name: 'Mono · terminal',    desc: 'Pure black & white. Square frames, brutalist hard shadows, JetBrains Mono everywhere. State by weight + fill, not color.', hex: ['#000000', '#404040', '#909090', '#cccccc'] },
 ];
 
 /**
@@ -81,7 +81,6 @@ export function ConceptN({ data, reload }: { data: WBData; reload: () => void })
                 <QuickToggle label="floating orbs" on />
                 <QuickToggle label="cursor glow" on />
                 <QuickToggle label="particle fields" on />
-                <QuickToggle label="typewriter intros" on />
                 <QuickToggle label="reduced motion" />
                 <QuickToggle label="dim at night" on />
                 <QuickToggle label="emoji-as-icons" on />
