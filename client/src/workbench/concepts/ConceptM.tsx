@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import type { Skill, SkillSource } from '@stash/shared';
 import {
   createSkill,
@@ -11,6 +11,7 @@ import {
 import { fmt, type WBData, type WBProject } from '../data';
 import { LoadErrorPanel, StatTile, Topbar, toError } from '../shared';
 import { slugify } from './conceptL.stubs';
+import { conceptMStyles } from './conceptM.styles';
 
 /**
  * Concept M — Skills library. Search + tabs + 2-col grid of skill cards on
@@ -26,6 +27,12 @@ export function ConceptM({ data }: { data: WBData; reload: () => void }) {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<Error | null>(null);
   const [retryTick, setRetryTick] = useState(0);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createError, setCreateError] = useState('');
+  const [createForm, setCreateForm] = useState({ name: '', id: '', emoji: '🧩', description: '', idTouched: false });
+  const [deleteCandidate, setDeleteCandidate] = useState<Skill | null>(null);
+  const [deleteError, setDeleteError] = useState('');
+  const [notice, setNotice] = useState<{ message: string; tone: 'ok' | 'error' } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -50,6 +57,7 @@ export function ConceptM({ data }: { data: WBData; reload: () => void }) {
     load().catch((e: unknown) => {
       if (!cancelled) {
         setLoadError(toError(e));
+        setNotice({ message: toError(e).message, tone: 'error' });
         setLoading(false);
       }
     });
@@ -59,17 +67,26 @@ export function ConceptM({ data }: { data: WBData; reload: () => void }) {
   }, [projects.length, retryTick]);
 
   async function handleToggleBinding(projectId: string, skillId: string, enabled: boolean) {
-    await toggleProjectSkill(projectId, skillId, enabled);
-    setProjectSkills((cur) => {
-      const set = new Set(cur[projectId] ?? []);
-      if (enabled) set.add(skillId); else set.delete(skillId);
-      return { ...cur, [projectId]: Array.from(set) };
-    });
+    try {
+      await toggleProjectSkill(projectId, skillId, enabled);
+      setProjectSkills((cur) => {
+        const set = new Set(cur[projectId] ?? []);
+        if (enabled) set.add(skillId); else set.delete(skillId);
+        return { ...cur, [projectId]: Array.from(set) };
+      });
+    } catch (e) {
+      setNotice({ message: e instanceof Error ? e.message : String(e), tone: 'error' });
+    }
   }
 
   async function handleInstallToggle(skill: Skill) {
-    const next = await updateSkill(skill.id, { installed: !skill.installed });
-    setSkills((cur) => cur.map((s) => (s.id === next.id ? next : s)));
+    try {
+      const next = await updateSkill(skill.id, { installed: !skill.installed });
+      setSkills((cur) => cur.map((s) => (s.id === next.id ? next : s)));
+      setNotice({ message: `${next.installed ? 'Installed' : 'Uninstalled'} ${next.name}`, tone: 'ok' });
+    } catch (e) {
+      setNotice({ message: e instanceof Error ? e.message : String(e), tone: 'error' });
+    }
   }
 
   type Tab = 'all' | 'installed' | 'bound' | 'official' | 'community';
@@ -82,42 +99,70 @@ export function ConceptM({ data }: { data: WBData; reload: () => void }) {
     return s;
   }, [projectSkills]);
 
-  async function handleCreateSkill() {
-    const name = window.prompt('skill name (display)');
-    if (!name?.trim()) return;
-    const id = window.prompt('skill id (lowercase-with-dashes)', slugify(name));
-    if (!id?.trim()) return;
-    const emoji = window.prompt('emoji', '🧩') ?? '🧩';
-    const description = window.prompt('one-line description (optional)') ?? '';
+  function openCreateSkill() {
+    setCreateForm({ name: '', id: '', emoji: '🧩', description: '', idTouched: false });
+    setCreateError('');
+    setCreateOpen(true);
+  }
+
+  function updateCreateName(name: string) {
+    setCreateForm((cur) => ({
+      ...cur,
+      name,
+      id: cur.idTouched ? cur.id : slugify(name),
+    }));
+  }
+
+  async function handleCreateSkill(event: FormEvent) {
+    event.preventDefault();
+    const name = createForm.name.trim();
+    const id = createForm.id.trim();
+    if (!name) {
+      setCreateError('Skill name is required.');
+      return;
+    }
+    if (!id) {
+      setCreateError('Skill id is required.');
+      return;
+    }
     try {
       const created = await createSkill({
-        id: id.trim(),
-        name: name.trim(),
-        emoji: emoji.trim() || '🧩',
-        description: description.trim() || undefined,
+        id,
+        name,
+        emoji: createForm.emoji.trim() || '🧩',
+        description: createForm.description.trim() || undefined,
         source: 'community',
         installed: true,
       });
       setSkills((cur) => [...cur, created]);
       setSelectedId(created.id);
+      setCreateOpen(false);
+      setNotice({ message: `Created ${created.name}`, tone: 'ok' });
     } catch (e) {
-      window.alert(e instanceof Error ? e.message : String(e));
+      setCreateError(e instanceof Error ? e.message : String(e));
     }
   }
 
-  async function handleDeleteSkill(skill: Skill) {
-    if (!window.confirm(`delete skill "${skill.name}"? all project bindings will be removed.`)) return;
+  function requestDeleteSkill(skill: Skill) {
+    setDeleteCandidate(skill);
+    setDeleteError('');
+  }
+
+  async function confirmDeleteSkill() {
+    if (!deleteCandidate) return;
     try {
-      await deleteSkill(skill.id);
-      setSkills((cur) => cur.filter((s) => s.id !== skill.id));
+      await deleteSkill(deleteCandidate.id);
+      setSkills((cur) => cur.filter((s) => s.id !== deleteCandidate.id));
       setProjectSkills((cur) => {
         const next: Record<string, string[]> = {};
-        for (const [pid, ids] of Object.entries(cur)) next[pid] = ids.filter((id) => id !== skill.id);
+        for (const [pid, ids] of Object.entries(cur)) next[pid] = ids.filter((id) => id !== deleteCandidate.id);
         return next;
       });
-      if (selectedId === skill.id) setSelectedId('');
+      if (selectedId === deleteCandidate.id) setSelectedId('');
+      setNotice({ message: `Deleted ${deleteCandidate.name}`, tone: 'ok' });
+      setDeleteCandidate(null);
     } catch (e) {
-      window.alert(e instanceof Error ? e.message : String(e));
+      setDeleteError(e instanceof Error ? e.message : String(e));
     }
   }
 
@@ -143,6 +188,7 @@ export function ConceptM({ data }: { data: WBData; reload: () => void }) {
     projects.filter((p) => projectSkills[p.id]?.includes(skillId));
 
   const installedCount = skills.filter((s) => s.installed).length;
+  const boundSkillCount = boundSkillIds.size;
   const activeBindings = Object.values(projectSkills).reduce((sum, ids) => sum + ids.length, 0);
 
   if (!loading && loadError) {
@@ -167,14 +213,68 @@ export function ConceptM({ data }: { data: WBData; reload: () => void }) {
       <div className="dashboard-canvas">
         <div className="inner" style={{ overflow: 'hidden', height: '100%' }}>
           <Topbar data={data} />
+          <div className="sk-bar">
+            <div className="sk-search">
+              <span style={{ color: 'var(--neon-cyan)', fontFamily: 'var(--font-mono)', fontWeight: 700 }}>🔍</span>
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="filter by name, id, or description"
+                data-testid="cm-search"
+                style={{ flex: 1, fontFamily: 'var(--font-mono)', fontSize: '0.9rem', color: 'var(--text-primary)', background: 'transparent', border: 0, outline: 'none' }}
+              />
+            </div>
+            <div className="sk-tabs">
+              {([
+                ['all',       'all',       skills.length],
+                ['installed', 'installed', installedCount],
+                ['bound',     'bound',     boundSkillCount],
+                ['official',  'official ✓', undefined],
+                ['community', 'community', undefined],
+              ] as const).map(([key, label, count]) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setTab(key as Tab)}
+                  className={`sk-tab ${tab === key ? 'active' : ''}`}
+                  data-testid={`cm-tab-${key}`}
+                >{label}{count !== undefined && <span>{count}</span>}</button>
+              ))}
+            </div>
+            <button
+              className="np-btn primary"
+              type="button"
+              onClick={openCreateSkill}
+              data-testid="cm-create"
+              style={{ padding: '0.45rem 0.95rem', fontSize: '0.78rem' }}
+            >+ new skill</button>
+          </div>
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 1, padding: '4rem 2rem', textAlign: 'center', gap: '0.75rem' }}>
             <span style={{ fontSize: '2rem', opacity: 0.5 }}>🧩</span>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.95rem', color: 'var(--text-primary)' }}>no skills registered</div>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', color: 'var(--text-muted)', maxWidth: 420 }}>
-              add an entry via <code style={{ color: 'var(--neon-cyan)' }}>POST /api/skills</code> or run the seed to populate the registry.
+              create a skill here, then bind it to projects from the detail panel.
             </div>
+            <button
+              className="np-btn primary"
+              type="button"
+              onClick={openCreateSkill}
+              data-testid="cm-empty-create"
+              style={{ marginTop: '0.5rem', padding: '0.5rem 1rem', fontSize: '0.78rem' }}
+            >+ new skill</button>
           </div>
         </div>
+        {notice && <SkillNotice notice={notice} onDismiss={() => setNotice(null)} />}
+        {createOpen && (
+          <SkillCreateDialog
+            form={createForm}
+            error={createError}
+            onChangeName={updateCreateName}
+            onChange={(patch) => setCreateForm((cur) => ({ ...cur, ...patch }))}
+            onClose={() => setCreateOpen(false)}
+            onSubmit={handleCreateSkill}
+          />
+        )}
         <style>{conceptMStyles}</style>
       </div>
     );
@@ -210,7 +310,7 @@ export function ConceptM({ data }: { data: WBData; reload: () => void }) {
             {([
               ['all',       'all',       skills.length],
               ['installed', 'installed', installedCount],
-              ['bound',     'bound',     activeBindings],
+              ['bound',     'bound',     boundSkillCount],
               ['official',  'official ✓', undefined],
               ['community', 'community', undefined],
             ] as const).map(([key, label, count]) => (
@@ -226,7 +326,7 @@ export function ConceptM({ data }: { data: WBData; reload: () => void }) {
           <button
             className="np-btn primary"
             type="button"
-            onClick={handleCreateSkill}
+            onClick={openCreateSkill}
             data-testid="cm-create"
             style={{ padding: '0.45rem 0.95rem', fontSize: '0.78rem' }}
           >+ new skill</button>
@@ -275,13 +375,163 @@ export function ConceptM({ data }: { data: WBData; reload: () => void }) {
               projectSkills={projectSkills}
               onToggleBinding={handleToggleBinding}
               onInstallToggle={handleInstallToggle}
-              onDelete={handleDeleteSkill}
+              onDelete={requestDeleteSkill}
+              onNotice={setNotice}
             />
           </div>
         </div>
       </div>
 
+      {notice && <SkillNotice notice={notice} onDismiss={() => setNotice(null)} />}
+      {createOpen && (
+        <SkillCreateDialog
+          form={createForm}
+          error={createError}
+          onChangeName={updateCreateName}
+          onChange={(patch) => setCreateForm((cur) => ({ ...cur, ...patch }))}
+          onClose={() => setCreateOpen(false)}
+          onSubmit={handleCreateSkill}
+        />
+      )}
+      {deleteCandidate && (
+        <SkillDeleteDialog
+          skill={deleteCandidate}
+          error={deleteError}
+          onClose={() => setDeleteCandidate(null)}
+          onConfirm={confirmDeleteSkill}
+        />
+      )}
+
       <style>{conceptMStyles}</style>
+    </div>
+  );
+}
+
+interface SkillCreateForm {
+  name: string;
+  id: string;
+  emoji: string;
+  description: string;
+  idTouched: boolean;
+}
+
+function SkillNotice({ notice, onDismiss }: { notice: { message: string; tone: 'ok' | 'error' }; onDismiss: () => void }) {
+  return (
+    <div className={`sk-notice ${notice.tone}`} role="status" data-testid="cm-notice">
+      <span>{notice.message}</span>
+      <button type="button" onClick={onDismiss} aria-label="dismiss notice">×</button>
+    </div>
+  );
+}
+
+function SkillCreateDialog({
+  form,
+  error,
+  onChange,
+  onChangeName,
+  onClose,
+  onSubmit,
+}: {
+  form: SkillCreateForm;
+  error: string;
+  onChange: (patch: Partial<SkillCreateForm>) => void;
+  onChangeName: (name: string) => void;
+  onClose: () => void;
+  onSubmit: (event: FormEvent) => Promise<void>;
+}) {
+  return (
+    <div className="sk-dialog-backdrop" role="presentation">
+      <form className="sk-dialog" role="dialog" aria-modal="true" aria-labelledby="cm-create-title" onSubmit={onSubmit}>
+        <div className="sk-dialog-head">
+          <div>
+            <div id="cm-create-title" className="sk-dialog-title">New skill</div>
+            <div className="sk-dialog-sub">Create a local skill entry for project binding.</div>
+          </div>
+          <button type="button" className="sk-icon-btn" onClick={onClose} aria-label="close">×</button>
+        </div>
+
+        <label className="sk-field">
+          <span>Name</span>
+          <input
+            autoFocus
+            value={form.name}
+            onChange={(e) => onChangeName(e.target.value)}
+            placeholder="Inbox Cleaner"
+            data-testid="cm-skill-name"
+          />
+        </label>
+
+        <div className="sk-field-row">
+          <label className="sk-field">
+            <span>ID</span>
+            <input
+              value={form.id}
+              onChange={(e) => onChange({ id: e.target.value, idTouched: true })}
+              placeholder="inbox-cleaner"
+              data-testid="cm-skill-id"
+            />
+          </label>
+          <label className="sk-field sk-emoji-field">
+            <span>Icon</span>
+            <input
+              value={form.emoji}
+              onChange={(e) => onChange({ emoji: e.target.value })}
+              data-testid="cm-skill-emoji"
+              maxLength={8}
+            />
+          </label>
+        </div>
+
+        <label className="sk-field">
+          <span>Description</span>
+          <textarea
+            value={form.description}
+            onChange={(e) => onChange({ description: e.target.value })}
+            placeholder="Clean incoming notes"
+            data-testid="cm-skill-description"
+          />
+        </label>
+
+        {error && <div className="sk-dialog-error" role="alert">{error}</div>}
+
+        <div className="sk-dialog-actions">
+          <button className="np-btn ghost" type="button" onClick={onClose}>cancel</button>
+          <button className="np-btn primary" type="submit" data-testid="cm-create-submit">create skill</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function SkillDeleteDialog({ skill, error, onClose, onConfirm }: {
+  skill: Skill;
+  error: string;
+  onClose: () => void;
+  onConfirm: () => Promise<void>;
+}) {
+  return (
+    <div className="sk-dialog-backdrop" role="presentation">
+      <div className="sk-dialog sk-confirm" role="dialog" aria-modal="true" aria-labelledby="cm-delete-title">
+        <div className="sk-dialog-head">
+          <div>
+            <div id="cm-delete-title" className="sk-dialog-title">Delete skill?</div>
+            <div className="sk-dialog-sub">All project bindings for this skill will be removed.</div>
+          </div>
+          <button type="button" className="sk-icon-btn" onClick={onClose} aria-label="close">×</button>
+        </div>
+        <div className="sk-confirm-card">
+          <span>{skill.emoji}</span>
+          <div>
+            <div>{skill.name}</div>
+            <code>{skill.id}</code>
+          </div>
+        </div>
+        {error && <div className="sk-dialog-error" role="alert">{error}</div>}
+        <div className="sk-dialog-actions">
+          <button className="np-btn ghost" type="button" onClick={onClose}>cancel</button>
+          <button className="np-btn ghost danger" type="button" onClick={() => { void onConfirm(); }} data-testid="cm-delete-confirm">delete</button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -321,19 +571,26 @@ function SkillCard({ s, selected, onClick, bindings }: { s: Skill; selected: boo
   );
 }
 
-function SkillDetail({ s, bindings, allProjects, projectSkills, onToggleBinding, onInstallToggle, onDelete }: {
+function SkillDetail({ s, bindings, allProjects, projectSkills, onToggleBinding, onInstallToggle, onDelete, onNotice }: {
   s: Skill;
   bindings: WBProject[];
   allProjects: WBProject[];
   projectSkills: Record<string, string[]>;
   onToggleBinding: (projectId: string, skillId: string, enabled: boolean) => Promise<void>;
   onInstallToggle: (skill: Skill) => Promise<void>;
-  onDelete: (skill: Skill) => Promise<void>;
+  onDelete: (skill: Skill) => void;
+  onNotice: (notice: { message: string; tone: 'ok' | 'error' }) => void;
 }) {
   const color = sourceColorFor(s.source);
   function copyInstall() {
     const cmd = `sk install ${s.source === 'official' ? '' : s.source + '/'}${s.id}`;
-    navigator.clipboard?.writeText(cmd).catch(() => {});
+    if (!navigator.clipboard?.writeText) {
+      onNotice({ message: 'Clipboard is not available.', tone: 'error' });
+      return;
+    }
+    void navigator.clipboard.writeText(cmd)
+      .then(() => onNotice({ message: 'Install command copied', tone: 'ok' }))
+      .catch((e) => onNotice({ message: e instanceof Error ? e.message : String(e), tone: 'error' }));
   }
   return (
     <>
@@ -351,6 +608,7 @@ function SkillDetail({ s, bindings, allProjects, projectSkills, onToggleBinding,
           </div>
         </div>
         <div style={{ fontFamily: 'var(--font-body)', fontSize: '0.9rem', color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: '0.85rem' }}>{s.description ?? ''}</div>
+        <SkillStatusSummary s={s} bindings={bindings} />
         <div className="install-cmd">
           <span className="install-prefix">$</span>
           <span className="install-text">sk install {s.source === 'official' ? '' : s.source + '/'}{s.id}</span>
@@ -358,8 +616,8 @@ function SkillDetail({ s, bindings, allProjects, projectSkills, onToggleBinding,
         </div>
         <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.75rem' }}>
           {s.installed
-            ? <button className="np-btn ghost"   type="button" onClick={() => { onInstallToggle(s); }} style={{ padding: '0.45rem 1rem', fontSize: '0.75rem' }}>uninstall</button>
-            : <button className="np-btn primary" type="button" onClick={() => { onInstallToggle(s); }} style={{ padding: '0.45rem 1rem', fontSize: '0.75rem' }}>install</button>}
+            ? <button className="np-btn ghost"   type="button" onClick={() => { void onInstallToggle(s); }} style={{ padding: '0.45rem 1rem', fontSize: '0.75rem' }}>uninstall</button>
+            : <button className="np-btn primary" type="button" onClick={() => { void onInstallToggle(s); }} style={{ padding: '0.45rem 1rem', fontSize: '0.75rem' }}>install</button>}
           <button
             className="np-btn ghost"
             type="button"
@@ -387,7 +645,7 @@ function SkillDetail({ s, bindings, allProjects, projectSkills, onToggleBinding,
                 key={p.id}
                 className="sk-binding-row"
                 type="button"
-                onClick={() => { onToggleBinding(p.id, s.id, !bound); }}
+                onClick={() => { void onToggleBinding(p.id, s.id, !bound); }}
                 style={{ background: 'transparent', textAlign: 'left' }}
               >
                 <span style={{ fontSize: '1.05rem' }}>{p.emoji}</span>
@@ -429,190 +687,24 @@ function SkillDetail({ s, bindings, allProjects, projectSkills, onToggleBinding,
   );
 }
 
-const conceptMStyles = `
-.sk-bar {
-  display: grid;
-  grid-template-columns: 1fr auto auto;
-  gap: 1rem;
-  align-items: center;
-  padding: 0.75rem 1rem;
-  background: var(--bg-glass);
-  backdrop-filter: blur(20px);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-xl, 16px);
-  margin-bottom: 1.25rem;
+function SkillStatusSummary({ s, bindings }: { s: Skill; bindings: WBProject[] }) {
+  return (
+    <div className="sk-status-grid" data-testid="cm-status-summary">
+      <div className="sk-status-card">
+        <span>Availability</span>
+        <strong>{s.installed ? 'installed' : 'not installed'}</strong>
+        <em>available in local stash library</em>
+      </div>
+      <div className="sk-status-card">
+        <span>Activation</span>
+        <strong>{bindings.length} project{bindings.length === 1 ? '' : 's'}</strong>
+        <em>bindings control session auto-load</em>
+      </div>
+      <div className="sk-status-card">
+        <span>Source</span>
+        <strong>{s.source}</strong>
+        <em>{s.source === 'official' ? 'trusted starter content' : 'local community skill'}</em>
+      </div>
+    </div>
+  );
 }
-.sk-search {
-  display: flex; align-items: center; gap: 0.65rem;
-  padding: 0.55rem 0.9rem;
-  background: var(--bg-void);
-  border: 1px solid var(--border-glow);
-  border-radius: var(--radius-md);
-  box-shadow: inset 0 0 20px rgba(0,255,242,0.04);
-}
-.sk-tabs { display: flex; gap: 0.35rem; }
-.sk-tab {
-  display: inline-flex; align-items: center; gap: 0.4rem;
-  padding: 0.45rem 0.8rem;
-  background: transparent;
-  border: 1px solid var(--border-subtle);
-  color: var(--text-secondary);
-  border-radius: var(--radius-pill);
-  font-family: var(--font-body);
-  font-size: 0.78rem;
-  cursor: pointer;
-  transition: all var(--transition-fast, 0.2s);
-  white-space: nowrap;
-}
-.sk-tab span {
-  font-family: var(--font-mono);
-  font-size: 0.66rem;
-  color: var(--text-muted);
-  background: var(--bg-elevated);
-  padding: 1px 6px;
-  border-radius: var(--radius-sm);
-}
-.sk-tab:hover { border-color: var(--border-glow); color: var(--text-primary); }
-.sk-tab.active { background: var(--gradient-primary); color: var(--bg-void); border-color: transparent; font-weight: 600; }
-.sk-tab.active span { background: rgba(0,0,0,0.2); color: var(--bg-void); }
-
-.sk-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.85rem; }
-.sk-card {
-  background: var(--bg-glass);
-  backdrop-filter: blur(20px);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-lg);
-  padding: 1rem;
-  cursor: pointer;
-  text-align: left;
-  display: flex; flex-direction: column;
-  transition: all var(--transition-base, 0.25s);
-  position: relative;
-  overflow: hidden;
-}
-.sk-card:hover { border-color: var(--border-glow); transform: translateY(-3px); box-shadow: var(--shadow-card, 0 20px 40px rgba(0,0,0,0.4)); }
-.sk-card.sel {
-  border-color: var(--neon-cyan);
-  background: linear-gradient(135deg, rgba(0,255,242,0.06), var(--bg-glass) 30%);
-  box-shadow: 0 0 25px rgba(0,255,242,0.15);
-}
-.sk-card.uninstalled { opacity: 0.6; }
-.sk-card.uninstalled:hover { opacity: 1; }
-
-.sk-card-name { font-family: var(--font-mono); font-size: 0.95rem; font-weight: 600; color: var(--neon-cyan); text-shadow: 0 0 14px rgba(0,255,242,0.3); }
-.sk-card-source { font-family: var(--font-mono); font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 2px; font-weight: 600; }
-.sk-card-stars {
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
-  color: var(--neon-orange);
-  font-weight: 600;
-  padding: 2px 7px;
-  background: rgba(255,159,10,0.1);
-  border: 1px solid rgba(255,159,10,0.2);
-  border-radius: var(--radius-sm);
-  flex-shrink: 0;
-}
-.sk-card-desc {
-  font-family: var(--font-body);
-  font-size: 0.8rem;
-  color: var(--text-secondary);
-  line-height: 1.55;
-  margin-bottom: 0.7rem;
-  flex: 1;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-.sk-card-foot {
-  display: flex; align-items: center; justify-content: space-between;
-  padding-top: 0.55rem;
-  border-top: 1px solid var(--border-hair);
-}
-.sk-installed { font-family: var(--font-mono); font-size: 0.7rem; color: var(--neon-green); font-weight: 600; }
-.sk-uninstalled { font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-muted); }
-.sk-bindings { display: flex; align-items: center; gap: 3px; }
-.sk-binding-emoji { font-size: 0.95rem; opacity: 0.9; }
-
-.sk-official {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 14px; height: 14px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, var(--neon-green), var(--neon-cyan));
-  color: var(--bg-void);
-  font-size: 0.6rem;
-  font-weight: 700;
-  box-shadow: 0 0 8px rgba(48,209,88,0.5);
-}
-
-.sk-detail-head {
-  background: linear-gradient(135deg, rgba(0,255,242,0.06), rgba(191,90,242,0.03));
-  border: 1px solid rgba(0,255,242,0.2);
-  border-radius: var(--radius-lg);
-  padding: 1.25rem;
-  position: relative;
-  overflow: hidden;
-}
-.sk-detail-head::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: var(--gradient-primary); }
-
-.sk-binding-row {
-  display: grid;
-  grid-template-columns: auto 1fr auto auto;
-  gap: 0.5rem;
-  align-items: center;
-  padding: 0.45rem 0.6rem;
-  background: rgba(255,255,255,0.02);
-  border: 1px solid var(--border-hair);
-  border-radius: var(--radius-md);
-  transition: all var(--transition-fast, 0.2s);
-}
-.sk-binding-row:hover { border-color: var(--border-glow); }
-
-.install-cmd {
-  display: flex; align-items: center; gap: 0.5rem;
-  padding: 0.55rem 0.75rem;
-  background: var(--bg-void);
-  border: 1px solid var(--border-glow);
-  border-radius: var(--radius-md);
-  font-family: var(--font-mono);
-  font-size: 0.8rem;
-}
-.install-prefix { color: var(--neon-cyan); font-weight: 700; }
-.install-text { color: var(--text-primary); flex: 1; }
-.copy-btn {
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-hair);
-  color: var(--text-secondary);
-  padding: 2px 6px;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 0.8rem;
-}
-.copy-btn:hover { border-color: var(--neon-cyan); color: var(--neon-cyan); }
-
-/* SkillDetail uses .kw-skill-toggle styles already defined in ConceptK.tsx scope.
-   Re-defining here for isolation. */
-.kw-skill-toggle {
-  width: 28px; height: 16px;
-  background: var(--bg-elevated);
-  border-radius: 8px;
-  position: relative;
-  border: 1px solid var(--border-subtle);
-  flex-shrink: 0;
-  transition: all var(--transition-fast, 0.2s);
-}
-.kw-skill-toggle.on {
-  background: var(--gradient-primary);
-  border-color: transparent;
-  box-shadow: 0 0 10px rgba(0,255,242,0.4);
-}
-.kw-skill-toggle-knob {
-  position: absolute;
-  width: 12px; height: 12px;
-  border-radius: 50%;
-  background: var(--text-secondary);
-  top: 1px; left: 1px;
-  transition: all var(--transition-fast, 0.2s);
-}
-.kw-skill-toggle.on .kw-skill-toggle-knob { background: var(--bg-void); left: 13px; }
-`;
