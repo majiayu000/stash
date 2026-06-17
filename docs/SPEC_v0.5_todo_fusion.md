@@ -94,9 +94,31 @@ dropped.
 Only add schema when implementation starts. The recommended tables are:
 
 ```sql
-create table idea_decomposition_runs (
+create table ai_generation_runs (
   id text primary key,
-  source_work_item_id text not null references work_items(id) on delete cascade,
+  feature text not null check (
+    feature in (
+      'idea_decomposition',
+      'task_coach',
+      'coach_summary',
+      'meeting_triage',
+      'session_inferred',
+      'manual_split'
+    )
+  ),
+  source_kind text not null check (
+    source_kind in (
+      'idea_decomposition',
+      'meeting_triage',
+      'session_inferred',
+      'manual_split',
+      'task_coach',
+      'coach_summary'
+    )
+  ),
+  source_work_item_id text references work_items(id) on delete set null,
+  source_record_id text,
+  source_path text,
   provider text not null,
   model text,
   prompt_hash text not null,
@@ -108,10 +130,21 @@ create table idea_decomposition_runs (
   accepted_at text
 );
 
-create table idea_decomposition_drafts (
+create table decision_drafts (
   id text primary key,
-  run_id text not null references idea_decomposition_runs(id) on delete cascade,
-  source_work_item_id text not null references work_items(id) on delete cascade,
+  run_id text not null references ai_generation_runs(id) on delete cascade,
+  source_kind text not null check (
+    source_kind in (
+      'idea_decomposition',
+      'meeting_triage',
+      'session_inferred',
+      'manual_split'
+    )
+  ),
+  source_work_item_id text references work_items(id) on delete set null,
+  source_record_id text,
+  source_path text,
+  source_spans_json text not null default '[]',
   proposed_title text not null,
   proposed_description text,
   proposed_kind text not null default 'task',
@@ -122,7 +155,10 @@ create table idea_decomposition_drafts (
   proposed_checklist_json text not null default '[]',
   sort_order real,
   status text not null check (status in ('draft','accepted','rejected','edited')),
+  reject_reason text,
   created_work_item_id text references work_items(id),
+  accepted_at text,
+  rejected_at text,
   created_at text not null,
   updated_at text not null
 );
@@ -130,15 +166,33 @@ create table idea_decomposition_drafts (
 create table work_item_coach_messages (
   id text primary key,
   work_item_id text not null references work_items(id) on delete cascade,
+  run_id text references ai_generation_runs(id) on delete set null,
   role text not null check (role in ('user','assistant','system')),
+  purpose text not null default 'chat' check (purpose in ('chat','summary')),
   body text not null,
   provider text,
   model text,
   created_at text not null
 );
+
+create table work_item_ai_writes (
+  id text primary key,
+  work_item_id text not null references work_items(id) on delete cascade,
+  run_id text not null references ai_generation_runs(id) on delete restrict,
+  source_message_id text references work_item_coach_messages(id) on delete set null,
+  destination text not null check (destination in ('description','journal')),
+  body text not null,
+  created_journal_entry_id text,
+  created_at text not null
+);
 ```
 
 Do not store API keys in the browser. Provider configuration stays server-side.
+`ai_generation_runs` is the common provenance table. `decision_drafts` stores
+the source fields on each draft as well as on the run so accepted/rejected rows
+remain auditable even if a review surface shows a subset of one run.
+Rows with `feature=task_coach` or `feature=coach_summary` are provenance-only
+and do not appear in the Decision Inbox draft queue.
 
 ## 6. Server API
 
@@ -185,7 +239,8 @@ Input:
 
 Rules:
 
-- Return `409` if the item does not exist or is `done` / `dropped`.
+- Return `404` if the item does not exist.
+- Return `409` if the item is `done` / `dropped`.
 - Return `422` if title plus description are too short to decompose.
 - Generate drafts only. Do not create tasks in this route.
 - Persist run metadata and raw model response for audit.
@@ -254,6 +309,10 @@ Rules:
   - next 3 actions
 - User chooses whether to append to `description` or journal.
 - The write action must be separate from summary generation.
+- Summary generation creates an `ai_generation_runs` row with
+  `feature=coach_summary`.
+- Appending generated summary text creates a `work_item_ai_writes` audit row
+  with the originating run id and destination.
 
 ## 7. Frontend UX
 
@@ -325,7 +384,7 @@ local-first model.
 - Invalid model output returns a visible error and stores the failed run.
 - Decomposition and coach routes must have timeout controls.
 - No automatic retries that create duplicate drafts.
-- All accepted AI outputs must record the originating run id.
+- All accepted or appended AI outputs must record the originating run id.
 - The prompt must instruct the model to produce tasks that are concrete,
   independently editable, and not over-nested.
 - Sensitive task content is sent only to the configured server-side provider.
@@ -364,12 +423,14 @@ Acceptance:
 
 Scope:
 
-- Add migrations for decomposition runs and drafts.
+- Add migrations for `ai_generation_runs` and `decision_drafts`.
 - Add shared types and Zod schemas.
 - Add domain service methods for create run, list drafts, accept drafts.
 - Add idempotent draft acceptance transaction.
 - Support `idea_decomposition`, `meeting_triage`, `session_inferred`, and
   `manual_split` as source kinds.
+- Store `source_kind`, source record/path/spans, `reject_reason`, and accepted
+  work item id on draft rows.
 
 Acceptance:
 
@@ -434,12 +495,15 @@ Scope:
 - Add coach message list/input in task detail.
 - Persist and reload messages.
 - Add summarize flow with user-selected destination.
+- Record summary generation and append provenance with `ai_generation_runs` and
+  `work_item_ai_writes`.
 
 Acceptance:
 
 - Tests cover IME-safe Enter behavior.
 - Summary generation does not write until user confirms destination.
 - Appending to journal/description is visible after reload.
+- Appended AI summaries are traceable to the originating run id.
 
 ### Issue 7 (#70) - Make weekly review actions persistent
 
