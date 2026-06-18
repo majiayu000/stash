@@ -31,6 +31,8 @@ const conceptKStyles = `
 .kw-hero-actions {
   display: flex;
   gap: 0.4rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   flex-shrink: 0;
 }
 .kw-hero-stats {
@@ -62,6 +64,20 @@ const conceptKStyles = `
   color: var(--text-muted);
   margin-bottom: 0.4rem;
   overflow-wrap: anywhere;
+}
+.kw-crumb-link {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
+}
+.kw-crumb-link:hover,
+.kw-crumb-link:focus-visible {
+  color: var(--neon-cyan);
+  outline: none;
 }
 .kw-name {
   font-family: var(--font-mono);

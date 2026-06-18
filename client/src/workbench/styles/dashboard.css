@@ -150,7 +150,28 @@
   flex: 1 1 560px;
   min-width: 0;
 }
-.topbar-brand { display: flex; align-items: center; gap: 0.75rem; min-width: 0; }
+.topbar-brand {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+  text-align: left;
+}
+.topbar-brand:hover .topbar-title,
+.topbar-brand:focus-visible .topbar-title {
+  filter: brightness(1.2);
+}
+.topbar-brand:focus-visible {
+  outline: 1px solid var(--neon-cyan);
+  outline-offset: 6px;
+  border-radius: var(--radius-sm);
+}
 .topbar-logo { font-size: 1.6rem; filter: drop-shadow(0 0 12px var(--neon-cyan)); }
 .topbar-title {
   font-family: var(--font-mono);
