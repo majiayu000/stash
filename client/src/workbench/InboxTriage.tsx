@@ -6,6 +6,7 @@ import {
   togglePin,
   updateWorkItem,
 } from '../api/work-items';
+import { useWorkbenchDialog } from '../components/ui/workbench-dialogs';
 
 /**
  * SPEC v0.3 §3e — global inbox triage keyboard layer.
@@ -21,7 +22,7 @@ import {
  *   s              → status someday
  *   d              → status dropped (Undo via toast button)
  *   0..3           priority p0/p1/p2/p3
- *   e              rename row (browser prompt for v0.3)
+ *   e              rename row
  *   Enter          emit stash:open-detail with the focused id
  *   ?              toggle help overlay
  */
@@ -38,6 +39,7 @@ export function InboxTriage() {
   const [help, setHelp] = useState(false);
   const [toast, setToast] = useState<{ msg: string; undo?: UndoAction } | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dialog = useWorkbenchDialog();
 
   // Load + reload inbox; preserves cursor when possible.
   useEffect(() => {
@@ -156,7 +158,12 @@ export function InboxTriage() {
       if (e.key === 'e') {
         e.preventDefault();
         await act(async (id, cur) => {
-          const next = window.prompt('rename', cur.title);
+          const next = await dialog.prompt({
+            title: 'rename inbox item',
+            label: 'title',
+            defaultValue: cur.title,
+            confirmLabel: 'rename',
+          });
           if (next === null || !next.trim() || next.trim() === cur.title) return;
           const prevTitle = cur.title;
           await updateWorkItem(id, { title: next.trim() });
@@ -219,7 +226,7 @@ export function InboxTriage() {
 
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [items, cursorId, help, toast, selected]);
+  }, [dialog, items, cursorId, help, toast, selected]);
 
   // Paint cursor + selection highlight on the matching DOM rows.
   useEffect(() => {

@@ -5,6 +5,7 @@ import { createArea, deleteArea, listAreas, updateArea } from '../../api/areas';
 import { createBudget, deleteBudget, listBudgets, updateBudget } from '../../api/budgets';
 import { getReminderPermission, requestReminderPermission } from '../ReminderTicker';
 import { ShinyText } from '../../components/effects';
+import { useWorkbenchDialog } from '../../components/ui/workbench-dialogs';
 import { THEMES, getTheme, onThemeChange, setTheme, type ThemeId } from '../../lib/theme';
 import type { WBData } from '../data';
 import { Topbar } from '../shared';
@@ -133,6 +134,7 @@ export function ConceptN({ data, reload }: { data: WBData; reload: () => void })
 function ProjectsPanel({ reload }: { reload: () => void }) {
   const [areas, setAreas] = useState<Area[]>([]);
   const [loading, setLoading] = useState(true);
+  const dialog = useWorkbenchDialog();
 
   async function refresh() {
     try { setAreas(await listAreas()); } finally { setLoading(false); }
@@ -140,21 +142,37 @@ function ProjectsPanel({ reload }: { reload: () => void }) {
   useEffect(() => { refresh(); }, []);
 
   async function add() {
-    const name = window.prompt('project name');
+    const name = await dialog.prompt({
+      title: 'project name',
+      label: 'name',
+      placeholder: 'aurora-api',
+      confirmLabel: 'create project',
+    });
     if (!name?.trim()) return;
     try { await createArea({ name: name.trim() }); await refresh(); reload(); }
-    catch (e) { window.alert(e instanceof Error ? e.message : String(e)); }
+    catch (e) { await dialog.alert({ title: 'could not create project', description: e instanceof Error ? e.message : String(e), tone: 'danger' }); }
   }
   async function rename(a: Area) {
-    const next = window.prompt('rename project', a.name);
+    const next = await dialog.prompt({
+      title: 'rename project',
+      label: 'name',
+      defaultValue: a.name,
+      confirmLabel: 'rename',
+    });
     if (!next?.trim() || next.trim() === a.name) return;
     try { await updateArea(a.id, { name: next.trim() }); await refresh(); reload(); }
-    catch (e) { window.alert(e instanceof Error ? e.message : String(e)); }
+    catch (e) { await dialog.alert({ title: 'could not rename project', description: e instanceof Error ? e.message : String(e), tone: 'danger' }); }
   }
   async function remove(a: Area) {
-    if (!window.confirm(`delete "${a.name}"? all attached work items, knowledge, and skill bindings cascade.`)) return;
+    const ok = await dialog.confirm({
+      title: `delete ${a.name}?`,
+      description: 'All attached work items, knowledge, and skill bindings cascade.',
+      confirmLabel: 'delete project',
+      tone: 'danger',
+    });
+    if (!ok) return;
     try { await deleteArea(a.id); await refresh(); reload(); }
-    catch (e) { window.alert(e instanceof Error ? e.message : String(e)); }
+    catch (e) { await dialog.alert({ title: 'could not delete project', description: e instanceof Error ? e.message : String(e), tone: 'danger' }); }
   }
 
   return (
@@ -201,6 +219,7 @@ const projectBtnStyle: React.CSSProperties = {
 function BudgetsPanel() {
   const [budgets, setBudgets] = useState<Budget[]>([]);
   const [loading, setLoading] = useState(true);
+  const dialog = useWorkbenchDialog();
 
   async function refresh() {
     try { setBudgets(await listBudgets()); } finally { setLoading(false); }
@@ -208,39 +227,69 @@ function BudgetsPanel() {
   useEffect(() => { refresh(); }, []);
 
   async function add() {
-    const scope = window.prompt('budget scope (e.g. "aurora" or "all")');
+    const scope = await dialog.prompt({
+      title: 'budget scope',
+      label: 'scope',
+      placeholder: 'aurora or all',
+      confirmLabel: 'next',
+    });
     if (!scope?.trim()) return;
-    const capStr = window.prompt('cap in USD', '50');
+    const capStr = await dialog.prompt({
+      title: 'budget cap',
+      label: 'USD cap',
+      defaultValue: '50',
+      confirmLabel: 'next',
+    });
+    if (capStr === null) return;
     const capUsd = Number(capStr);
-    if (!(capUsd > 0)) { window.alert('cap must be > 0'); return; }
-    const period = window.prompt('period (day / week / month / quarter)', 'month');
-    if (!period || !['day', 'week', 'month', 'quarter'].includes(period)) { window.alert('invalid period'); return; }
+    if (!(capUsd > 0)) { await dialog.alert({ title: 'cap must be greater than 0', tone: 'danger' }); return; }
+    const period = await dialog.prompt({
+      title: 'budget period',
+      description: 'Allowed: day, week, month, quarter.',
+      label: 'period',
+      defaultValue: 'month',
+      confirmLabel: 'create budget',
+    });
+    if (period === null) return;
+    if (!period || !['day', 'week', 'month', 'quarter'].includes(period)) { await dialog.alert({ title: 'invalid period', description: 'Use day, week, month, or quarter.', tone: 'danger' }); return; }
     try {
       await createBudget({ scope: scope.trim(), capUsd, period: period as Budget['period'] });
       await refresh();
       window.dispatchEvent(new CustomEvent('stash:captured'));
-    } catch (e) { window.alert(e instanceof Error ? e.message : String(e)); }
+    } catch (e) { await dialog.alert({ title: 'could not create budget', description: e instanceof Error ? e.message : String(e), tone: 'danger' }); }
   }
 
   async function edit(b: Budget) {
-    const capStr = window.prompt(`cap for ${b.scope} (${b.period})`, String(b.capUsd));
+    const capStr = await dialog.prompt({
+      title: `cap for ${b.scope}`,
+      description: `Period: ${b.period}`,
+      label: 'USD cap',
+      defaultValue: String(b.capUsd),
+      confirmLabel: 'save cap',
+    });
     if (capStr === null) return;
     const capUsd = Number(capStr);
-    if (!(capUsd > 0)) { window.alert('cap must be > 0'); return; }
+    if (!(capUsd > 0)) { await dialog.alert({ title: 'cap must be greater than 0', tone: 'danger' }); return; }
     try {
       await updateBudget(b.id, { capUsd });
       await refresh();
       window.dispatchEvent(new CustomEvent('stash:captured'));
-    } catch (e) { window.alert(e instanceof Error ? e.message : String(e)); }
+    } catch (e) { await dialog.alert({ title: 'could not update budget', description: e instanceof Error ? e.message : String(e), tone: 'danger' }); }
   }
 
   async function remove(b: Budget) {
-    if (!window.confirm(`delete budget for ${b.scope} / ${b.period}?`)) return;
+    const ok = await dialog.confirm({
+      title: 'delete budget?',
+      description: `${b.scope} / ${b.period}`,
+      confirmLabel: 'delete budget',
+      tone: 'danger',
+    });
+    if (!ok) return;
     try {
       await deleteBudget(b.id);
       await refresh();
       window.dispatchEvent(new CustomEvent('stash:captured'));
-    } catch (e) { window.alert(e instanceof Error ? e.message : String(e)); }
+    } catch (e) { await dialog.alert({ title: 'could not delete budget', description: e instanceof Error ? e.message : String(e), tone: 'danger' }); }
   }
 
   return (
@@ -296,13 +345,18 @@ const projectHint: React.CSSProperties = { fontFamily: 'var(--font-mono)', fontS
 
 function NotificationsPanel() {
   const [perm, setPerm] = useState<NotificationPermission | 'unsupported'>('default');
+  const dialog = useWorkbenchDialog();
   useEffect(() => { setPerm(getReminderPermission()); }, []);
 
   async function enable() {
     const ok = await requestReminderPermission();
     setPerm(getReminderPermission());
     if (!ok && Notification.permission === 'denied') {
-      window.alert('notifications are blocked at the browser level — re-enable in site settings');
+      await dialog.alert({
+        title: 'notifications are blocked',
+        description: 'Re-enable notifications in this browser site settings.',
+        tone: 'danger',
+      });
     }
   }
 

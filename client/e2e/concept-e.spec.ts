@@ -30,3 +30,23 @@ test('Concept E capture → item lands in inbox column', async ({ page }) => {
   const inbox = page.getByTestId('board-col-inbox');
   await expect(inbox.getByText(unique)).toBeVisible();
 });
+
+test('Concept E column add uses the in-app dialog', async ({ page }) => {
+  let nativeDialogSeen = false;
+  page.on('dialog', async (dialog) => {
+    nativeDialogSeen = true;
+    await dialog.dismiss();
+  });
+
+  await page.goto('/');
+  const today = page.getByTestId('board-col-today');
+  const unique = `e2e today ${Date.now()}`;
+
+  await today.getByRole('button', { name: '+ add' }).click();
+  await expect(page.getByRole('dialog', { name: 'new todo in today' })).toBeVisible();
+  await page.getByTestId('ui-dialog-input').fill(unique);
+  await page.getByTestId('ui-dialog-confirm').click();
+
+  await expect(today.getByText(unique)).toBeVisible({ timeout: 10_000 });
+  expect(nativeDialogSeen).toBe(false);
+});

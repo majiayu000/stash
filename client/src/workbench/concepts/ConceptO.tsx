@@ -6,6 +6,7 @@ import { listProjectSkills, listSkills } from '../../api/skills';
 import { closeDispatchRun, composeSession, listDispatchRuns, startSession, type DispatchResult } from '../../api/sessions';
 import { getWorkItem } from '../../api/work-items';
 import { ShinyText } from '../../components/effects';
+import { useWorkbenchDialog } from '../../components/ui/workbench-dialogs';
 import type { WBData } from '../data';
 import { reportAsyncError } from '../reportAsyncError';
 import { Topbar } from '../shared';
@@ -20,6 +21,7 @@ import { Topbar } from '../shared';
 export function ConceptO({ data }: { data: WBData; reload: () => void }) {
   const { projects } = data;
   const navigate = useNavigate();
+  const dialog = useWorkbenchDialog();
   const [searchParams] = useSearchParams();
   const todoId = searchParams.get('todoId');
 
@@ -85,14 +87,20 @@ export function ConceptO({ data }: { data: WBData; reload: () => void }) {
   const estCostUsd = (estTokens / 1_000_000) * inputRate;
 
   async function dispatchNow() {
-    if (!todo) { window.alert('open this page from a todo via "▶ run with" (or stash CLI)'); return; }
+    if (!todo) {
+      await dialog.alert({
+        title: 'open this from a todo',
+        description: 'Use "run with" from a todo, or launch through the stash CLI.',
+      });
+      return;
+    }
     setDispatching(true);
     try {
       const res = await startSession({ workItemId: todo.id, tool });
       setResult(res);
       setRuns((cur) => [res.run, ...cur.filter((r) => r.id !== res.run.id)]);
     } catch (e) {
-      window.alert(e instanceof Error ? e.message : String(e));
+      await dialog.alert({ title: 'could not start session', description: e instanceof Error ? e.message : String(e), tone: 'danger' });
     } finally {
       setDispatching(false);
     }
