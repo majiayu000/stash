@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import type { Area, ReviewCadence } from '@stash/shared';
 import { CountUp, ShinyText } from '../../components/effects';
+import { useWorkbenchDialog } from '../../components/ui/workbench-dialogs';
 import { createArea, deleteArea, listAreas, updateArea } from '../../api/areas';
 import { fmt, type WBData, type WBProject } from '../data';
 import { reportAsyncError } from '../reportAsyncError';
@@ -260,6 +261,7 @@ function EditProjectPanel({ p, area, allProjects, onPick, onSaved, onDeleted, on
   const [emoji, setEmoji] = useState(area.emoji ?? '');
   const [cadence, setCadence] = useState<ReviewCadence>(area.reviewCadence);
   const [saving, setSaving] = useState(false);
+  const dialog = useWorkbenchDialog();
 
   const dirty =
     name !== area.name ||
@@ -292,7 +294,13 @@ function EditProjectPanel({ p, area, allProjects, onPick, onSaved, onDeleted, on
   }
 
   async function remove() {
-    if (!window.confirm(`delete project #${area.name}? todos inside will be unlinked (not removed).`)) return;
+    const ok = await dialog.confirm({
+      title: `delete project #${area.name}?`,
+      description: 'Todos inside will be unlinked, not removed.',
+      confirmLabel: 'delete project',
+      tone: 'danger',
+    });
+    if (!ok) return;
     try {
       await deleteArea(area.id);
       onDeleted(area.id);

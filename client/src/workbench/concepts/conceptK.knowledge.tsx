@@ -13,6 +13,7 @@ import {
   updateLesson,
   updateMilestone,
 } from '../../api/project-knowledge';
+import { useWorkbenchDialog } from '../../components/ui/workbench-dialogs';
 
 /**
  * Editable Knowledge sub-sections for Concept K. Extracted into its own file
@@ -113,8 +114,15 @@ const MS_COLOR: Record<MilestoneStatus, string> = {
 };
 
 export function KnowledgeMilestonesEditor({ projectId, value: milestones, onChange }: KnowledgeProps<Milestone[]>) {
+  const dialog = useWorkbenchDialog();
+
   async function add() {
-    const name = window.prompt('milestone name');
+    const name = await dialog.prompt({
+      title: 'milestone name',
+      label: 'name',
+      placeholder: 'ship the first usable flow',
+      confirmLabel: 'add milestone',
+    });
     if (!name?.trim()) return;
     try { await createMilestone(projectId, { name: name.trim() }); onChange(); } catch { /* noop */ }
   }
@@ -124,7 +132,13 @@ export function KnowledgeMilestonesEditor({ projectId, value: milestones, onChan
     try { await updateMilestone(projectId, m.id, { status: next, progress: next === 'done' ? 100 : m.progress }); onChange(); } catch { /* noop */ }
   }
   async function remove(m: Milestone) {
-    if (!window.confirm(`delete milestone "${m.name}"?`)) return;
+    const ok = await dialog.confirm({
+      title: 'delete milestone?',
+      description: m.name,
+      confirmLabel: 'delete',
+      tone: 'danger',
+    });
+    if (!ok) return;
     try { await deleteMilestone(projectId, m.id); onChange(); } catch { /* noop */ }
   }
 
@@ -178,20 +192,48 @@ export function KnowledgeMilestonesEditor({ projectId, value: milestones, onChan
 // ─── Decisions ─────────────────────────────────────────────────────────────
 
 export function KnowledgeDecisionsEditor({ projectId, value: decisions, onChange }: KnowledgeProps<Decision[]>) {
+  const dialog = useWorkbenchDialog();
+
   async function add() {
-    const title = window.prompt('decision title');
+    const title = await dialog.prompt({
+      title: 'decision title',
+      label: 'title',
+      placeholder: 'Use real object navigation for page transitions',
+      confirmLabel: 'next',
+    });
     if (!title?.trim()) return;
-    const body = window.prompt('one-line reason (optional)') ?? '';
+    const body = await dialog.prompt({
+      title: 'decision reason',
+      label: 'reason',
+      placeholder: 'short rationale, optional',
+      confirmLabel: 'add decision',
+    }) ?? '';
     try { await createDecision(projectId, { title: title.trim(), body }); onChange(); } catch { /* noop */ }
   }
   async function edit(d: Decision) {
-    const title = window.prompt('decision title', d.title);
+    const title = await dialog.prompt({
+      title: 'decision title',
+      label: 'title',
+      defaultValue: d.title,
+      confirmLabel: 'next',
+    });
     if (!title?.trim()) return;
-    const body = window.prompt('one-line reason', d.body ?? '') ?? '';
+    const body = await dialog.prompt({
+      title: 'decision reason',
+      label: 'reason',
+      defaultValue: d.body ?? '',
+      confirmLabel: 'save decision',
+    }) ?? '';
     try { await updateDecision(projectId, d.id, { title: title.trim(), body }); onChange(); } catch { /* noop */ }
   }
   async function remove(d: Decision) {
-    if (!window.confirm(`delete decision "${d.title}"?`)) return;
+    const ok = await dialog.confirm({
+      title: 'delete decision?',
+      description: d.title,
+      confirmLabel: 'delete',
+      tone: 'danger',
+    });
+    if (!ok) return;
     try { await deleteDecision(projectId, d.id); onChange(); } catch { /* noop */ }
   }
 
@@ -241,23 +283,53 @@ export function KnowledgeDecisionsEditor({ projectId, value: decisions, onChange
 // ─── Lessons ───────────────────────────────────────────────────────────────
 
 export function KnowledgeLessonsEditor({ projectId, value: lessons, onChange }: KnowledgeProps<Lesson[]>) {
+  const dialog = useWorkbenchDialog();
+
   async function add() {
-    const title = window.prompt('lesson title (one line)');
+    const title = await dialog.prompt({
+      title: 'lesson title',
+      label: 'title',
+      placeholder: 'what should future sessions remember?',
+      confirmLabel: 'next',
+    });
     if (!title?.trim()) return;
-    const body = window.prompt('details / what to remember (optional)') ?? '';
+    const body = await dialog.prompt({
+      title: 'lesson details',
+      label: 'details',
+      multiline: true,
+      placeholder: 'context, implication, prevention, or reusable note',
+      confirmLabel: 'add lesson',
+    }) ?? '';
     try { await createLesson({ title: title.trim(), body, projectId }); onChange(); } catch { /* noop */ }
   }
   async function edit(l: Lesson) {
-    const title = window.prompt('lesson title', l.title);
+    const title = await dialog.prompt({
+      title: 'lesson title',
+      label: 'title',
+      defaultValue: l.title,
+      confirmLabel: 'next',
+    });
     if (!title?.trim()) return;
-    const body = window.prompt('details / what to remember', l.body ?? '') ?? '';
+    const body = await dialog.prompt({
+      title: 'lesson details',
+      label: 'details',
+      multiline: true,
+      defaultValue: l.body ?? '',
+      confirmLabel: 'save lesson',
+    }) ?? '';
     try { await updateLesson(l.id, { title: title.trim(), body }); onChange(); } catch { /* noop */ }
   }
   async function toggleCross(l: Lesson) {
     try { await updateLesson(l.id, { cross: !l.cross }); onChange(); } catch { /* noop */ }
   }
   async function remove(l: Lesson) {
-    if (!window.confirm(`delete lesson "${l.title}"?`)) return;
+    const ok = await dialog.confirm({
+      title: 'delete lesson?',
+      description: l.title,
+      confirmLabel: 'delete',
+      tone: 'danger',
+    });
+    if (!ok) return;
     try { await deleteLesson(l.id); onChange(); } catch { /* noop */ }
   }
 

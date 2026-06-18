@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { CountUp, LiveDot, ParticleField } from '../../components/effects';
+import { useWorkbenchDialog } from '../../components/ui/workbench-dialogs';
 import { createWorkItem, updateWorkItem } from '../../api/work-items';
 import type { WBData, WBProject, WBTodo } from '../data';
 import { ConnectedFlow } from '../ConnectedFlow';
@@ -217,9 +218,15 @@ function BoardCol({
   const c = count ?? items.length;
   const draggable = name === 'today';
   const [dragOver, setDragOver] = useState(false);
+  const dialog = useWorkbenchDialog();
 
   async function addToCol() {
-    const title = window.prompt(`new todo in ${name}`);
+    const title = await dialog.prompt({
+      title: `new todo in ${name}`,
+      label: 'todo title',
+      placeholder: name === 'today' ? 'finish the thing scheduled for today' : 'capture the next work item',
+      confirmLabel: 'add todo',
+    });
     if (!title?.trim()) return;
     try {
       const opts = colCreateOpts(name);

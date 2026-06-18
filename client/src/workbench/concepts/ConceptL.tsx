@@ -8,6 +8,7 @@ import { EvidencePanel, usePendingEvidence } from './conceptL.evidence';
 import { linkSession, listLinkedSessions, unlinkSession, type LinkedSessionEdge } from '../../api/agent-sessions';
 import { createArea } from '../../api/areas';
 import { createLesson } from '../../api/project-knowledge';
+import { useWorkbenchDialog } from '../../components/ui/workbench-dialogs';
 import {
   appendJournal,
   createWorkItem,
@@ -27,6 +28,7 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
   const { projects, todos } = data;
   const { workItemId } = useParams<{ workItemId?: string }>();
   const navigate = useNavigate();
+  const dialog = useWorkbenchDialog();
 
   // Pick the todo from URL, or default to first idea/inbox, else first todo.
   const todo = workItemId
@@ -120,7 +122,12 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
 
   async function addSubtask() {
     if (!todo) return;
-    const title = window.prompt('new sub-task title');
+    const title = await dialog.prompt({
+      title: 'new sub-task',
+      label: 'title',
+      placeholder: 'break this todo into one concrete next step',
+      confirmLabel: 'add sub-task',
+    });
     if (!title || !title.trim()) return;
     try {
       await createWorkItem({
@@ -155,7 +162,12 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
 
   async function addLabel() {
     if (!item) return;
-    const t = window.prompt('new tag (no #)');
+    const t = await dialog.prompt({
+      title: 'new tag',
+      label: 'tag',
+      placeholder: 'auth',
+      confirmLabel: 'add tag',
+    });
     if (!t || !t.trim()) return;
     const tag = t.trim().replace(/^#/, '');
     if (item.labels.includes(tag)) return;
@@ -182,7 +194,13 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
   }, [journalTodoId]);
 
   async function addJournal() {
-    const body = window.prompt('journal entry (markdown ok)');
+    const body = await dialog.prompt({
+      title: 'journal entry',
+      label: 'markdown',
+      multiline: true,
+      placeholder: 'what changed, what is blocked, or what should be remembered?',
+      confirmLabel: 'add entry',
+    });
     if (!body?.trim()) return;
     try {
       const entry = await appendJournal(journalTodoId, body);
@@ -192,7 +210,13 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
   }
 
   async function removeJournal(entry: JournalEntry) {
-    if (!window.confirm('delete this journal entry?')) return;
+    const ok = await dialog.confirm({
+      title: 'delete journal entry?',
+      description: 'This removes the note from the todo journal.',
+      confirmLabel: 'delete',
+      tone: 'danger',
+    });
+    if (!ok) return;
     try {
       await deleteJournalEntry(journalTodoId, entry.id);
       setJournalEntries((cur) => cur.filter((e) => e.id !== entry.id));
@@ -246,11 +270,17 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
 
   async function linkPick() {
     const candidates = data.sessions.slice(0, 12);
-    if (candidates.length === 0) { window.alert('no agent sessions available yet'); return; }
-    const choice = window.prompt(
-      'pick a session to link (number):\n' +
-        candidates.map((s, i) => `${i + 1}. [${s.provider}] ${s.title || s.id.slice(0, 8)}`).join('\n'),
-    );
+    if (candidates.length === 0) {
+      await dialog.alert({ title: 'no agent sessions available yet' });
+      return;
+    }
+    const choice = await dialog.prompt({
+      title: 'pick a session to link',
+      description: candidates.map((s, i) => `${i + 1}. [${s.provider}] ${s.title || s.id.slice(0, 8)}`).join('\n'),
+      label: 'session number',
+      placeholder: '1',
+      confirmLabel: 'link session',
+    });
     const idx = Number(choice ?? '') - 1;
     const pick = candidates[idx];
     if (!pick) return;
@@ -258,7 +288,7 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
       await linkSession(todoId, pick.provider, pick.id);
       const fresh = await listLinkedSessions(todoId);
       setLinkedEdges(fresh);
-    } catch (e) { window.alert(e instanceof Error ? e.message : String(e)); }
+    } catch (e) { await dialog.alert({ title: 'could not link session', description: e instanceof Error ? e.message : String(e), tone: 'danger' }); }
   }
 
   async function unlinkOne(edge: LinkedSessionEdge) {
@@ -272,7 +302,7 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
 
   async function promoteToFeature() {
     if (!item) return;
-    if (item.kind === 'feature') { window.alert('already a feature.'); return; }
+    if (item.kind === 'feature') { await dialog.alert({ title: 'already a feature' }); return; }
     await save('priority', item.priority);              // touch to refresh updatedAt
     try {
       const updated = await updateWorkItem(todoId, { kind: 'feature' });
@@ -285,7 +315,12 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
   async function promoteToNewProject() {
     if (!item) return;
     const suggestion = slugify(item.title);
-    const name = window.prompt('new project name', suggestion);
+    const name = await dialog.prompt({
+      title: 'new project name',
+      label: 'project',
+      defaultValue: suggestion,
+      confirmLabel: 'create project',
+    });
     if (!name?.trim()) return;
     try {
       const area = await createArea({ name: name.trim() });

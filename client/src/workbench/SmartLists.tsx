@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { WorkItem } from '@stash/shared';
 import { listWorkItems, type WorkItemFilter } from '../api/work-items';
+import { useWorkbenchDialog } from '../components/ui/workbench-dialogs';
 import { reportAsyncError } from './reportAsyncError';
 
 /**
@@ -58,6 +59,7 @@ export function SmartLists() {
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [saved, setSaved] = useState<SavedList[]>([]);
   const navigate = useNavigate();
+  const dialog = useWorkbenchDialog();
 
   useEffect(() => { setSaved(loadSaved()); }, []);
 
@@ -120,14 +122,24 @@ export function SmartLists() {
     navigate(`/c/l/${it.id}`);
   }
 
-  function addCustom() {
-    const label = window.prompt('chip label (e.g. "auth bugs")');
+  async function addCustom() {
+    const label = await dialog.prompt({
+      title: 'new smart-list chip',
+      label: 'chip label',
+      placeholder: 'auth bugs',
+      confirmLabel: 'next',
+    });
     if (!label?.trim()) return;
-    const tag = window.prompt('match label/tag (e.g. "auth")');
+    const tag = await dialog.prompt({
+      title: 'match label or tag',
+      label: 'tag',
+      placeholder: 'auth',
+      confirmLabel: 'save chip',
+    });
     if (!tag?.trim()) return;
     const next: SavedList = {
       id: `custom-${Date.now()}`,
-      label: `@${tag.trim()}`,
+      label: label.trim(),
       filter: { label: tag.trim() },
     };
     const nextSaved = [...saved, next];
