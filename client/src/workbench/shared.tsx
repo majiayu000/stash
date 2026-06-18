@@ -114,16 +114,22 @@ function pathPart(value: string | undefined): string | undefined {
 }
 
 export function Topbar({ data, right }: { data: WBData; right?: ReactNode }) {
+  const navigate = useNavigate();
   const { stats } = data;
   const status_line = `> ${stats.projects} projects · ${stats.activeSessions} live · ${fmt.cost(stats.totalCost24h)} burn`;
   return (
     <div className="topbar">
       <div className="topbar-main">
-        <div className="topbar-brand">
+        <button
+          type="button"
+          className="topbar-brand"
+          onClick={() => navigate('/')}
+          aria-label="Back to workbench"
+        >
           <span className="topbar-logo">🎯</span>
           <span className="topbar-title">stash</span>
           <span className="topbar-tag">{status_line}</span>
-        </div>
+        </button>
       </div>
       {right ?? (
         <div className="topbar-stats">

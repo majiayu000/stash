@@ -138,6 +138,20 @@ test('connected object view links the main product pages', async ({ page, reques
   await page.getByTestId('flow-project').click();
   await expect.poll(() => new URL(page.url()).pathname).toMatch(/^\/c\/k\//);
   await expect(CONCEPT_MARKERS.k(page)).toBeVisible({ timeout: 10_000 });
+  await page.getByRole('button', { name: 'Back to workbench' }).click();
+  await expect.poll(() => new URL(page.url()).pathname).toBe('/');
+  await expect(page.getByTestId('connected-flow')).toBeVisible({ timeout: 10_000 });
+
+  await page.getByTestId('flow-project').click();
+  await expect.poll(() => new URL(page.url()).pathname).toMatch(/^\/c\/k\//);
+  await expect(CONCEPT_MARKERS.k(page)).toBeVisible({ timeout: 10_000 });
+  await page.getByTestId('kw-back-home').click();
+  await expect.poll(() => new URL(page.url()).pathname).toBe('/');
+  await expect(page.getByTestId('connected-flow')).toBeVisible({ timeout: 10_000 });
+
+  await page.getByTestId('flow-project').click();
+  await expect.poll(() => new URL(page.url()).pathname).toMatch(/^\/c\/k\//);
+  await expect(CONCEPT_MARKERS.k(page)).toBeVisible({ timeout: 10_000 });
   await page.getByTestId('kw-open-skills').click();
   await expect.poll(() => new URL(page.url()).pathname).toBe('/c/m');
   await expect(CONCEPT_MARKERS.m(page)).toBeVisible({ timeout: 10_000 });

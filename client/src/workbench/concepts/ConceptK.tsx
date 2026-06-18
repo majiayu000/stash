@@ -202,7 +202,10 @@ export function ConceptK({ data }: { data: WBData; reload: () => void }) {
             <div className="kw-hero-identity">
               <span className="kw-hero-icon">{p.emoji}</span>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div className="kw-crumb">workbench &nbsp;/&nbsp; <span style={{ color: 'var(--text-secondary)' }}>projects</span> &nbsp;/&nbsp; <span style={{ color: 'var(--neon-cyan)' }}>{p.name}</span></div>
+                <div className="kw-crumb">
+                  <button type="button" className="kw-crumb-link" onClick={() => navigate('/')}>workbench</button>
+                  &nbsp;/&nbsp; <span style={{ color: 'var(--text-secondary)' }}>projects</span> &nbsp;/&nbsp; <span style={{ color: 'var(--neon-cyan)' }}>{p.name}</span>
+                </div>
                 <h2 className="kw-name">{p.name}</h2>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginTop: '0.4rem', flexWrap: 'wrap' }}>
                   <StatusPill status={p.status} />
@@ -212,6 +215,7 @@ export function ConceptK({ data }: { data: WBData; reload: () => void }) {
               </div>
             </div>
             <div className="kw-hero-actions">
+              <button className="sd-action" type="button" onClick={() => navigate('/')} data-testid="kw-back-home">← board</button>
               <button className="sd-action" type="button" onClick={() => navigate(`/c/m?projectId=${encodeURIComponent(p.id)}`)} data-testid="kw-open-skills">🧩 skills</button>
               <button className="sd-action" type="button" onClick={() => primaryTodo && navigate(`/c/o?todoId=${encodeURIComponent(primaryTodo.id)}`)} disabled={!primaryTodo} data-testid="kw-start-session">▶ start session</button>
               <button className="sd-action" type="button" onClick={() => navigate(`/c/f?projectId=${encodeURIComponent(p.id)}`)} data-testid="kw-project-settings">⚙ settings</button>
