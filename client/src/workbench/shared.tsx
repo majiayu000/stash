@@ -1,5 +1,5 @@
-import { Fragment, type ReactNode } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { type ReactNode } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { updateWorkItem } from '../api/work-items';
 import { CountUp, LiveDot } from '../components/effects';
 import { fmt, type WBData, type WBProject, type WBSession, type WBTodo } from './data';
@@ -21,8 +21,22 @@ export function FeatureRow({ f }: { f: Feature }) {
 }
 
 export function ProjectCardFull({ p, onClick }: { p: WBProject; onClick?: () => void }) {
+  const navigate = useNavigate();
+  const openProject = onClick ?? (() => navigate(`/c/k/${pathPart(p.id)}`));
   return (
-    <div className="pcard" onClick={onClick} role={onClick ? 'button' : undefined} tabIndex={onClick ? 0 : undefined}>
+    <div
+      className="pcard"
+      onClick={openProject}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          openProject();
+        }
+      }}
+      title={`Open project ${p.name}`}
+    >
       <div className="pcard-head">
         <div className="pcard-emoji">{p.emoji}</div>
         <div className="pcard-titles">
@@ -99,38 +113,6 @@ function pathPart(value: string | undefined): string | undefined {
   return value ? encodeURIComponent(value) : undefined;
 }
 
-function PrimaryFlowNav({ data }: { data: WBData }) {
-  const navigate = useNavigate();
-  const { pathname, hash } = useLocation();
-  const projectId = pathPart(data.projects[0]?.id);
-  const sessionId = pathPart(data.sessions[0]?.id);
-  const items = [
-    { key: 'home', label: 'Home', to: '/', active: pathname === '/' && hash !== '#inbox-board' },
-    { key: 'inbox', label: 'Inbox/Todo', to: '/#inbox-board', active: (pathname === '/' && hash === '#inbox-board') || pathname === '/c/e' },
-    { key: 'project', label: 'Project', to: projectId ? `/c/k/${projectId}` : '/c/k', active: pathname.startsWith('/c/k') },
-    { key: 'session', label: 'Session/Evidence', to: sessionId ? `/c/g/${sessionId}` : '/c/g', active: pathname.startsWith('/c/g') },
-    { key: 'settings', label: 'Settings', to: '/c/n', active: pathname.startsWith('/c/n') },
-  ];
-
-  return (
-    <nav className="topbar-flow" aria-label="Primary workflow">
-      {items.map((item, idx) => (
-        <Fragment key={item.key}>
-          {idx > 0 && <span className="topbar-flow-sep" aria-hidden>→</span>}
-          <button
-            type="button"
-            className={`topbar-flow-step ${item.active ? 'active' : ''}`}
-            aria-current={item.active ? 'page' : undefined}
-            onClick={() => navigate(item.to)}
-          >
-            {item.label}
-          </button>
-        </Fragment>
-      ))}
-    </nav>
-  );
-}
-
 export function Topbar({ data, right }: { data: WBData; right?: ReactNode }) {
   const { stats } = data;
   const status_line = `> ${stats.projects} projects · ${stats.activeSessions} live · ${fmt.cost(stats.totalCost24h)} burn`;
@@ -142,7 +124,6 @@ export function Topbar({ data, right }: { data: WBData; right?: ReactNode }) {
           <span className="topbar-title">stash</span>
           <span className="topbar-tag">{status_line}</span>
         </div>
-        <PrimaryFlowNav data={data} />
       </div>
       {right ?? (
         <div className="topbar-stats">
@@ -281,11 +262,35 @@ export function StatusPill({ status }: { status: WBProject['status'] }) {
   );
 }
 
-export function SessionRow({ s, projects, compact }: { s: WBSession; projects: WBProject[]; compact?: boolean }) {
+export function SessionRow({
+  s,
+  projects,
+  compact,
+  onClick,
+}: {
+  s: WBSession;
+  projects: WBProject[];
+  compact?: boolean;
+  onClick?: () => void;
+}) {
   const proj = projects.find((p) => p.id === s.project);
   const icon = s.tool === 'codex' ? '$' : '>';
+  const navigate = useNavigate();
+  const openSession = onClick ?? (() => navigate(`/c/g/${pathPart(s.id)}`));
   return (
-    <div className={`sess ${s.state}`}>
+    <div
+      className={`sess ${s.state}`}
+      role="button"
+      tabIndex={0}
+      onClick={openSession}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          openSession();
+        }
+      }}
+      title={`Open session ${s.title}`}
+    >
       <div className="sess-icon" style={{ color: s.tool === 'codex' ? 'var(--neon-purple)' : 'var(--neon-cyan)', fontFamily: 'var(--font-mono)', fontWeight: 700 }}>
         {icon}
       </div>

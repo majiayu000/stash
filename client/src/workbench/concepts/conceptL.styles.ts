@@ -1,13 +1,5 @@
 export 
 const conceptLStyles = `
-.td-overlay {
-  position: absolute; inset: 0;
-  background: rgba(5,5,8,0.6);
-  backdrop-filter: blur(8px);
-  display: flex; align-items: flex-start; justify-content: center;
-  padding: 2rem;
-  z-index: 10;
-}
 .td-modal {
   width: min(900px, 100%);
   max-height: calc(100% - 2rem);

@@ -64,9 +64,10 @@ test('mobile viewport reaches home, capture, search, project detail, and todo de
   await page.keyboard.press('Escape');
 
   await page.keyboard.press('/');
-  await expect(page.getByRole('dialog', { name: 'search' })).toHaveAttribute('aria-modal', 'true');
+  const searchDialog = page.getByRole('dialog', { name: 'search' });
+  await expect(searchDialog).toHaveAttribute('aria-modal', 'true');
   await page.getByTestId('sp-input').fill(itemTitle);
-  await expect(page.getByRole('button', { name: new RegExp(itemTitle) })).toBeVisible({ timeout: 10_000 });
+  await expect(searchDialog.getByRole('button', { name: new RegExp(itemTitle) })).toBeVisible({ timeout: 10_000 });
   await page.keyboard.press('Escape');
 
   await page.goto(`/c/k/${area.data.id}`);

@@ -86,6 +86,24 @@ const conceptKStyles = `
   transition: all var(--transition-fast, 0.2s);
 }
 .sd-action:hover { border-color: var(--border-glow); color: var(--neon-cyan); }
+.sd-action:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+.sd-action:disabled:hover {
+  border-color: var(--border-hair);
+  color: var(--text-secondary);
+}
+.link-button {
+  background: transparent;
+  border: 0;
+  color: var(--neon-cyan);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  padding: 0;
+}
+.link-button:hover { color: var(--text-primary); }
 
 .kw-intent {
   background: linear-gradient(135deg, rgba(0,255,242,0.05), rgba(191,90,242,0.03));

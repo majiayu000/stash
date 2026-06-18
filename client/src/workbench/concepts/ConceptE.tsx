@@ -1,7 +1,9 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { CountUp, LiveDot, ParticleField } from '../../components/effects';
 import { createWorkItem, updateWorkItem } from '../../api/work-items';
 import type { WBData, WBProject, WBTodo } from '../data';
+import { ConnectedFlow } from '../ConnectedFlow';
 import { ProgressBar, Topbar, TodoItem } from '../shared';
 import {
   doneMoveInput,
@@ -19,6 +21,7 @@ import {
  */
 export function ConceptE({ data, reload }: { data: WBData; reload: () => void }) {
   const { projects, todos, sessions } = data;
+  const navigate = useNavigate();
   const [submitting, setSubmitting] = useState(false);
   const [captureText, setCaptureText] = useState('');
   const [feedback, setFeedback] = useState<{ message: string; tone: 'ok' | 'error' } | null>(null);
@@ -103,6 +106,7 @@ export function ConceptE({ data, reload }: { data: WBData; reload: () => void })
             {feedback.message}
           </div>
         )}
+        <ConnectedFlow data={data} />
 
         {/* Main split: 4-column board + right rail */}
         <div id="inbox-board" style={{ display: 'grid', gridTemplateColumns: '1fr 290px', gap: '1.25rem', flex: 1, minHeight: 0 }}>
@@ -118,7 +122,14 @@ export function ConceptE({ data, reload }: { data: WBData; reload: () => void })
               <div className="sec-head" style={{ marginBottom: 0, minWidth: 0, flex: 1 }}>
                 <span className="prompt">&gt;</span> projects <span className="count">— {projects.length}</span>
               </div>
-              <button className="new-proj-btn" style={{ whiteSpace: 'nowrap', flexShrink: 0 }}>+ new</button>
+              <button
+                className="new-proj-btn"
+                type="button"
+                style={{ whiteSpace: 'nowrap', flexShrink: 0 }}
+                onClick={() => navigate('/c/f')}
+              >
+                + new
+              </button>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', overflowY: 'auto', paddingRight: 4 }}>
               {projects.length === 0
@@ -134,13 +145,18 @@ export function ConceptE({ data, reload }: { data: WBData; reload: () => void })
               </div>
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
                 {sessions.filter((s) => s.state === 'live').slice(0, 3).map((s) => (
-                  <div key={s.id} style={{ marginTop: 6 }}>
+                  <button
+                    key={s.id}
+                    type="button"
+                    className="live-session-link"
+                    onClick={() => navigate(`/c/g/${encodeURIComponent(s.id)}`)}
+                  >
                     <span style={{ color: s.tool === 'codex' ? 'var(--neon-purple)' : 'var(--neon-cyan)' }}>
                       {s.tool === 'codex' ? '$' : '>'}
                     </span>{' '}
                     {projects.find((p) => p.id === s.project)?.name ?? s.project} · {s.model}
                     <div style={{ paddingLeft: 14 }}>{s.preview.slice(0, 60)}…</div>
-                  </div>
+                  </button>
                 ))}
                 {sessions.filter((s) => s.state === 'live').length === 0 && (
                   <div style={{ color: 'var(--text-muted)' }}>(no live agents)</div>
@@ -436,8 +452,14 @@ function DoneDropZone({
 }
 
 function ProjectChipRow({ p }: { p: WBProject }) {
+  const navigate = useNavigate();
   return (
-    <div className="proj-chip">
+    <button
+      type="button"
+      className="proj-chip"
+      onClick={() => navigate(`/c/k/${encodeURIComponent(p.id)}`)}
+      title={`Open project ${p.name}`}
+    >
       <span style={{ fontSize: '1rem' }}>{p.emoji}</span>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
@@ -454,7 +476,7 @@ function ProjectChipRow({ p }: { p: WBProject }) {
           {p.status === 'active' && p.tokens24h > 0 && <LiveDot color="var(--neon-green)" />}
         </div>
       </div>
-    </div>
+    </button>
   );
 }
 
@@ -672,8 +694,24 @@ const conceptEStyles = `
 }
 .new-proj-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,255,242,0.4); }
 
+.live-session-link {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.live-session-link:hover { color: var(--text-secondary); }
+
 .proj-chip {
   display: flex; align-items: flex-start; gap: 0.6rem;
+  width: 100%;
+  text-align: left;
   padding: 0.55rem 0.7rem;
   background: var(--bg-glass);
   border: 1px solid var(--border-hair);
