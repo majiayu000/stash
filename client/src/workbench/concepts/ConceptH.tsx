@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import type { Budget, BurnSnapshot, ProjectBurnRow } from '@stash/shared';
 import { getBurnSnapshot } from '../../api/analytics';
 import { listBudgets } from '../../api/budgets';
@@ -24,6 +25,7 @@ const MODEL_PALETTE = [
 ];
 
 export function ConceptH({ data }: { data: WBData; reload: () => void }) {
+  const navigate = useNavigate();
   const [snap, setSnap] = useState<BurnSnapshot | null>(null);
   const [budgets, setBudgets] = useState<Budget[]>([]);
   const [loading, setLoading] = useState(true);
@@ -98,9 +100,19 @@ export function ConceptH({ data }: { data: WBData; reload: () => void }) {
           <Topbar data={data} />
           <div style={{ padding: '4rem 2rem', textAlign: 'center', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
             <div style={{ fontSize: '1.8rem', marginBottom: '0.7rem', opacity: 0.5 }}>📊</div>
-            no usage data yet — analytics will appear once Claude/Codex sessions log token usage.
+            <div>no usage data yet — analytics will appear once Claude/Codex sessions log token usage.</div>
+            <button
+              type="button"
+              className="burn-settings-link"
+              data-testid="burn-settings"
+              onClick={() => navigate('/c/n')}
+              style={{ marginTop: '1rem' }}
+            >
+              edit budgets
+            </button>
           </div>
         </div>
+        <style>{conceptHStyles}</style>
       </div>
     );
   }
@@ -165,7 +177,7 @@ export function ConceptH({ data }: { data: WBData; reload: () => void }) {
               {snap.perProjectLeaderboard.length === 0 ? (
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)' }}>no per-project usage yet</div>
               ) : (
-                <Leaderboard rows={snap.perProjectLeaderboard} />
+                <Leaderboard rows={snap.perProjectLeaderboard} onOpenProject={(projectId) => navigate(`/c/k/${encodeURIComponent(projectId)}`)} />
               )}
             </div>
 
@@ -198,7 +210,14 @@ export function ConceptH({ data }: { data: WBData; reload: () => void }) {
             <div className="surface">
               <div className="sec-head" style={{ marginBottom: '0.8rem' }}>
                 <span className="prompt">&gt;</span> budgets <span className="count">— {budgets.length}</span>
-                <span className="right" style={{ color: 'var(--text-muted)', fontSize: '0.7rem' }}>edit in settings</span>
+                <button
+                  type="button"
+                  className="burn-settings-link"
+                  data-testid="burn-settings"
+                  onClick={() => navigate('/c/n')}
+                >
+                  edit budgets
+                </button>
               </div>
               {budgetsError ? (
                 <LoadErrorPanel
@@ -268,12 +287,12 @@ function DailySpendChart({ data }: { data: number[] }) {
 }
 
 interface LeaderRow { projectId: string; projectName: string; tokens: number; cost: number; sessions: number; share: number }
-function Leaderboard({ rows }: { rows: LeaderRow[] }) {
+function Leaderboard({ rows, onOpenProject }: { rows: LeaderRow[]; onOpenProject: (projectId: string) => void }) {
   const maxT = Math.max(...rows.map((r) => r.tokens), 1);
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
       {rows.map((p, i) => (
-        <div key={p.projectId} style={{ display: 'grid', gridTemplateColumns: '24px 130px 1fr 80px 60px', alignItems: 'center', gap: '0.6rem' }}>
+        <button key={p.projectId} type="button" onClick={() => onOpenProject(p.projectId)} className="leader-row">
           <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.74rem', color: i === 0 ? 'var(--neon-orange)' : i === 1 ? 'var(--text-secondary)' : i === 2 ? '#cd7f32' : 'var(--text-muted)', fontWeight: 700, textAlign: 'center' }}>
             {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '#' + (i + 1)}
           </span>
@@ -283,7 +302,7 @@ function Leaderboard({ rows }: { rows: LeaderRow[] }) {
           <div className="pbar"><div className="pbar-fill" style={{ width: ((p.tokens / maxT) * 100) + '%' }} /></div>
           <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', color: 'var(--text-primary)', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmt.k(p.tokens)}</span>
           <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.74rem', color: 'var(--neon-green)', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>${p.cost.toFixed(2)}</span>
-        </div>
+        </button>
       ))}
     </div>
   );
@@ -447,4 +466,38 @@ const conceptHStyles = `
 .hm-cell:hover { transform: scale(1.3); z-index: 2; }
 .hm-axis { display: grid; grid-template-columns: 36px 1fr 1fr 1fr 1fr 1fr; font-family: var(--font-mono); font-size: 0.62rem; color: var(--text-muted); padding-top: 4px; }
 .hm-axis span:not(:first-child) { text-align: left; padding-left: 4px; }
+.leader-row {
+  display: grid;
+  grid-template-columns: 24px 130px 1fr 80px 60px;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  padding: 2px 4px;
+  cursor: pointer;
+  text-align: left;
+}
+.leader-row:hover {
+  border-color: var(--border-glow);
+  background: rgba(0,255,242,0.035);
+}
+.burn-settings-link {
+  margin-left: auto;
+  border: 1px solid var(--border-hair);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  padding: 2px 8px;
+}
+.burn-settings-link:hover,
+.burn-settings-link:focus-visible {
+  border-color: var(--neon-cyan);
+  color: var(--neon-cyan);
+  outline: none;
+}
 `;

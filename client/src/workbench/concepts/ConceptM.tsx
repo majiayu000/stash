@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useNavigate } from 'react-router-dom';
 import type { Skill, SkillSource } from '@stash/shared';
 import {
   createSkill,
@@ -582,6 +583,7 @@ function SkillDetail({ s, bindings, allProjects, projectSkills, onToggleBinding,
   onNotice: (notice: { message: string; tone: 'ok' | 'error' }) => void;
 }) {
   const color = sourceColorFor(s.source);
+  const navigate = useNavigate();
   function copyInstall() {
     const cmd = `sk install ${s.source === 'official' ? '' : s.source + '/'}${s.id}`;
     if (!navigator.clipboard?.writeText) {
@@ -671,14 +673,14 @@ function SkillDetail({ s, bindings, allProjects, projectSkills, onToggleBinding,
             </div>
           ) : (
             bindings.map((p) => (
-              <div key={p.id} style={{ display: 'grid', gridTemplateColumns: 'auto 1fr auto', gap: 6, padding: '5px 8px', background: 'rgba(255,255,255,0.025)', border: '1px solid var(--border-hair)', borderRadius: 'var(--radius-sm)', fontFamily: 'var(--font-mono)', fontSize: '0.72rem', alignItems: 'center' }}>
+              <button key={p.id} type="button" onClick={() => navigate(`/c/k/${encodeURIComponent(p.id)}`)} style={{ display: 'grid', gridTemplateColumns: 'auto 1fr auto', gap: 6, padding: '5px 8px', background: 'rgba(255,255,255,0.025)', border: '1px solid var(--border-hair)', borderRadius: 'var(--radius-sm)', fontFamily: 'var(--font-mono)', fontSize: '0.72rem', alignItems: 'center', cursor: 'pointer', textAlign: 'left' }}>
                 <span style={{ fontSize: '0.95rem' }}>{p.emoji}</span>
                 <div style={{ minWidth: 0 }}>
                   <div style={{ color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</div>
                   <div style={{ color: 'var(--text-muted)', fontSize: '0.65rem' }}>last touched {fmt.ago(p.lastTouched)}</div>
                 </div>
-                <span style={{ color: 'var(--text-muted)', fontSize: '0.66rem' }}>auto-load</span>
-              </div>
+                <span style={{ color: 'var(--text-muted)', fontSize: '0.66rem' }}>open</span>
+              </button>
             ))
           )}
         </div>

@@ -119,6 +119,57 @@ test('A/B/C/D/F/I/N/PRD golden routes render concept-specific UI', async ({ page
   }
 });
 
+test('connected object view links the main product pages', async ({ page, request }) => {
+  await seedState(request);
+  await page.goto('/');
+
+  await expect(page.getByTestId('connected-flow')).toBeVisible();
+  await expect(page.getByRole('navigation', { name: 'Primary workflow' })).toHaveCount(0);
+  await expect(page.getByTestId('concept-switcher')).toContainText(/Concepts · E/i);
+
+  await page.getByTestId('flow-todo').click();
+  await expect.poll(() => new URL(page.url()).pathname).toMatch(/^\/c\/l\//);
+  await expect(CONCEPT_MARKERS.l(page)).toBeVisible({ timeout: 10_000 });
+  await page.getByTestId('td-run').click();
+  await expect.poll(() => new URL(page.url()).pathname).toBe('/c/o');
+  await expect(CONCEPT_MARKERS.o(page)).toBeVisible({ timeout: 10_000 });
+
+  await page.goto('/');
+  await page.getByTestId('flow-project').click();
+  await expect.poll(() => new URL(page.url()).pathname).toMatch(/^\/c\/k\//);
+  await expect(CONCEPT_MARKERS.k(page)).toBeVisible({ timeout: 10_000 });
+  await page.getByTestId('kw-open-skills').click();
+  await expect.poll(() => new URL(page.url()).pathname).toBe('/c/m');
+  await expect(CONCEPT_MARKERS.m(page)).toBeVisible({ timeout: 10_000 });
+
+  await page.goto('/');
+  await page.getByTestId('flow-project').click();
+  await page.getByTestId('kw-start-session').click();
+  await expect.poll(() => new URL(page.url()).pathname).toBe('/c/o');
+  await expect(CONCEPT_MARKERS.o(page)).toBeVisible({ timeout: 10_000 });
+
+  await page.goto('/');
+  await page.getByTestId('flow-session').click();
+  await expect.poll(() => new URL(page.url()).pathname).toMatch(/^\/c\/g\//);
+  await expect(CONCEPT_MARKERS.g(page)).toBeVisible({ timeout: 10_000 });
+  await page.getByRole('button', { name: 'open analytics' }).click();
+  await expect.poll(() => new URL(page.url()).pathname).toBe('/c/h');
+  await expect(CONCEPT_MARKERS.h(page)).toBeVisible({ timeout: 10_000 });
+
+  await page.goto('/');
+  await page.getByTestId('flow-review').click();
+  await expect.poll(() => new URL(page.url()).pathname).toBe('/c/j');
+  await expect(CONCEPT_MARKERS.j(page)).toBeVisible({ timeout: 10_000 });
+
+  await page.goto('/');
+  await page.getByTestId('flow-burn').click();
+  await expect.poll(() => new URL(page.url()).pathname).toBe('/c/h');
+  await expect(CONCEPT_MARKERS.h(page)).toBeVisible({ timeout: 10_000 });
+  await page.getByTestId('burn-settings').click();
+  await expect.poll(() => new URL(page.url()).pathname).toBe('/c/n');
+  await expect(CONCEPT_MARKERS.n(page)).toBeVisible({ timeout: 10_000 });
+});
+
 test('ConceptSwitcher clicks through all 16 concept entries', async ({ page, request }) => {
   await seedState(request);
   await page.goto('/');
@@ -141,6 +192,10 @@ test('ConceptSwitcher clicks through all 16 concept entries', async ({ page, req
     { id: 'n', route: '/c/n', marker: 'n' },
     { id: 'prd', route: '/c/prd', marker: 'prd' },
   ] as const) {
+    const switcher = page.getByTestId('concept-switcher');
+    if (!(await switcher.evaluate((el) => (el as HTMLDetailsElement).open))) {
+      await switcher.locator('summary').click();
+    }
     await page.getByTestId(`concept-${entry.id}`).click();
     await expect.poll(() => new URL(page.url()).pathname).toBe(entry.route);
     await expect(CONCEPT_MARKERS[entry.marker](page)).toBeVisible({ timeout: 10_000 });

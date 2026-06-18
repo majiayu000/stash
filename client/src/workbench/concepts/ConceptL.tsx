@@ -22,18 +22,7 @@ import { Topbar } from '../shared';
 import { conceptLStyles } from './conceptL.styles';
 import { slugify, stubSubTasks } from './conceptL.stubs';
 
-/**
- * Concept L — Todo Detail / Split / Promote modal.
- * Dimmed backdrop over a faked board; centered modal with header,
- * 2-col body (subtasks/tags/linked sessions/journal · meta+promote+run),
- * footer with archive/delete/split/done.
- *
- * Backend coverage:
- *   - todo metadata: real (WBTodo from /api/work-items)
- *   - sub-tasks:     STUB — Phase 3e adds parent_id to work_items
- *   - journal:       STUB — Phase 3b project notes will cover this
- *   - linked sessions: existing /api/work-items/:id/sessions — wired in Phase 4
- */
+/** Concept L — Todo detail modal over a dimmed board preview. */
 export function ConceptL({ data, reload }: { data: WBData; reload: () => void }) {
   const { projects, todos } = data;
   const { workItemId } = useParams<{ workItemId?: string }>();
@@ -327,9 +316,8 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
 
   return (
     <div className="dashboard-canvas" style={{ position: 'relative' }}>
-      {/* Dimmed backdrop preview */}
-      <div className="inner" style={{ overflow: 'hidden', height: '100%', filter: 'blur(2px) brightness(0.5)', pointerEvents: 'none' }}>
-        <Topbar data={data} />
+      <div className="td-topbar-layer"><Topbar data={data} /></div>
+      <div className="inner td-backdrop-preview" style={{ overflow: 'hidden', filter: 'blur(2px) brightness(0.5)', pointerEvents: 'none' }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.85rem', marginBottom: '1rem' }}>
           {['📥', '🌅', '🚧', '📅'].map((e, i) => (
             <div key={i} className="board-col tone-purple" style={{ height: 200 }}>

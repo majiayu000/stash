@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import type { Decision, DecisionCandidateRecord, Lesson, Milestone, Skill } from '@stash/shared';
 import {
   acceptDecisionCandidate,
@@ -48,6 +48,7 @@ interface ProjectKnowledgeView {
 export function ConceptK({ data }: { data: WBData; reload: () => void }) {
   const { projects, todos, sessions } = data;
   const { projectId } = useParams<{ projectId?: string }>();
+  const navigate = useNavigate();
   const p = projects.find((x) => x.id === projectId) ?? projects[0];
 
   const [kb, setKb] = useState<ProjectKnowledgeView | null>(null);
@@ -165,6 +166,7 @@ export function ConceptK({ data }: { data: WBData; reload: () => void }) {
 
   const myTodos = todos.filter((t) => t.project === p.id);
   const mySessions = sessions.filter((s) => s.project === p.id);
+  const primaryTodo = myTodos.find((t) => !t.done && t.status === 'active') ?? myTodos.find((t) => !t.done);
 
   if (loading) {
     return (
@@ -210,9 +212,9 @@ export function ConceptK({ data }: { data: WBData; reload: () => void }) {
               </div>
             </div>
             <div className="kw-hero-actions">
-              <button className="sd-action" type="button">📁 open</button>
-              <button className="sd-action" type="button">▶ start session</button>
-              <button className="sd-action" type="button">⚙ settings</button>
+              <button className="sd-action" type="button" onClick={() => navigate(`/c/m?projectId=${encodeURIComponent(p.id)}`)} data-testid="kw-open-skills">🧩 skills</button>
+              <button className="sd-action" type="button" onClick={() => primaryTodo && navigate(`/c/o?todoId=${encodeURIComponent(primaryTodo.id)}`)} disabled={!primaryTodo} data-testid="kw-start-session">▶ start session</button>
+              <button className="sd-action" type="button" onClick={() => navigate(`/c/f?projectId=${encodeURIComponent(p.id)}`)} data-testid="kw-project-settings">⚙ settings</button>
             </div>
           </div>
 
@@ -252,7 +254,7 @@ export function ConceptK({ data }: { data: WBData; reload: () => void }) {
             <div className="surface kw-skills">
               <div className="sec-head" style={{ marginBottom: '0.75rem' }}>
                 <span className="prompt">&gt;</span> 🧩 skills <span className="count">— {mySkills.length}</span>
-                <span className="right" style={{ color: 'var(--neon-cyan)', cursor: 'pointer', fontSize: '0.72rem', fontFamily: 'var(--font-mono)' }}>+ add</span>
+                <button type="button" className="right link-button" onClick={() => navigate(`/c/m?projectId=${encodeURIComponent(p.id)}`)}>+ add</button>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
                 {mySkills.map((s) => <SkillChip key={s.id} s={s} active />)}

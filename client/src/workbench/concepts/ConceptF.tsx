@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import type { Area, ReviewCadence } from '@stash/shared';
 import { CountUp, ShinyText } from '../../components/effects';
 import { createArea, deleteArea, listAreas, updateArea } from '../../api/areas';
@@ -18,6 +19,8 @@ import { slugify } from './conceptL.stubs';
  */
 export function ConceptF({ data, reload }: { data: WBData; reload: () => void }) {
   const { projects } = data;
+  const [searchParams] = useSearchParams();
+  const requestedProjectId = searchParams.get('projectId');
   const [editingId, setEditingId] = useState<string>(projects[0]?.id ?? '');
   const [areas, setAreas] = useState<Area[]>([]);
   const [flash, setFlash] = useState<string | null>(null);
@@ -28,6 +31,12 @@ export function ConceptF({ data, reload }: { data: WBData; reload: () => void })
       reportAsyncError('load project areas', error);
     });
   }, [projects.length]);
+
+  useEffect(() => {
+    if (requestedProjectId && projects.some((p) => p.id === requestedProjectId)) {
+      setEditingId(requestedProjectId);
+    }
+  }, [requestedProjectId, projects]);
 
   function flashMsg(m: string) {
     setFlash(m);

@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import type { AgentSessionEvent } from '@stash/shared';
 import { getAgentSessionEvents } from '../../api/agent-sessions';
 import { LiveDot } from '../../components/effects';
@@ -22,6 +22,7 @@ import { LoadErrorPanel, ModelBadge, Tile, TodoItem, ToolBadge, Topbar, toError 
 export function ConceptG({ data }: { data: WBData; reload: () => void }) {
   const { projects, sessions, todos } = data;
   const { sessionId } = useParams<{ sessionId?: string }>();
+  const navigate = useNavigate();
 
   const session = sessionId
     ? sessions.find((s) => s.id === sessionId)
@@ -77,7 +78,7 @@ export function ConceptG({ data }: { data: WBData; reload: () => void }) {
         <div className="sd-head">
           <div className="sd-crumb">
             <span style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: '0.75rem' }}>workbench &nbsp;/&nbsp;</span>
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', color: 'var(--neon-cyan)' }}>{project?.emoji} {project?.name ?? session.project}</span>
+            <button className="sd-crumb-link" type="button" onClick={() => project && navigate(`/c/k/${encodeURIComponent(project.id)}`)} disabled={!project}>{project?.emoji} {project?.name ?? session.project}</button>
             <span style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: '0.75rem' }}>&nbsp;/&nbsp; sessions &nbsp;/&nbsp;</span>
             <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', color: 'var(--text-primary)' }}>{session.id.slice(0, 8)}</span>
           </div>
@@ -98,10 +99,10 @@ export function ConceptG({ data }: { data: WBData; reload: () => void }) {
               </div>
             </div>
             <div style={{ display: 'flex', gap: '0.4rem' }}>
-              <button className="sd-action" type="button">📋 copy</button>
-              <button className="sd-action" type="button">⏸ pause</button>
-              <button className="sd-action" type="button">⑂ fork</button>
-              <button className="sd-action danger" type="button">⏹ kill</button>
+              <button className="sd-action" type="button" onClick={() => project && navigate(`/c/k/${encodeURIComponent(project.id)}`)} disabled={!project}>project</button>
+              <button className="sd-action" type="button" onClick={() => navigate('/c/h')}>analytics</button>
+              <button className="sd-action" type="button" onClick={() => relatedTodos[0] && navigate(`/c/o?todoId=${encodeURIComponent(relatedTodos[0].id)}`)} disabled={!relatedTodos[0]}>run again</button>
+              <button className="sd-action" type="button" onClick={() => navigate('/c/j')}>review</button>
             </div>
           </div>
         </div>
@@ -168,10 +169,10 @@ export function ConceptG({ data }: { data: WBData; reload: () => void }) {
                 <span className="prompt">&gt;</span> actions
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <button className="sd-side-btn" type="button">↗ open in {session.tool}</button>
-                <button className="sd-side-btn" type="button">⤴ share transcript</button>
-                <button className="sd-side-btn" type="button">⤓ export jsonl</button>
-                <button className="sd-side-btn" type="button">🔖 save as snippet</button>
+                <button className="sd-side-btn" type="button" onClick={() => project && navigate(`/c/k/${encodeURIComponent(project.id)}`)} disabled={!project}>open project</button>
+                <button className="sd-side-btn" type="button" onClick={() => navigate('/c/h')}>open analytics</button>
+                <button className="sd-side-btn" type="button" onClick={() => relatedTodos[0] && navigate(`/c/l/${encodeURIComponent(relatedTodos[0].id)}`)} disabled={!relatedTodos[0]}>open related todo</button>
+                <button className="sd-side-btn" type="button" onClick={() => navigate('/c/j')}>open weekly review</button>
               </div>
             </div>
           </div>
@@ -409,6 +410,19 @@ const conceptGStyles = `
   margin-bottom: 1rem;
 }
 .sd-crumb { display: flex; align-items: center; }
+.sd-crumb-link {
+  background: transparent;
+  border: 0;
+  color: var(--neon-cyan);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  padding: 0;
+}
+.sd-crumb-link:disabled {
+  cursor: default;
+  color: var(--text-muted);
+}
 .sd-action {
   background: var(--bg-glass);
   border: 1px solid var(--border-subtle);
@@ -423,6 +437,17 @@ const conceptGStyles = `
 }
 .sd-action:hover { border-color: var(--neon-cyan); color: var(--neon-cyan); }
 .sd-action.danger:hover { border-color: var(--neon-pink); color: var(--neon-pink); }
+.sd-action:disabled,
+.sd-side-btn:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+.sd-action:disabled:hover,
+.sd-side-btn:disabled:hover {
+  border-color: var(--border-subtle);
+  color: var(--text-secondary);
+  background: var(--bg-glass);
+}
 .sd-side-btn {
   background: var(--bg-glass);
   border: 1px solid var(--border-hair);

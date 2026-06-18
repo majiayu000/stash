@@ -133,9 +133,8 @@ export function ConceptO({ data }: { data: WBData; reload: () => void }) {
 
   return (
     <div className="dashboard-canvas" style={{ position: 'relative' }}>
-      <div className="inner" style={{ overflow: 'hidden', height: '100%', filter: 'blur(2px) brightness(0.5)', pointerEvents: 'none' }}>
-        <Topbar data={data} />
-      </div>
+      <div className="td-topbar-layer"><Topbar data={data} /></div>
+      <div className="inner td-backdrop-preview" style={{ overflow: 'hidden', filter: 'blur(2px) brightness(0.5)', pointerEvents: 'none' }} />
 
       <div className="td-overlay">
         <div className="ss-modal">
