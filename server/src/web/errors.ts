@@ -15,6 +15,11 @@ import { SkillConflictError, SkillNotFoundError } from '../domain/skill/service.
 import { KnowledgeNotFoundError } from '../domain/project-knowledge/service.js';
 import { DecisionCandidateNotFoundError } from '../domain/capture/decision-candidates.js';
 import { DispatchRunNotFoundError } from '../domain/session-dispatch/runs.js';
+import {
+  AiGenerationRunNotFoundError,
+  DecisionDraftConflictError,
+  DecisionDraftNotFoundError,
+} from '../domain/ai-draft/service.js';
 
 export interface ApiError {
   error: {
@@ -45,11 +50,17 @@ export function mapError(err: unknown): { status: 400 | 404 | 409 | 422 | 500; b
     err instanceof BudgetNotFoundError ||
     err instanceof KnowledgeNotFoundError ||
     err instanceof DispatchRunNotFoundError ||
-    err instanceof DecisionCandidateNotFoundError
+    err instanceof DecisionCandidateNotFoundError ||
+    err instanceof AiGenerationRunNotFoundError ||
+    err instanceof DecisionDraftNotFoundError
   ) {
     return { status: 404, body: apiError('NOT_FOUND', err.message) };
   }
-  if (err instanceof SkillConflictError || err instanceof BudgetConflictError) {
+  if (
+    err instanceof SkillConflictError ||
+    err instanceof BudgetConflictError ||
+    err instanceof DecisionDraftConflictError
+  ) {
     return { status: 409, body: apiError('CONFLICT', err.message) };
   }
   if (err instanceof NoPendingCandidateError) {

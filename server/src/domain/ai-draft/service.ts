@@ -1,0 +1,417 @@
+import type { Database } from 'bun:sqlite';
+import {
+  systemClock,
+  ulid,
+  type AiGenerationRun,
+  type Clock,
+  type CreateAiGenerationRunInput,
+  type CreateDecisionDraftInput,
+  type DecisionDraft,
+  type DecisionDraftStatus,
+  type DraftSourceKind,
+  type SourceSpan,
+  type WorkItemStatus,
+} from '@stash/shared';
+import { WorkItemService } from '../work-item/service.js';
+import {
+  AcceptDecisionDraftsSchema,
+  CreateAiGenerationRunSchema,
+  CreateDecisionDraftSchema,
+} from './schemas.js';
+
+interface AiGenerationRunRow {
+  id: string;
+  feature: AiGenerationRun['feature'];
+  source_kind: AiGenerationRun['sourceKind'];
+  source_work_item_id: string | null;
+  source_record_id: string | null;
+  source_path: string | null;
+  provider: string;
+  model: string | null;
+  prompt_hash: string;
+  status: AiGenerationRun['status'];
+  raw_response_json: string | null;
+  error: string | null;
+  created_at: string;
+  updated_at: string;
+  accepted_at: string | null;
+}
+
+interface DecisionDraftRow {
+  id: string;
+  run_id: string;
+  source_kind: DraftSourceKind;
+  source_work_item_id: string | null;
+  source_record_id: string | null;
+  source_path: string | null;
+  source_spans_json: string;
+  proposed_title: string;
+  proposed_description: string | null;
+  proposed_kind: DecisionDraft['proposedKind'];
+  proposed_priority: DecisionDraft['proposedPriority'];
+  proposed_labels_json: string;
+  proposed_scheduled_for: string | null;
+  proposed_due_at: string | null;
+  proposed_checklist_json: string;
+  sort_order: number | null;
+  status: DecisionDraftStatus;
+  reject_reason: string | null;
+  created_work_item_id: string | null;
+  accepted_at: string | null;
+  rejected_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export class AiGenerationRunNotFoundError extends Error {
+  constructor(id: string) {
+    super(`ai generation run ${id} not found`);
+    this.name = 'AiGenerationRunNotFoundError';
+  }
+}
+
+export class DecisionDraftNotFoundError extends Error {
+  constructor(id: string) {
+    super(`decision draft ${id} not found`);
+    this.name = 'DecisionDraftNotFoundError';
+  }
+}
+
+export class DecisionDraftConflictError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'DecisionDraftConflictError';
+  }
+}
+
+export class AiDraftService {
+  private readonly clock: Clock;
+  private readonly workItems: WorkItemService;
+
+  constructor(private readonly deps: { db: Database; clock?: Clock; workItems?: WorkItemService }) {
+    this.clock = deps.clock ?? systemClock;
+    this.workItems = deps.workItems ?? new WorkItemService({ db: deps.db, clock: this.clock });
+  }
+
+  createRun(input: CreateAiGenerationRunInput): AiGenerationRun {
+    const parsed = CreateAiGenerationRunSchema.parse(input);
+    const now = this.clock.nowIso();
+    const run: AiGenerationRun = {
+      id: ulid(this.clock.now()),
+      ...parsed,
+      status: parsed.status ?? 'pending',
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.deps.db.prepare(
+      `insert into ai_generation_runs(
+        id, feature, source_kind, source_work_item_id, source_record_id, source_path,
+        provider, model, prompt_hash, status, raw_response_json, error,
+        created_at, updated_at, accepted_at
+      ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, null)`,
+    ).run(
+      run.id,
+      run.feature,
+      run.sourceKind,
+      run.sourceWorkItemId ?? null,
+      run.sourceRecordId ?? null,
+      run.sourcePath ?? null,
+      run.provider,
+      run.model ?? null,
+      run.promptHash,
+      run.status,
+      run.rawResponseJson ?? null,
+      run.error ?? null,
+      run.createdAt,
+      run.updatedAt,
+    );
+    return run;
+  }
+
+  createDrafts(runId: string, inputs: CreateDecisionDraftInput[]): DecisionDraft[] {
+    const run = this.getRun(runId);
+    if (!run) throw new AiGenerationRunNotFoundError(runId);
+    if (!isDraftSourceKind(run.sourceKind)) {
+      throw new DecisionDraftConflictError(`run source kind ${run.sourceKind} cannot create decision drafts`);
+    }
+    const now = this.clock.nowIso();
+    const drafts: DecisionDraft[] = [];
+
+    this.deps.db.transaction(() => {
+      for (const input of inputs) {
+        const parsed = CreateDecisionDraftSchema.parse(input);
+        if (parsed.sourceKind !== run.sourceKind) {
+          throw new DecisionDraftConflictError(`draft source kind ${parsed.sourceKind} does not match run ${run.sourceKind}`);
+        }
+        const draft: DecisionDraft = {
+          id: ulid(this.clock.now()),
+          runId,
+          sourceKind: parsed.sourceKind,
+          sourceWorkItemId: parsed.sourceWorkItemId,
+          sourceRecordId: parsed.sourceRecordId,
+          sourcePath: parsed.sourcePath,
+          sourceSpans: parsed.sourceSpans ?? [],
+          proposedTitle: parsed.proposedTitle,
+          proposedDescription: parsed.proposedDescription,
+          proposedKind: parsed.proposedKind ?? 'task',
+          proposedPriority: parsed.proposedPriority ?? 'p2',
+          proposedLabels: parsed.proposedLabels ?? [],
+          proposedScheduledFor: parsed.proposedScheduledFor,
+          proposedDueAt: parsed.proposedDueAt,
+          proposedChecklist: parsed.proposedChecklist ?? [],
+          sortOrder: parsed.sortOrder,
+          status: 'draft',
+          createdAt: now,
+          updatedAt: now,
+        };
+        this.insertDraft(draft);
+        drafts.push(draft);
+      }
+    })();
+
+    return drafts;
+  }
+
+  recordRunFailure(id: string, error: string, rawResponseJson?: string): AiGenerationRun {
+    const now = this.clock.nowIso();
+    const updated = this.deps.db.prepare(
+      `update ai_generation_runs
+       set status = 'failed', error = ?, raw_response_json = coalesce(?, raw_response_json), updated_at = ?
+       where id = ?`,
+    ).run(error, rawResponseJson ?? null, now, id);
+    if (updated.changes === 0) throw new AiGenerationRunNotFoundError(id);
+    return this.getRequiredRun(id);
+  }
+
+  listDrafts(filter: { runId?: string; status?: DecisionDraftStatus } = {}): DecisionDraft[] {
+    const where: string[] = [];
+    const params: string[] = [];
+    if (filter.runId) {
+      where.push('run_id = ?');
+      params.push(filter.runId);
+    }
+    if (filter.status) {
+      where.push('status = ?');
+      params.push(filter.status);
+    }
+    const whereSql = where.length ? `where ${where.join(' and ')}` : '';
+    return this.deps.db
+      .query<DecisionDraftRow, typeof params>(
+        `select * from decision_drafts ${whereSql} order by created_at asc, sort_order asc`,
+      )
+      .all(...params)
+      .map(mapDraft);
+  }
+
+  rejectDraft(id: string, reason: string): DecisionDraft {
+    const existing = this.getDraft(id);
+    if (!existing) throw new DecisionDraftNotFoundError(id);
+    if (existing.status === 'accepted') {
+      throw new DecisionDraftConflictError('accepted draft cannot be rejected');
+    }
+    const now = this.clock.nowIso();
+    this.deps.db.prepare(
+      `update decision_drafts
+       set status = 'rejected', reject_reason = ?, rejected_at = ?, updated_at = ?
+       where id = ?`,
+    ).run(reason, now, now, id);
+    return this.getRequiredDraft(id);
+  }
+
+  acceptDrafts(runId: string, input: unknown): DecisionDraft[] {
+    const run = this.getRun(runId);
+    if (!run) throw new AiGenerationRunNotFoundError(runId);
+    const parsed = AcceptDecisionDraftsSchema.parse(input);
+    const now = this.clock.nowIso();
+    const accepted: DecisionDraft[] = [];
+
+    this.deps.db.transaction(() => {
+      for (const draftInput of parsed.drafts) {
+        const draft = this.getRequiredDraft(draftInput.draftId);
+        if (draft.runId !== runId) {
+          throw new DecisionDraftConflictError(`draft ${draft.id} does not belong to run ${runId}`);
+        }
+        if (draft.status === 'rejected') {
+          throw new DecisionDraftConflictError(`rejected draft ${draft.id} cannot be accepted`);
+        }
+        if (draft.createdWorkItemId) {
+          accepted.push(draft);
+          continue;
+        }
+
+        const created = this.workItems.create({
+          title: draftInput.title ?? draft.proposedTitle,
+          description: draftInput.description ?? draft.proposedDescription,
+          parentId: draft.sourceWorkItemId,
+          kind: draftInput.kind ?? draft.proposedKind,
+          priority: draftInput.priority ?? draft.proposedPriority,
+          labels: draftInput.labels ?? draft.proposedLabels,
+          scheduledFor: draftInput.scheduledFor ?? draft.proposedScheduledFor,
+          dueAt: draftInput.dueAt ?? draft.proposedDueAt,
+          checklist: draftInput.checklist ?? draft.proposedChecklist,
+          source: 'manual',
+          confidence: 'explicit',
+          status: 'inbox',
+        });
+
+        this.deps.db.prepare(
+          `update decision_drafts
+           set status = ?, created_work_item_id = ?, accepted_at = ?, updated_at = ?
+           where id = ?`,
+        ).run(hasUserEdits(draft, draftInput) ? 'edited' : 'accepted', created.id, now, now, draft.id);
+        accepted.push(this.getRequiredDraft(draft.id));
+      }
+
+      if (parsed.sourceIdeaStatus && run.sourceWorkItemId) {
+        this.workItems.update(run.sourceWorkItemId, { status: parsed.sourceIdeaStatus });
+      }
+      this.markRunAccepted(runId, now);
+    })();
+
+    return accepted;
+  }
+
+  getRun(id: string): AiGenerationRun | undefined {
+    const row = this.deps.db.query<AiGenerationRunRow, [string]>(
+      'select * from ai_generation_runs where id = ?',
+    ).get(id);
+    return row ? mapRun(row) : undefined;
+  }
+
+  getDraft(id: string): DecisionDraft | undefined {
+    const row = this.deps.db.query<DecisionDraftRow, [string]>(
+      'select * from decision_drafts where id = ?',
+    ).get(id);
+    return row ? mapDraft(row) : undefined;
+  }
+
+  private insertDraft(draft: DecisionDraft): void {
+    this.deps.db.prepare(
+      `insert into decision_drafts(
+        id, run_id, source_kind, source_work_item_id, source_record_id, source_path,
+        source_spans_json, proposed_title, proposed_description, proposed_kind,
+        proposed_priority, proposed_labels_json, proposed_scheduled_for, proposed_due_at,
+        proposed_checklist_json, sort_order, status, reject_reason, created_work_item_id,
+        accepted_at, rejected_at, created_at, updated_at
+      ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', null, null, null, null, ?, ?)`,
+    ).run(
+      draft.id,
+      draft.runId,
+      draft.sourceKind,
+      draft.sourceWorkItemId ?? null,
+      draft.sourceRecordId ?? null,
+      draft.sourcePath ?? null,
+      JSON.stringify(draft.sourceSpans),
+      draft.proposedTitle,
+      draft.proposedDescription ?? null,
+      draft.proposedKind,
+      draft.proposedPriority,
+      JSON.stringify(draft.proposedLabels),
+      draft.proposedScheduledFor ?? null,
+      draft.proposedDueAt ?? null,
+      JSON.stringify(draft.proposedChecklist),
+      draft.sortOrder ?? null,
+      draft.createdAt,
+      draft.updatedAt,
+    );
+  }
+
+  private getRequiredRun(id: string): AiGenerationRun {
+    const run = this.getRun(id);
+    if (!run) throw new AiGenerationRunNotFoundError(id);
+    return run;
+  }
+
+  private getRequiredDraft(id: string): DecisionDraft {
+    const draft = this.getDraft(id);
+    if (!draft) throw new DecisionDraftNotFoundError(id);
+    return draft;
+  }
+
+  private markRunAccepted(runId: string, now: string): void {
+    this.deps.db.prepare(
+      `update ai_generation_runs
+       set status = 'accepted', accepted_at = coalesce(accepted_at, ?), updated_at = ?
+       where id = ?`,
+    ).run(now, now, runId);
+  }
+}
+
+function hasUserEdits(draft: DecisionDraft, input: { title?: string; description?: string; kind?: string; priority?: string; labels?: string[]; scheduledFor?: string; dueAt?: string }): boolean {
+  return (
+    (input.title !== undefined && input.title !== draft.proposedTitle) ||
+    (input.description !== undefined && input.description !== draft.proposedDescription) ||
+    (input.kind !== undefined && input.kind !== draft.proposedKind) ||
+    (input.priority !== undefined && input.priority !== draft.proposedPriority) ||
+    (input.labels !== undefined && JSON.stringify(input.labels) !== JSON.stringify(draft.proposedLabels)) ||
+    (input.scheduledFor !== undefined && input.scheduledFor !== draft.proposedScheduledFor) ||
+    (input.dueAt !== undefined && input.dueAt !== draft.proposedDueAt)
+  );
+}
+
+function isDraftSourceKind(sourceKind: string): sourceKind is DraftSourceKind {
+  return (
+    sourceKind === 'idea_decomposition' ||
+    sourceKind === 'meeting_triage' ||
+    sourceKind === 'session_inferred' ||
+    sourceKind === 'manual_split'
+  );
+}
+
+function parseJsonArray<T>(raw: string): T[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as T[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function mapRun(row: AiGenerationRunRow): AiGenerationRun {
+  return {
+    id: row.id,
+    feature: row.feature,
+    sourceKind: row.source_kind,
+    sourceWorkItemId: row.source_work_item_id ?? undefined,
+    sourceRecordId: row.source_record_id ?? undefined,
+    sourcePath: row.source_path ?? undefined,
+    provider: row.provider,
+    model: row.model ?? undefined,
+    promptHash: row.prompt_hash,
+    status: row.status,
+    rawResponseJson: row.raw_response_json ?? undefined,
+    error: row.error ?? undefined,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    acceptedAt: row.accepted_at ?? undefined,
+  };
+}
+
+function mapDraft(row: DecisionDraftRow): DecisionDraft {
+  return {
+    id: row.id,
+    runId: row.run_id,
+    sourceKind: row.source_kind,
+    sourceWorkItemId: row.source_work_item_id ?? undefined,
+    sourceRecordId: row.source_record_id ?? undefined,
+    sourcePath: row.source_path ?? undefined,
+    sourceSpans: parseJsonArray<SourceSpan>(row.source_spans_json),
+    proposedTitle: row.proposed_title,
+    proposedDescription: row.proposed_description ?? undefined,
+    proposedKind: row.proposed_kind,
+    proposedPriority: row.proposed_priority,
+    proposedLabels: parseJsonArray<string>(row.proposed_labels_json),
+    proposedScheduledFor: row.proposed_scheduled_for ?? undefined,
+    proposedDueAt: row.proposed_due_at ?? undefined,
+    proposedChecklist: parseJsonArray(row.proposed_checklist_json),
+    sortOrder: row.sort_order ?? undefined,
+    status: row.status,
+    rejectReason: row.reject_reason ?? undefined,
+    createdWorkItemId: row.created_work_item_id ?? undefined,
+    acceptedAt: row.accepted_at ?? undefined,
+    rejectedAt: row.rejected_at ?? undefined,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}

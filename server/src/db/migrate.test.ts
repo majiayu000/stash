@@ -127,6 +127,7 @@ describe('migrate', () => {
         '011_area_emoji.sql',
         '012_agent_session_cache.sql',
         '013_dispatch_runs_and_decision_candidates.sql',
+        '014_ai_draft_traceability.sql',
       ]);
       const cacheTable = db
         .query<{ name: string }, []>(
@@ -146,6 +147,18 @@ describe('migrate', () => {
         )
         .get();
       expect(decisionCandidatesTable?.name).toBe('decision_candidates');
+      const aiGenerationRunsTable = db
+        .query<{ name: string }, []>(
+          "select name from sqlite_master where type = 'table' and name = 'ai_generation_runs'",
+        )
+        .get();
+      expect(aiGenerationRunsTable?.name).toBe('ai_generation_runs');
+      const decisionDraftsTable = db
+        .query<{ name: string }, []>(
+          "select name from sqlite_master where type = 'table' and name = 'decision_drafts'",
+        )
+        .get();
+      expect(decisionDraftsTable?.name).toBe('decision_drafts');
 
       const workItems = new WorkItemService({ db });
       const workItem = workItems.get('wi-auth');
