@@ -213,6 +213,9 @@ export class AiDraftService {
   rejectDraft(id: string, reason: string): DecisionDraft {
     const existing = this.getDraft(id);
     if (!existing) throw new DecisionDraftNotFoundError(id);
+    if (existing.status === 'rejected') {
+      return existing;
+    }
     if (existing.status === 'accepted' || existing.status === 'edited' || existing.createdWorkItemId) {
       throw new DecisionDraftConflictError('accepted or edited draft cannot be rejected');
     }

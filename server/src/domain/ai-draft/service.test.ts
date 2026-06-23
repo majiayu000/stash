@@ -393,9 +393,12 @@ describe('AiDraftService', () => {
     }]);
 
     const rejected = drafts.rejectDraft(draft!.id, 'too broad');
+    const rejectedAgain = drafts.rejectDraft(draft!.id, 'still too broad');
 
     expect(rejected.status).toBe('rejected');
     expect(rejected.rejectReason).toBe('too broad');
+    expect(rejectedAgain.rejectReason).toBe('too broad');
+    expect(rejectedAgain.rejectedAt).toBe(rejected.rejectedAt);
     expect(rejected.sourceRecordId).toBe('meeting-1');
     expect(rejected.sourceSpans).toEqual([{ text: 'maybe automate everything' }]);
     expect(() => drafts.acceptDrafts(run.id, { drafts: [{ draftId: draft!.id }] })).toThrow(DecisionDraftConflictError);
