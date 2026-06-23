@@ -132,9 +132,7 @@ export class AiDraftService {
   createDrafts(runId: string, inputs: CreateDecisionDraftInput[]): DecisionDraft[] {
     const run = this.getRun(runId);
     if (!run) throw new AiGenerationRunNotFoundError(runId);
-    if (!isDraftSourceKind(run.sourceKind)) {
-      throw new DecisionDraftConflictError(`run source kind ${run.sourceKind} cannot create decision drafts`);
-    }
+    assertDraftProducingRun(run);
     if (run.status !== 'succeeded') {
       throw new DecisionDraftConflictError(`run ${runId} must be succeeded before creating decision drafts`);
     }
@@ -177,6 +175,11 @@ export class AiDraftService {
   }
 
   recordRunFailure(id: string, error: string, rawResponseJson?: string): AiGenerationRun {
+    const existing = this.getRun(id);
+    if (!existing) throw new AiGenerationRunNotFoundError(id);
+    if (existing.status === 'accepted' || existing.status === 'discarded') {
+      throw new DecisionDraftConflictError(`run ${id} is terminal and cannot be failed`);
+    }
     const now = this.clock.nowIso();
     const updated = this.deps.db.prepare(
       `update ai_generation_runs
@@ -225,6 +228,7 @@ export class AiDraftService {
   acceptDrafts(runId: string, input: unknown): DecisionDraft[] {
     const run = this.getRun(runId);
     if (!run) throw new AiGenerationRunNotFoundError(runId);
+    assertDraftProducingRun(run);
     if (run.status !== 'succeeded' && run.status !== 'accepted') {
       throw new DecisionDraftConflictError(`run ${runId} must be succeeded before accepting decision drafts`);
     }
@@ -246,7 +250,10 @@ export class AiDraftService {
           continue;
         }
 
+        const sourceContext = this.getAcceptSourceContext(draft);
         const created = this.workItems.create({
+          projectId: sourceContext.projectId,
+          areaId: sourceContext.areaId,
           title: draftInput.title ?? draft.proposedTitle,
           description: draftInput.description ?? draft.proposedDescription,
           parentId: draft.sourceWorkItemId,
@@ -358,6 +365,23 @@ export class AiDraftService {
     }
     this.workItems.update(run.sourceWorkItemId, { status });
   }
+
+  private getAcceptSourceContext(draft: DecisionDraft): { projectId?: string; areaId?: string } {
+    if (!draft.sourceWorkItemId) {
+      if (draft.sourceKind === 'idea_decomposition') {
+        throw new DecisionDraftConflictError('source idea work item no longer exists');
+      }
+      return {};
+    }
+    const source = this.workItems.get(draft.sourceWorkItemId);
+    if (!source) {
+      throw new DecisionDraftConflictError(`source work item ${draft.sourceWorkItemId} was not found`);
+    }
+    if (draft.sourceKind === 'idea_decomposition' && source.kind !== 'idea') {
+      throw new DecisionDraftConflictError('idea decomposition drafts require an idea source work item');
+    }
+    return { projectId: source.projectId, areaId: source.areaId };
+  }
 }
 
 function hasUserEdits(draft: DecisionDraft, input: AcceptDecisionDraftInput): boolean {
@@ -380,6 +404,18 @@ function isDraftSourceKind(sourceKind: string): sourceKind is DraftSourceKind {
     sourceKind === 'session_inferred' ||
     sourceKind === 'manual_split'
   );
+}
+
+function assertDraftProducingRun(run: AiGenerationRun): void {
+  if (!isDraftSourceKind(run.sourceKind)) {
+    throw new DecisionDraftConflictError(`run source kind ${run.sourceKind} cannot create decision drafts`);
+  }
+  if (!isDraftSourceKind(run.feature)) {
+    throw new DecisionDraftConflictError(`run feature ${run.feature} cannot create decision drafts`);
+  }
+  if (run.feature !== run.sourceKind) {
+    throw new DecisionDraftConflictError(`run feature ${run.feature} must match draft source kind ${run.sourceKind}`);
+  }
 }
 
 function parseJsonArray<T>(raw: string): T[] {

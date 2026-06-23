@@ -71,6 +71,20 @@ describe('AiDraftService', () => {
     expect(drafts.listDrafts({ runId: run.id })).toEqual([]);
   });
 
+  test('discarded runs cannot be failed later', () => {
+    const { drafts } = setupAiDraftTest();
+    const run = drafts.createRun({
+      feature: 'idea_decomposition',
+      sourceKind: 'idea_decomposition',
+      provider: 'local-test',
+      promptHash: 'hash-2b',
+      status: 'discarded',
+    });
+
+    expect(() => drafts.recordRunFailure(run.id, 'late provider error')).toThrow(DecisionDraftConflictError);
+    expect(drafts.getRun(run.id)?.status).toBe('discarded');
+  });
+
   test('does not create work items before explicit accept', () => {
     const { workItems, drafts } = setupAiDraftTest();
     const idea = workItems.create({ title: 'Make meeting notes actionable', kind: 'idea' });
@@ -104,7 +118,12 @@ describe('AiDraftService', () => {
 
   test('drafts inherit source context from the run', () => {
     const { workItems, drafts } = setupAiDraftTest();
-    const idea = workItems.create({ title: 'Turn an idea into tasks', kind: 'idea' });
+    const idea = workItems.create({
+      title: 'Turn an idea into tasks',
+      kind: 'idea',
+      projectId: 'project-1',
+      areaId: 'area-1',
+    });
     const run = drafts.createRun({
       feature: 'idea_decomposition',
       sourceKind: 'idea_decomposition',
@@ -125,7 +144,28 @@ describe('AiDraftService', () => {
     expect(draft?.sourcePath).toBe('/ideas/raw.md');
 
     const [accepted] = drafts.acceptDrafts(run.id, { drafts: [{ draftId: draft!.id }] });
-    expect(workItems.get(accepted!.createdWorkItemId!)?.parentId).toBe(idea.id);
+    const created = workItems.get(accepted!.createdWorkItemId!);
+    expect(created?.parentId).toBe(idea.id);
+    expect(created?.projectId).toBe('project-1');
+    expect(created?.areaId).toBe('area-1');
+  });
+
+  test('provenance-only runs cannot create drafts', () => {
+    const { workItems, drafts } = setupAiDraftTest();
+    const idea = workItems.create({ title: 'Coach this task', kind: 'idea' });
+    const run = drafts.createRun({
+      feature: 'task_coach',
+      sourceKind: 'idea_decomposition',
+      sourceWorkItemId: idea.id,
+      provider: 'local-test',
+      promptHash: 'hash-3bb',
+      status: 'succeeded',
+    });
+
+    expect(() => drafts.createDrafts(run.id, [{
+      sourceKind: 'idea_decomposition',
+      proposedTitle: 'Should not enter decision inbox',
+    }])).toThrow(DecisionDraftConflictError);
   });
 
   test('failed runs cannot create or accept drafts', () => {
@@ -188,6 +228,8 @@ describe('AiDraftService', () => {
     expect(second?.createdWorkItemId).toBe(first?.createdWorkItemId);
     expect(workItems.list({ parentId: idea.id })).toHaveLength(1);
     expect(workItems.get(first!.createdWorkItemId!)?.title).toBe('Define the first milestone');
+    expect(() => drafts.recordRunFailure(run.id, 'late provider error')).toThrow(DecisionDraftConflictError);
+    expect(drafts.getRun(run.id)?.status).toBe('accepted');
   });
 
   test('edited accept records edited status and applies user fields', () => {
@@ -305,6 +347,30 @@ describe('AiDraftService', () => {
     })).toThrow(DecisionDraftConflictError);
     expect(workItems.list({ parentId: task.id })).toEqual([]);
     expect(workItems.get(task.id)?.status).toBe('inbox');
+  });
+
+  test('accept rejects idea decomposition drafts after source idea deletion', () => {
+    const { workItems, drafts } = setupAiDraftTest();
+    const idea = workItems.create({ title: 'Delete this idea before review', kind: 'idea' });
+    const run = drafts.createRun({
+      feature: 'idea_decomposition',
+      sourceKind: 'idea_decomposition',
+      sourceWorkItemId: idea.id,
+      provider: 'local-test',
+      promptHash: 'hash-5e',
+      status: 'succeeded',
+    });
+    const [draft] = drafts.createDrafts(run.id, [{
+      sourceKind: 'idea_decomposition',
+      proposedTitle: 'Should not be orphaned',
+    }]);
+
+    workItems.delete(idea.id);
+
+    expect(drafts.getDraft(draft!.id)?.sourceWorkItemId).toBeUndefined();
+    expect(() => drafts.acceptDrafts(run.id, { drafts: [{ draftId: draft!.id }] })).toThrow(DecisionDraftConflictError);
+    expect(workItems.list()).toEqual([]);
+    expect(drafts.getRun(run.id)?.status).toBe('succeeded');
   });
 
   test('reject preserves source evidence and cannot be accepted later', () => {
