@@ -225,6 +225,86 @@ describe('AiDraftService', () => {
     expect(created?.priority).toBe('p1');
     expect(created?.labels).toEqual(['beta']);
     expect(created?.checklist).toEqual([{ id: 'check-1', text: 'make a target list', completed: false }]);
+    expect(() => drafts.rejectDraft(accepted!.id, 'changed my mind')).toThrow(DecisionDraftConflictError);
+    expect(drafts.getDraft(accepted!.id)?.status).toBe('edited');
+  });
+
+  test('deleting an accepted work item keeps the accepted draft audit row', () => {
+    const { workItems, drafts } = setupAiDraftTest();
+    const idea = workItems.create({ title: 'Trace generated task deletion', kind: 'idea' });
+    const run = drafts.createRun({
+      feature: 'idea_decomposition',
+      sourceKind: 'idea_decomposition',
+      sourceWorkItemId: idea.id,
+      provider: 'local-test',
+      promptHash: 'hash-5b',
+      status: 'succeeded',
+    });
+    const [draft] = drafts.createDrafts(run.id, [{
+      sourceKind: 'idea_decomposition',
+      proposedTitle: 'Task that might be deleted later',
+    }]);
+    const [accepted] = drafts.acceptDrafts(run.id, { drafts: [{ draftId: draft!.id }] });
+
+    workItems.delete(accepted!.createdWorkItemId!);
+
+    const afterDelete = drafts.getDraft(accepted!.id);
+    expect(afterDelete?.status).toBe('accepted');
+    expect(afterDelete?.createdWorkItemId).toBeUndefined();
+    expect(afterDelete?.sourceWorkItemId).toBe(idea.id);
+
+    const [afterSecondAccept] = drafts.acceptDrafts(run.id, { drafts: [{ draftId: accepted!.id }] });
+    expect(afterSecondAccept?.status).toBe('accepted');
+    expect(afterSecondAccept?.createdWorkItemId).toBeUndefined();
+    expect(workItems.list({ parentId: idea.id })).toEqual([]);
+  });
+
+  test('sourceIdeaStatus is only valid for idea decomposition sources', () => {
+    const { workItems, drafts } = setupAiDraftTest();
+    const task = workItems.create({ title: 'Summarize a meeting', kind: 'task' });
+    const run = drafts.createRun({
+      feature: 'meeting_triage',
+      sourceKind: 'meeting_triage',
+      sourceWorkItemId: task.id,
+      provider: 'local-test',
+      promptHash: 'hash-5c',
+      status: 'succeeded',
+    });
+    const [draft] = drafts.createDrafts(run.id, [{
+      sourceKind: 'meeting_triage',
+      proposedTitle: 'Follow up with the team',
+    }]);
+
+    expect(() => drafts.acceptDrafts(run.id, {
+      drafts: [{ draftId: draft!.id }],
+      sourceIdeaStatus: 'planned',
+    })).toThrow(DecisionDraftConflictError);
+    expect(workItems.list({ parentId: task.id })).toEqual([]);
+    expect(drafts.getDraft(draft!.id)?.createdWorkItemId).toBeUndefined();
+  });
+
+  test('sourceIdeaStatus requires an idea source work item', () => {
+    const { workItems, drafts } = setupAiDraftTest();
+    const task = workItems.create({ title: 'Misclassified source', kind: 'task' });
+    const run = drafts.createRun({
+      feature: 'idea_decomposition',
+      sourceKind: 'idea_decomposition',
+      sourceWorkItemId: task.id,
+      provider: 'local-test',
+      promptHash: 'hash-5d',
+      status: 'succeeded',
+    });
+    const [draft] = drafts.createDrafts(run.id, [{
+      sourceKind: 'idea_decomposition',
+      proposedTitle: 'Should not update a task source status',
+    }]);
+
+    expect(() => drafts.acceptDrafts(run.id, {
+      drafts: [{ draftId: draft!.id }],
+      sourceIdeaStatus: 'planned',
+    })).toThrow(DecisionDraftConflictError);
+    expect(workItems.list({ parentId: task.id })).toEqual([]);
+    expect(workItems.get(task.id)?.status).toBe('inbox');
   });
 
   test('reject preserves source evidence and cannot be accepted later', () => {

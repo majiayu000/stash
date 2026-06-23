@@ -64,7 +64,7 @@ create table decision_drafts (
   sort_order real,
   status text not null check (status in ('draft', 'accepted', 'rejected', 'edited')),
   reject_reason text,
-  created_work_item_id text references work_items(id),
+  created_work_item_id text references work_items(id) on delete set null,
   accepted_at text,
   rejected_at text,
   created_at text not null,

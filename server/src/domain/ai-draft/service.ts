@@ -210,8 +210,8 @@ export class AiDraftService {
   rejectDraft(id: string, reason: string): DecisionDraft {
     const existing = this.getDraft(id);
     if (!existing) throw new DecisionDraftNotFoundError(id);
-    if (existing.status === 'accepted') {
-      throw new DecisionDraftConflictError('accepted draft cannot be rejected');
+    if (existing.status === 'accepted' || existing.status === 'edited' || existing.createdWorkItemId) {
+      throw new DecisionDraftConflictError('accepted or edited draft cannot be rejected');
     }
     const now = this.clock.nowIso();
     this.deps.db.prepare(
@@ -241,7 +241,7 @@ export class AiDraftService {
         if (draft.status === 'rejected') {
           throw new DecisionDraftConflictError(`rejected draft ${draft.id} cannot be accepted`);
         }
-        if (draft.createdWorkItemId) {
+        if (draft.status === 'accepted' || draft.status === 'edited') {
           accepted.push(draft);
           continue;
         }
@@ -269,9 +269,7 @@ export class AiDraftService {
         accepted.push(this.getRequiredDraft(draft.id));
       }
 
-      if (parsed.sourceIdeaStatus && run.sourceWorkItemId) {
-        this.workItems.update(run.sourceWorkItemId, { status: parsed.sourceIdeaStatus });
-      }
+      this.updateSourceIdeaStatus(run, parsed.sourceIdeaStatus);
       this.markRunAccepted(runId, now);
     })();
 
@@ -341,6 +339,24 @@ export class AiDraftService {
        set status = 'accepted', accepted_at = coalesce(accepted_at, ?), updated_at = ?
        where id = ?`,
     ).run(now, now, runId);
+  }
+
+  private updateSourceIdeaStatus(run: AiGenerationRun, status: Extract<WorkItemStatus, 'planned' | 'done'> | undefined): void {
+    if (!status) return;
+    if (run.sourceKind !== 'idea_decomposition') {
+      throw new DecisionDraftConflictError('sourceIdeaStatus is only valid for idea decomposition runs');
+    }
+    if (!run.sourceWorkItemId) {
+      throw new DecisionDraftConflictError('sourceIdeaStatus requires a source idea work item');
+    }
+    const source = this.workItems.get(run.sourceWorkItemId);
+    if (!source) {
+      throw new DecisionDraftConflictError(`source idea work item ${run.sourceWorkItemId} was not found`);
+    }
+    if (source.kind !== 'idea') {
+      throw new DecisionDraftConflictError('sourceIdeaStatus requires an idea source work item');
+    }
+    this.workItems.update(run.sourceWorkItemId, { status });
   }
 }
 
