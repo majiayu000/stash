@@ -3,6 +3,7 @@ import {
   systemClock,
   ulid,
   type AiGenerationRun,
+  type AcceptDecisionDraftInput,
   type Clock,
   type CreateAiGenerationRunInput,
   type CreateDecisionDraftInput,
@@ -134,6 +135,9 @@ export class AiDraftService {
     if (!isDraftSourceKind(run.sourceKind)) {
       throw new DecisionDraftConflictError(`run source kind ${run.sourceKind} cannot create decision drafts`);
     }
+    if (run.status !== 'succeeded') {
+      throw new DecisionDraftConflictError(`run ${runId} must be succeeded before creating decision drafts`);
+    }
     const now = this.clock.nowIso();
     const drafts: DecisionDraft[] = [];
 
@@ -147,9 +151,9 @@ export class AiDraftService {
           id: ulid(this.clock.now()),
           runId,
           sourceKind: parsed.sourceKind,
-          sourceWorkItemId: parsed.sourceWorkItemId,
-          sourceRecordId: parsed.sourceRecordId,
-          sourcePath: parsed.sourcePath,
+          sourceWorkItemId: parsed.sourceWorkItemId ?? run.sourceWorkItemId,
+          sourceRecordId: parsed.sourceRecordId ?? run.sourceRecordId,
+          sourcePath: parsed.sourcePath ?? run.sourcePath,
           sourceSpans: parsed.sourceSpans ?? [],
           proposedTitle: parsed.proposedTitle,
           proposedDescription: parsed.proposedDescription,
@@ -221,6 +225,9 @@ export class AiDraftService {
   acceptDrafts(runId: string, input: unknown): DecisionDraft[] {
     const run = this.getRun(runId);
     if (!run) throw new AiGenerationRunNotFoundError(runId);
+    if (run.status !== 'succeeded' && run.status !== 'accepted') {
+      throw new DecisionDraftConflictError(`run ${runId} must be succeeded before accepting decision drafts`);
+    }
     const parsed = AcceptDecisionDraftsSchema.parse(input);
     const now = this.clock.nowIso();
     const accepted: DecisionDraft[] = [];
@@ -337,7 +344,7 @@ export class AiDraftService {
   }
 }
 
-function hasUserEdits(draft: DecisionDraft, input: { title?: string; description?: string; kind?: string; priority?: string; labels?: string[]; scheduledFor?: string; dueAt?: string }): boolean {
+function hasUserEdits(draft: DecisionDraft, input: AcceptDecisionDraftInput): boolean {
   return (
     (input.title !== undefined && input.title !== draft.proposedTitle) ||
     (input.description !== undefined && input.description !== draft.proposedDescription) ||
@@ -345,7 +352,8 @@ function hasUserEdits(draft: DecisionDraft, input: { title?: string; description
     (input.priority !== undefined && input.priority !== draft.proposedPriority) ||
     (input.labels !== undefined && JSON.stringify(input.labels) !== JSON.stringify(draft.proposedLabels)) ||
     (input.scheduledFor !== undefined && input.scheduledFor !== draft.proposedScheduledFor) ||
-    (input.dueAt !== undefined && input.dueAt !== draft.proposedDueAt)
+    (input.dueAt !== undefined && input.dueAt !== draft.proposedDueAt) ||
+    (input.checklist !== undefined && JSON.stringify(input.checklist) !== JSON.stringify(draft.proposedChecklist))
   );
 }
 

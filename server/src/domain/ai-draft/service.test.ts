@@ -84,7 +84,6 @@ describe('AiDraftService', () => {
     });
     const [draft] = drafts.createDrafts(run.id, [{
       sourceKind: 'idea_decomposition',
-      sourceWorkItemId: idea.id,
       proposedTitle: 'Extract decisions from meeting notes',
     }]);
 
@@ -101,6 +100,69 @@ describe('AiDraftService', () => {
     expect(created?.title).toBe('Extract decisions from meeting notes');
     expect(workItems.get(idea.id)?.status).toBe('planned');
     expect(drafts.getRun(run.id)?.status).toBe('accepted');
+  });
+
+  test('drafts inherit source context from the run', () => {
+    const { workItems, drafts } = setupAiDraftTest();
+    const idea = workItems.create({ title: 'Turn an idea into tasks', kind: 'idea' });
+    const run = drafts.createRun({
+      feature: 'idea_decomposition',
+      sourceKind: 'idea_decomposition',
+      sourceWorkItemId: idea.id,
+      sourceRecordId: 'idea-record-1',
+      sourcePath: '/ideas/raw.md',
+      provider: 'local-test',
+      promptHash: 'hash-3b',
+      status: 'succeeded',
+    });
+    const [draft] = drafts.createDrafts(run.id, [{
+      sourceKind: 'idea_decomposition',
+      proposedTitle: 'Write the first task',
+    }]);
+
+    expect(draft?.sourceWorkItemId).toBe(idea.id);
+    expect(draft?.sourceRecordId).toBe('idea-record-1');
+    expect(draft?.sourcePath).toBe('/ideas/raw.md');
+
+    const [accepted] = drafts.acceptDrafts(run.id, { drafts: [{ draftId: draft!.id }] });
+    expect(workItems.get(accepted!.createdWorkItemId!)?.parentId).toBe(idea.id);
+  });
+
+  test('failed runs cannot create or accept drafts', () => {
+    const { workItems, drafts } = setupAiDraftTest();
+    const idea = workItems.create({ title: 'Handle invalid provider output', kind: 'idea' });
+    const failedRun = drafts.createRun({
+      feature: 'idea_decomposition',
+      sourceKind: 'idea_decomposition',
+      sourceWorkItemId: idea.id,
+      provider: 'local-test',
+      promptHash: 'hash-3c',
+    });
+
+    drafts.recordRunFailure(failedRun.id, 'invalid JSON');
+
+    expect(() => drafts.createDrafts(failedRun.id, [{
+      sourceKind: 'idea_decomposition',
+      proposedTitle: 'Should not exist',
+    }])).toThrow(DecisionDraftConflictError);
+
+    const runWithDraft = drafts.createRun({
+      feature: 'idea_decomposition',
+      sourceKind: 'idea_decomposition',
+      sourceWorkItemId: idea.id,
+      provider: 'local-test',
+      promptHash: 'hash-3d',
+      status: 'succeeded',
+    });
+    const [draft] = drafts.createDrafts(runWithDraft.id, [{
+      sourceKind: 'idea_decomposition',
+      proposedTitle: 'Review provider failure',
+    }]);
+    drafts.recordRunFailure(runWithDraft.id, 'late validation failure');
+
+    expect(() => drafts.acceptDrafts(runWithDraft.id, { drafts: [{ draftId: draft!.id }] })).toThrow(DecisionDraftConflictError);
+    expect(workItems.list({ parentId: idea.id })).toEqual([]);
+    expect(drafts.getRun(runWithDraft.id)?.status).toBe('failed');
   });
 
   test('accept is idempotent and returns the existing created item', () => {
@@ -144,10 +206,17 @@ describe('AiDraftService', () => {
       sourceWorkItemId: idea.id,
       proposedTitle: 'Find testers',
       proposedPriority: 'p2',
+      proposedChecklist: [{ id: 'check-1', text: 'make a list', completed: false }],
     }]);
 
     const [accepted] = drafts.acceptDrafts(run.id, {
-      drafts: [{ draftId: draft!.id, title: 'Interview beta testers', priority: 'p1', labels: ['beta'] }],
+      drafts: [{
+        draftId: draft!.id,
+        title: 'Interview beta testers',
+        priority: 'p1',
+        labels: ['beta'],
+        checklist: [{ id: 'check-1', text: 'make a target list', completed: false }],
+      }],
     });
     const created = workItems.get(accepted!.createdWorkItemId!);
 
@@ -155,6 +224,7 @@ describe('AiDraftService', () => {
     expect(created?.title).toBe('Interview beta testers');
     expect(created?.priority).toBe('p1');
     expect(created?.labels).toEqual(['beta']);
+    expect(created?.checklist).toEqual([{ id: 'check-1', text: 'make a target list', completed: false }]);
   });
 
   test('reject preserves source evidence and cannot be accepted later', () => {
