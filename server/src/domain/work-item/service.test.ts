@@ -151,6 +151,13 @@ describe('WorkItemService.update', () => {
     expect(updated.completedAt).toBe('2026-05-14T10:00:00.000Z');
   });
 
+  test('allows weekly review to move planned work to someday', () => {
+    const item = service.create({ title: 'thing', status: 'planned' });
+    const updated = service.update(item.id, { status: 'someday' });
+    expect(updated.status).toBe('someday');
+    expect(updated.scheduledFor).toBeUndefined();
+  });
+
   test('clears completedAt when un-completing (done → planned)', () => {
     const item = service.create({ title: 'thing', status: 'done' });
     const updated = service.update(item.id, { status: 'planned' });
@@ -276,6 +283,9 @@ describe('WorkItemService sub-task filtering', () => {
 describe('isTransitionAllowed (pure)', () => {
   test('allows inbox → planned', () => {
     expect(isTransitionAllowed('inbox', 'planned')).toBe(true);
+  });
+  test('allows planned → someday', () => {
+    expect(isTransitionAllowed('planned', 'someday')).toBe(true);
   });
   test('disallows done → blocked', () => {
     expect(isTransitionAllowed('done', 'blocked')).toBe(false);
