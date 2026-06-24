@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { systemClock, type Clock } from '@stash/shared';
 import { z } from 'zod';
 import type { AreaService } from '../../domain/area/service.js';
-import { parseCaptureInput } from '../../domain/capture/parser.js';
+import { buildCapturePreview, parseCaptureInput } from '../../domain/capture/parser.js';
 import type { EvidenceService } from '../../domain/evidence/service.js';
 import type { JournalService } from '../../domain/work-item/journal.js';
 import type { WorkItemService } from '../../domain/work-item/service.js';
@@ -100,16 +100,25 @@ export function createWorkItemsRouter(
         priority: parsed.priority,
         scheduledFor: parsed.scheduledFor,
         dueAt: parsed.dueAt,
+        startAt: parsed.startAt,
         estimateMinutes: parsed.estimateMinutes,
         rawInput: raw,
         kind: 'idea',
         status: 'inbox',
       });
-      // Decorate parsed with human-readable project name for CLI / UI display.
-      const projectName = parsed.projectId
-        ? areas.find((a) => a.id === parsed.projectId)?.name
-        : undefined;
-      return c.json({ data: item, parsed: { ...parsed, projectName } }, 201);
+      return c.json({ data: item, parsed: buildCapturePreview(parsed, areas) }, 201);
+    } catch (e) {
+      return handleError(c, e);
+    }
+  });
+
+  /** SPEC v0.5 §7.1 — non-persisting quick capture parse preview. */
+  r.post('/capture/preview', async (c) => {
+    try {
+      const { raw } = CaptureBody.parse(await c.req.json());
+      const areas = deps.areaService?.list() ?? [];
+      const parsed = parseCaptureInput(raw, { areas, nowIso: clock.nowIso() });
+      return c.json({ parsed: buildCapturePreview(parsed, areas) });
     } catch (e) {
       return handleError(c, e);
     }

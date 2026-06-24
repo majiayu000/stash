@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import type { Area } from '@stash/shared';
-import { parseCaptureInput, parseDateToken } from './parser.js';
+import { buildCapturePreview, parseCaptureInput, parseDateToken } from './parser.js';
 
 const NOW = '2026-05-14T12:00:00.000Z'; // Thursday
 
@@ -14,7 +14,7 @@ function area(id: string, name: string): Area {
   };
 }
 
-const AREAS: Area[] = [area('a1', 'aurora'), area('a2', 'borealis'), area('a3', 'AI tooling')];
+const AREAS: Area[] = [area('a1', 'aurora'), area('a2', 'borealis'), area('a3', 'AI tooling'), area('a4', '家庭')];
 const CTX = { areas: AREAS, nowIso: NOW };
 
 describe('parseCaptureInput', () => {
@@ -97,6 +97,46 @@ describe('parseCaptureInput', () => {
     expect(r.projectId).toBe('a3');
     expect(r.areaId).toBe('a3');
   });
+
+  test('Chinese date and time phrases set scheduledFor and startAt', () => {
+    const r = parseCaptureInput('明天下午3点半 修门 #家庭 @家务 ^p2 *30m', CTX);
+    expect(r.title).toBe('修门');
+    expect(r.projectId).toBe('a4');
+    expect(r.labels).toEqual(['家务']);
+    expect(r.priority).toBe('p2');
+    expect(r.scheduledFor).toBe('2026-05-15');
+    expect(r.startAt).toBe('2026-05-15T15:30:00.000Z');
+    expect(r.estimateMinutes).toBe(30);
+  });
+
+  test('numeric time combines with existing v0.3 date token', () => {
+    const r = parseCaptureInput('deploy !tomorrow 20:30 @ops', CTX);
+    expect(r.title).toBe('deploy');
+    expect(r.scheduledFor).toBe('2026-05-15');
+    expect(r.startAt).toBe('2026-05-15T20:30:00.000Z');
+    expect(r.labels).toEqual(['ops']);
+  });
+
+  test('tonight schedules today with an evening start time', () => {
+    const r = parseCaptureInput('今晚 写总结', CTX);
+    expect(r.title).toBe('写总结');
+    expect(r.scheduledFor).toBe('2026-05-14');
+    expect(r.startAt).toBe('2026-05-14T20:00:00.000Z');
+  });
+
+  test('buildCapturePreview exposes normalized server chip labels', () => {
+    const parsed = parseCaptureInput('明天下午3点半 修门 #家庭 @家务 ^p2 *30m', CTX);
+    const preview = buildCapturePreview(parsed, AREAS);
+    expect(preview.projectName).toBe('家庭');
+    expect(preview.chips).toEqual([
+      { type: 'proj', label: '#家庭', value: 'a4' },
+      { type: 'tag', label: '@家务', value: '家务' },
+      { type: 'pri', label: '^p2', value: 'p2' },
+      { type: 'date', label: 'scheduled 2026-05-15', value: '2026-05-15' },
+      { type: 'time', label: 'start 15:30', value: '2026-05-15T15:30:00.000Z' },
+      { type: 'est', label: 'estimate 30m', value: '30' },
+    ]);
+  });
 });
 
 describe('parseDateToken', () => {
@@ -119,6 +159,21 @@ describe('parseDateToken', () => {
 
   test('ISO date passes through', () => {
     expect(parseDateToken('2026-05-20', NOW)).toBe('2026-05-20');
+  });
+
+  test('Chinese relative dates and weekdays', () => {
+    expect(parseDateToken('今天', NOW)).toBe('2026-05-14');
+    expect(parseDateToken('明天', NOW)).toBe('2026-05-15');
+    expect(parseDateToken('后天', NOW)).toBe('2026-05-16');
+    expect(parseDateToken('大后天', NOW)).toBe('2026-05-17');
+    expect(parseDateToken('周一', NOW)).toBe('2026-05-18');
+    expect(parseDateToken('下周', NOW)).toBe('2026-05-18');
+    expect(parseDateToken('下周一', NOW)).toBe('2026-05-25');
+  });
+
+  test('+N day/week offsets', () => {
+    expect(parseDateToken('+3d', NOW)).toBe('2026-05-17');
+    expect(parseDateToken('+2w', NOW)).toBe('2026-05-28');
   });
 
   test('due-<phrase> normalised (used by !! tokens)', () => {

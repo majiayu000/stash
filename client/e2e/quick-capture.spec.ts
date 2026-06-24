@@ -20,13 +20,14 @@ test('Quick Capture parses inline tokens and lands a structured work item', asyn
   await page.keyboard.press('c');
   await expect(page.getByTestId('qc-input')).toBeVisible();
 
-  await page.getByTestId('qc-input').fill(`${unique} ^p1 !tomorrow @e2e *45m`);
+  await page.getByTestId('qc-input').fill(`${unique} ^p1 !tomorrow 20:30 @e2e *45m`);
 
-  // Token chips render in preview
+  // Server-owned normalized chips render in preview.
   await expect(page.locator('.qc-chip-pri')).toContainText('^p1');
-  await expect(page.locator('.qc-chip-date')).toContainText('!tomorrow');
+  await expect(page.locator('.qc-chip-date')).toContainText('scheduled');
+  await expect(page.locator('.qc-chip-time')).toContainText('20:30');
   await expect(page.locator('.qc-chip-tag')).toContainText('@e2e');
-  await expect(page.locator('.qc-chip-est')).toContainText('*45m');
+  await expect(page.locator('.qc-chip-est')).toContainText('45m');
 
   await page.keyboard.press('Enter');
   await expect(page.getByTestId('qc-toast')).toBeVisible();
@@ -35,11 +36,12 @@ test('Quick Capture parses inline tokens and lands a structured work item', asyn
   const res = await request.get(`${API}/work-items?status=inbox`);
   expect(res.ok()).toBeTruthy();
   const json = await res.json();
-  const found = (json.data as Array<{ title: string; priority: string; labels: string[]; estimateMinutes?: number; scheduledFor?: string }>)
+  const found = (json.data as Array<{ title: string; priority: string; labels: string[]; estimateMinutes?: number; scheduledFor?: string; startAt?: string }>)
     .find((it) => it.title === unique);
   expect(found).toBeTruthy();
   expect(found?.priority).toBe('p1');
   expect(found?.labels).toContain('e2e');
   expect(found?.estimateMinutes).toBe(45);
   expect(found?.scheduledFor).toBeTruthy();
+  expect(found?.startAt).toContain('20:30');
 });
