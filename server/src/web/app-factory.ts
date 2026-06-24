@@ -156,11 +156,11 @@ export function createApp(ctx: AppContext): Hono {
   );
 
   app.route('/api/areas', createAreasRouter(areaService));
+  app.route('/api/work-items', createWorkItemAiRouter(aiProviderService, aiDraftService));
   app.route(
     '/api/work-items',
     createWorkItemsRouter(workItemService, sessionLinks, evidenceService, { areaService, journal: journalService, clock }),
   );
-  app.route('/api/work-items', createWorkItemAiRouter(aiProviderService));
   app.route('/api/overview', createOverviewRouter(workItemService, clock));
   app.route('/api/agent-sessions', createAgentSessionsRouter(aggregator, sessionLinks, decisionCandidateService));
   app.route('/api/workboard', createWorkboardRouter(workItemService, sessionLinks, aggregator));
