@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import type { FeatureAdvancedRow, WeeklySnapshot, WorkItem } from '@stash/shared';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import type { FeatureAdvancedRow, UpdateWorkItemInput, WeeklySnapshot, WorkItem } from '@stash/shared';
 import { getWeeklySnapshot } from '../../api/analytics';
-import { listStale, listWorkItems } from '../../api/work-items';
+import * as workItemsApi from '../../api/work-items';
 import { CountUp, ParticleField, ShinyText } from '../../components/effects';
 import { fmt, type WBData, type WBProject } from '../data';
 import { LoadErrorPanel, SessionRow, Topbar, toError } from '../shared';
+import { todayIso } from './conceptE.lifecycle';
+import { buildWeeklyReviewMarkdown } from './conceptJ.export';
+import { dateInRange, isIsoWeekLabel, nextIsoWeekRange, shiftIsoWeek, type IsoWeekRange, type WeekdaySlot } from './conceptJ.week';
 
 /**
  * Concept J — Weekly Review.
@@ -17,24 +20,38 @@ import { LoadErrorPanel, SessionRow, Topbar, toError } from '../shared';
  */
 export function ConceptJ({ data }: { data: WBData; reload: () => void }) {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { projects, sessions } = data;
+  const requestedWeek = searchParams.get('week');
+  const selectedWeek = isIsoWeekLabel(requestedWeek) ? requestedWeek : undefined;
   const [week, setWeek] = useState<WeeklySnapshot | null>(null);
   const [doneItems, setDoneItems] = useState<WorkItem[]>([]);
   const [stale, setStale] = useState<WorkItem[]>([]);
+  const [nextWeekItems, setNextWeekItems] = useState<WorkItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<Error | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [actionNotice, setActionNotice] = useState<string | null>(null);
+  const [mutatingId, setMutatingId] = useState<string | null>(null);
   const [retryTick, setRetryTick] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setLoadError(null);
+    setActionError(null);
     Promise.all([
-      getWeeklySnapshot(),
-      listWorkItems({ status: ['done'] }),
-      listStale(30),
+      getWeeklySnapshot(selectedWeek),
+      workItemsApi.listWorkItems({ status: ['done'] }),
+      workItemsApi.listStale(30),
     ])
-      .then(([w, items, staleItems]) => {
+      .then(async ([w, items, staleItems]) => {
+        const planRange = nextIsoWeekRange(w.week);
+        const planItems = await workItemsApi.listWorkItems({
+          status: ['planned'],
+          scheduledFrom: planRange.startDate,
+          scheduledTo: planRange.endDate,
+        });
         if (cancelled) return;
         setWeek(w);
         const within = items.filter((it) => {
@@ -43,6 +60,7 @@ export function ConceptJ({ data }: { data: WBData; reload: () => void }) {
         });
         setDoneItems(within);
         setStale(staleItems);
+        setNextWeekItems(sortPlanItems(planItems));
         setLoading(false);
       })
       .catch((e: unknown) => {
@@ -52,7 +70,7 @@ export function ConceptJ({ data }: { data: WBData; reload: () => void }) {
         }
       });
     return () => { cancelled = true; };
-  }, [retryTick]);
+  }, [retryTick, selectedWeek]);
 
   if (loading) {
     return (
@@ -82,6 +100,42 @@ export function ConceptJ({ data }: { data: WBData; reload: () => void }) {
   const wowSessionsDelta = week.wow.sessions.now - week.wow.sessions.prev;
   const featAdvanced = week.featuresAdvanced;
   const doneByProject = groupDoneByProject(doneItems, projects);
+  const nextWeek = nextIsoWeekRange(week.week);
+
+  const navigateWeek = (delta: number) => {
+    const next = new URLSearchParams(searchParams);
+    next.set('week', shiftIsoWeek(week.week, delta));
+    setSearchParams(next);
+  };
+
+  const applyStaleAction = async (item: WorkItem, input: UpdateWorkItemInput, label: string) => {
+    setMutatingId(item.id);
+    setActionError(null);
+    setActionNotice(null);
+    try {
+      const updated = await workItemsApi.updateWorkItem(item.id, input);
+      setStale((items) => items.filter((candidate) => candidate.id !== item.id));
+      setNextWeekItems((items) => reconcilePlannedItem(items, updated, nextWeek));
+      setActionNotice(label);
+    } catch (error) {
+      setActionError(toError(error).message);
+    } finally {
+      setMutatingId(null);
+    }
+  };
+
+  const exportMarkdown = () => {
+    const markdown = buildWeeklyReviewMarkdown({
+      week,
+      doneItems,
+      staleItems: stale,
+      nextWeekItems,
+      projects,
+    });
+    downloadMarkdown(`stash-weekly-review-${week.week}.md`, markdown);
+    setActionError(null);
+    setActionNotice('markdown exported');
+  };
 
   return (
     <div className="dashboard-canvas">
@@ -90,20 +144,26 @@ export function ConceptJ({ data }: { data: WBData; reload: () => void }) {
 
         <div className="wr-head">
           <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-            <button className="wr-nav" type="button">‹</button>
+            <button className="wr-nav" type="button" aria-label="previous week" onClick={() => navigateWeek(-1)}>‹</button>
             <div>
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>this week · review</div>
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.5rem', fontWeight: 700, marginTop: 2 }}>
                 <ShinyText>{week.week} — stash workbench</ShinyText>
               </div>
             </div>
-            <button className="wr-nav" type="button">›</button>
+            <button className="wr-nav" type="button" aria-label="next week" onClick={() => navigateWeek(1)}>›</button>
           </div>
           <div style={{ display: 'flex', gap: '0.5rem' }}>
             <button className="sd-action" type="button">📤 share with team</button>
-            <button className="sd-action" type="button">📋 export markdown</button>
+            <button className="sd-action" type="button" onClick={exportMarkdown}>📋 export markdown</button>
           </div>
         </div>
+
+        {(actionError || actionNotice) && (
+          <div className={`wr-action-msg ${actionError ? 'error' : ''}`}>
+            {actionError ?? actionNotice}
+          </div>
+        )}
 
         {/* Row 1: deterministic narrative + KPIs */}
         <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr', gap: '1.25rem', marginBottom: '1.25rem' }}>
@@ -198,10 +258,19 @@ export function ConceptJ({ data }: { data: WBData; reload: () => void }) {
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                   {stale.slice(0, 6).map((it) => (
-                    <div key={it.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 6px', background: 'rgba(255,255,255,0.02)', borderRadius: 4 }}>
-                      <span style={{ flex: 1, fontFamily: 'var(--font-mono)', fontSize: '0.74rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{it.title}</span>
-                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.62rem', color: 'var(--text-muted)' }}>{daysSince(it.updatedAt)}d</span>
-                    </div>
+                    <StaleReviewRow
+                      key={it.id}
+                      item={it}
+                      days={daysSince(it.updatedAt)}
+                      nextWeek={nextWeek}
+                      disabled={mutatingId === it.id}
+                      onOpen={() => navigate(`/c/l/${it.id}`)}
+                      onKeep={() => applyStaleAction(it, {}, 'stale item kept')}
+                      onToday={() => applyStaleAction(it, { status: 'planned', todayPinned: true, scheduledFor: todayIso() }, 'stale item scheduled for today')}
+                      onNextWeek={() => applyStaleAction(it, { status: 'planned', todayPinned: false, scheduledFor: nextWeek.days[0]!.isoDate }, 'stale item scheduled for next week')}
+                      onSomeday={() => applyStaleAction(it, { status: 'someday', todayPinned: false, scheduledFor: null, startAt: null, dueAt: null }, 'stale item moved to someday')}
+                      onDrop={() => applyStaleAction(it, { status: 'dropped', todayPinned: false }, 'stale item dropped')}
+                    />
                   ))}
                   {stale.length > 6 && (
                     <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.68rem', color: 'var(--text-muted)', textAlign: 'center', marginTop: 4 }}>
@@ -229,11 +298,16 @@ export function ConceptJ({ data }: { data: WBData; reload: () => void }) {
         <div style={{ marginTop: '1.25rem' }}>
           <div className="sec-head" style={{ marginBottom: '0.75rem' }}>
             <span className="prompt">&gt;</span> plan next week
-            <span className="count">— drop todos here · auto-budget estimate</span>
+            <span className="count">— {nextWeek.week} · persisted scheduled dates</span>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '0.75rem' }}>
-            {['mon', 'tue', 'wed', 'thu', 'fri'].map((d) => (
-              <NextWeekDay key={d} day={d} />
+            {nextWeek.days.map((day) => (
+              <NextWeekDay
+                key={day.key}
+                day={day}
+                items={itemsForDate(nextWeekItems, day.isoDate)}
+                onOpen={(id) => navigate(`/c/l/${id}`)}
+              />
             ))}
           </div>
         </div>
@@ -376,15 +450,101 @@ function WowCompare({ label, cur, prev, fmt: fmtNum, warn }: { label: string; cu
   );
 }
 
-function NextWeekDay({ day }: { day: string }) {
+function StaleReviewRow({
+  item,
+  days,
+  nextWeek,
+  disabled,
+  onOpen,
+  onKeep,
+  onToday,
+  onNextWeek,
+  onSomeday,
+  onDrop,
+}: {
+  item: WorkItem;
+  days: number;
+  nextWeek: IsoWeekRange;
+  disabled: boolean;
+  onOpen: () => void;
+  onKeep: () => void;
+  onToday: () => void;
+  onNextWeek: () => void;
+  onSomeday: () => void;
+  onDrop: () => void;
+}) {
+  const nextDate = nextWeek.days[0]?.isoDate ?? nextWeek.startDate;
   return (
-    <div className="wr-nwd">
-      <div className="wr-nwd-head">{day}</div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
-        <button className="wr-nwd-add" type="button">+ drop here</button>
+    <div className="wr-stale-row">
+      <button className="wr-stale-title" type="button" onClick={onOpen}>
+        {item.title}
+      </button>
+      <span className="wr-stale-age">{days}d</span>
+      <div className="wr-stale-actions">
+        <button type="button" disabled={disabled} onClick={onKeep}>keep</button>
+        <button type="button" disabled={disabled} onClick={onToday}>today</button>
+        <button type="button" disabled={disabled} onClick={onNextWeek}>{nextDate}</button>
+        <button type="button" disabled={disabled} onClick={onSomeday}>someday</button>
+        <button type="button" disabled={disabled} onClick={onDrop}>drop</button>
       </div>
     </div>
   );
+}
+
+function NextWeekDay({ day, items, onOpen }: { day: WeekdaySlot; items: WorkItem[]; onOpen: (id: string) => void }) {
+  return (
+    <div className="wr-nwd">
+      <div className="wr-nwd-head">{day.label}<span>{day.isoDate.slice(5)}</span></div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
+        {items.length === 0 ? (
+          <div className="wr-nwd-empty">no planned work</div>
+        ) : items.map((item) => (
+          <button key={item.id} className="wr-nwd-todo" type="button" onClick={() => onOpen(item.id)}>
+            <span className="wr-nwd-priority">{item.priority}</span>
+            <span>{item.title}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function itemsForDate(items: WorkItem[], date: string): WorkItem[] {
+  return items.filter((item) => item.scheduledFor === date);
+}
+
+function reconcilePlannedItem(items: WorkItem[], updated: WorkItem, range: IsoWeekRange): WorkItem[] {
+  const withoutUpdated = items.filter((item) => item.id !== updated.id);
+  if (updated.status !== 'planned' || !dateInRange(updated.scheduledFor, range)) {
+    return withoutUpdated;
+  }
+  return sortPlanItems([...withoutUpdated, updated]);
+}
+
+function sortPlanItems(items: WorkItem[]): WorkItem[] {
+  return [...items].sort((a, b) => {
+    const date = (a.scheduledFor ?? '').localeCompare(b.scheduledFor ?? '');
+    if (date !== 0) return date;
+    const priority = priorityRank(a.priority) - priorityRank(b.priority);
+    if (priority !== 0) return priority;
+    return a.title.localeCompare(b.title);
+  });
+}
+
+function priorityRank(priority: WorkItem['priority']): number {
+  return { p0: 0, p1: 1, p2: 2, p3: 3 }[priority];
+}
+
+function downloadMarkdown(filename: string, markdown: string): void {
+  const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
 }
 
 const conceptJStyles = `
@@ -407,6 +567,22 @@ const conceptJStyles = `
   font-family: var(--font-mono);
 }
 .wr-nav:hover { border-color: var(--neon-cyan); color: var(--neon-cyan); }
+
+.wr-action-msg {
+  margin: -0.65rem 0 0.9rem;
+  padding: 0.45rem 0.7rem;
+  border: 1px solid rgba(48,209,88,0.24);
+  border-radius: var(--radius-sm);
+  color: var(--neon-green);
+  background: rgba(48,209,88,0.06);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+}
+.wr-action-msg.error {
+  border-color: rgba(255,69,58,0.28);
+  color: var(--neon-pink);
+  background: rgba(255,69,58,0.06);
+}
 
 .wr-summary {
   position: relative;
@@ -462,6 +638,54 @@ const conceptJStyles = `
 .wr-wow-row { padding: 0.55rem 0; border-bottom: 1px solid var(--border-hair); }
 .wr-wow-row:last-child { border-bottom: 0; }
 
+.wr-stale-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.35rem 0.5rem;
+  padding: 6px;
+  background: rgba(255,255,255,0.02);
+  border: 1px solid var(--border-hair);
+  border-radius: var(--radius-sm);
+}
+.wr-stale-title {
+  min-width: 0;
+  background: transparent;
+  border: 0;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  overflow: hidden;
+  padding: 0;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wr-stale-title:hover { color: var(--neon-cyan); }
+.wr-stale-age {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+}
+.wr-stale-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+.wr-stale-actions button {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--border-hair);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  padding: 2px 6px;
+}
+.wr-stale-actions button:hover:not(:disabled) { border-color: var(--neon-cyan); color: var(--neon-cyan); }
+.wr-stale-actions button:disabled { cursor: progress; opacity: 0.55; }
+
 .wr-nwd {
   background: var(--bg-glass);
   border: 1px solid var(--border-hair);
@@ -470,9 +694,10 @@ const conceptJStyles = `
   display: flex; flex-direction: column; gap: 0.5rem;
   min-height: 130px;
 }
-.wr-nwd-head { font-family: var(--font-mono); font-size: 0.72rem; font-weight: 700; color: var(--neon-cyan); text-transform: uppercase; letter-spacing: 0.1em; padding-bottom: 0.35rem; border-bottom: 1px solid var(--border-hair); }
-.wr-nwd-todo { display: flex; gap: 6px; align-items: flex-start; padding: 5px 6px; background: rgba(255,255,255,0.025); border: 1px solid var(--border-hair); border-radius: var(--radius-sm); cursor: grab; }
+.wr-nwd-head { display: flex; justify-content: space-between; gap: 0.4rem; font-family: var(--font-mono); font-size: 0.72rem; font-weight: 700; color: var(--neon-cyan); text-transform: uppercase; letter-spacing: 0.1em; padding-bottom: 0.35rem; border-bottom: 1px solid var(--border-hair); }
+.wr-nwd-head span { color: var(--text-muted); font-size: 0.62rem; letter-spacing: 0; }
+.wr-nwd-empty { color: var(--text-muted); font-family: var(--font-mono); font-size: 0.68rem; padding: 4px 0; }
+.wr-nwd-priority { color: var(--neon-orange); flex-shrink: 0; font-size: 0.62rem; text-transform: uppercase; }
+.wr-nwd-todo { display: flex; gap: 6px; align-items: flex-start; padding: 5px 6px; background: rgba(255,255,255,0.025); border: 1px solid var(--border-hair); border-radius: var(--radius-sm); color: var(--text-secondary); cursor: pointer; font-family: var(--font-mono); font-size: 0.68rem; text-align: left; }
 .wr-nwd-todo:hover { border-color: var(--border-glow); }
-.wr-nwd-add { background: transparent; border: 1px dashed var(--border-subtle); color: var(--text-muted); padding: 6px; border-radius: var(--radius-sm); font-family: var(--font-mono); font-size: 0.7rem; cursor: pointer; margin-top: auto; }
-.wr-nwd-add:hover { border-color: var(--neon-cyan); color: var(--neon-cyan); }
 `;

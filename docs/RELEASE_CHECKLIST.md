@@ -142,6 +142,10 @@ curl -fsS http://localhost:4174/api/overview
 open http://localhost:5173/
 ```
 
+Optional AI smoke uses the server-side provider variables documented in
+`docs/AI_PROVIDER.md`. Keep `STASH_AI_PROVIDER=disabled` unless the release is
+explicitly testing AI draft review.
+
 Blocking startup warnings:
 
 | Warning | Blocks release? | Required action |

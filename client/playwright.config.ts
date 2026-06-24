@@ -8,6 +8,7 @@ const CODEX_FIXTURE_ROOT = resolve(here, '../server/src/adapters/codex/fixtures'
 
 const CLIENT_PORT = Number(process.env.STASH_E2E_CLIENT_PORT ?? 5173);
 const SERVER_PORT = Number(process.env.STASH_E2E_SERVER_PORT ?? 4174);
+const AI_PROVIDER_PORT = Number(process.env.STASH_E2E_AI_PROVIDER_PORT ?? 4175);
 const DB_PATH = process.env.STASH_E2E_DB_PATH ?? '/tmp/stash-e2e.db';
 const reuseExistingServer = process.env.STASH_REUSE_E2E_SERVER === '1';
 const CLIENT_ORIGINS = [
@@ -33,6 +34,16 @@ export default defineConfig({
   ],
   webServer: [
     {
+      command: 'bun run src/testing/mock-ai-provider.ts',
+      cwd: '../server',
+      port: AI_PROVIDER_PORT,
+      env: {
+        STASH_MOCK_AI_PORT: String(AI_PROVIDER_PORT),
+      },
+      reuseExistingServer,
+      timeout: 30_000,
+    },
+    {
       command: 'bun run start',
       cwd: '../server',
       port: SERVER_PORT,
@@ -43,6 +54,10 @@ export default defineConfig({
         CLAUDE_ROOT: CLAUDE_FIXTURE_ROOT,
         CODEX_ROOT: CODEX_FIXTURE_ROOT,
         STASH_SESSION_SPAWN_MODE: 'disabled',
+        STASH_AI_PROVIDER: 'openai_compatible',
+        STASH_AI_BASE_URL: `http://127.0.0.1:${AI_PROVIDER_PORT}/v1/chat/completions`,
+        STASH_AI_API_KEY: 'stash-e2e-key',
+        STASH_AI_MODEL: 'stash-e2e-mock',
       },
       reuseExistingServer,
       timeout: 30_000,

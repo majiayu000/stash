@@ -8,6 +8,7 @@ import {
   type CreateAiGenerationRunInput,
   type CreateDecisionDraftInput,
   type DecisionDraft,
+  type DecisionDraftReviewFlag,
   type DecisionDraftStatus,
   type DraftSourceKind,
   type SourceSpan,
@@ -56,6 +57,8 @@ interface DecisionDraftRow {
   proposed_checklist_json: string;
   sort_order: number | null;
   status: DecisionDraftStatus;
+  review_flags_json: string;
+  review_reason: string | null;
   reject_reason: string | null;
   created_work_item_id: string | null;
   accepted_at: string | null;
@@ -166,6 +169,8 @@ export class AiDraftService {
           proposedChecklist: parsed.proposedChecklist ?? [],
           sortOrder: parsed.sortOrder,
           status: 'draft',
+          reviewFlags: parsed.reviewFlags ?? [],
+          reviewReason: parsed.reviewReason,
           createdAt: now,
           updatedAt: now,
         };
@@ -193,7 +198,34 @@ export class AiDraftService {
     return this.getRequiredRun(id);
   }
 
-  listDrafts(filter: { runId?: string; status?: DecisionDraftStatus } = {}): DecisionDraft[] {
+  recordRunSuccess(id: string, rawResponseJson: string): AiGenerationRun {
+    const existing = this.getRun(id);
+    if (!existing) throw new AiGenerationRunNotFoundError(id);
+    if (existing.status === 'accepted' || existing.status === 'discarded') {
+      throw new DecisionDraftConflictError(`run ${id} is terminal and cannot be succeeded`);
+    }
+    const now = this.clock.nowIso();
+    const updated = this.deps.db.prepare(
+      `update ai_generation_runs
+       set status = 'succeeded', raw_response_json = ?, error = null, updated_at = ?
+       where id = ?`,
+    ).run(rawResponseJson, now, id);
+    if (updated.changes === 0) throw new AiGenerationRunNotFoundError(id);
+    return this.getRequiredRun(id);
+  }
+
+  recordRunAccepted(id: string): AiGenerationRun {
+    const existing = this.getRun(id);
+    if (!existing) throw new AiGenerationRunNotFoundError(id);
+    if (existing.status === 'failed' || existing.status === 'discarded') {
+      throw new DecisionDraftConflictError(`run ${id} cannot be accepted from ${existing.status}`);
+    }
+    const now = this.clock.nowIso();
+    this.markRunAccepted(id, now);
+    return this.getRequiredRun(id);
+  }
+
+  listDrafts(filter: { runId?: string; status?: DecisionDraftStatus; sourceKind?: DraftSourceKind } = {}): DecisionDraft[] {
     const where: string[] = [];
     const params: string[] = [];
     if (filter.runId) {
@@ -203,6 +235,10 @@ export class AiDraftService {
     if (filter.status) {
       where.push('status = ?');
       params.push(filter.status);
+    }
+    if (filter.sourceKind) {
+      where.push('source_kind = ?');
+      params.push(filter.sourceKind);
     }
     const whereSql = where.length ? `where ${where.join(' and ')}` : '';
     return this.deps.db
@@ -255,6 +291,9 @@ export class AiDraftService {
         if (draft.status === 'accepted' || draft.status === 'edited') {
           accepted.push(draft);
           continue;
+        }
+        if (draft.reviewFlags.length > 0 && draftInput.reviewed !== true) {
+          throw new DecisionDraftConflictError(`flagged draft ${draft.id} requires explicit review before acceptance`);
         }
 
         const sourceContext = this.getAcceptSourceContext(draft);
@@ -313,9 +352,9 @@ export class AiDraftService {
         id, run_id, source_kind, source_work_item_id, source_record_id, source_path,
         source_spans_json, proposed_title, proposed_description, proposed_kind,
         proposed_priority, proposed_labels_json, proposed_scheduled_for, proposed_due_at,
-        proposed_checklist_json, sort_order, status, reject_reason, created_work_item_id,
+        proposed_checklist_json, sort_order, status, review_flags_json, review_reason, reject_reason, created_work_item_id,
         accepted_at, rejected_at, created_at, updated_at
-      ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', null, null, null, null, ?, ?)`,
+      ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, null, null, null, null, ?, ?)`,
     ).run(
       draft.id,
       draft.runId,
@@ -333,6 +372,8 @@ export class AiDraftService {
       draft.proposedDueAt ?? null,
       JSON.stringify(draft.proposedChecklist),
       draft.sortOrder ?? null,
+      JSON.stringify(draft.reviewFlags),
+      draft.reviewReason ?? null,
       draft.createdAt,
       draft.updatedAt,
     );
@@ -480,6 +521,8 @@ function mapDraft(row: DecisionDraftRow): DecisionDraft {
     proposedChecklist: parseJsonArray(row.proposed_checklist_json),
     sortOrder: row.sort_order ?? undefined,
     status: row.status,
+    reviewFlags: parseJsonArray<DecisionDraftReviewFlag>(row.review_flags_json),
+    reviewReason: row.review_reason ?? undefined,
     rejectReason: row.reject_reason ?? undefined,
     createdWorkItemId: row.created_work_item_id ?? undefined,
     acceptedAt: row.accepted_at ?? undefined,

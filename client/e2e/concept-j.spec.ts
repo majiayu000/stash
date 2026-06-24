@@ -13,5 +13,7 @@ test('Concept J renders the weekly review with an ISO-week label', async ({ page
   await expect(page.locator('.topbar-title')).toContainText('stash');
 
   // The header contains `<year>-W<week>` once the snapshot loads.
-  await expect(page.getByText(/\b\d{4}-W\d{2}\b/)).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator('.wr-head .shiny-text')).toContainText(/\b\d{4}-W\d{2}\b/, {
+    timeout: 10_000,
+  });
 });

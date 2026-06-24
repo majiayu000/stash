@@ -19,6 +19,7 @@ const app = createApp({
   codexRoot: config.codexRoot,
   allowedOrigins: config.allowedOrigins,
   sessionSpawnMode: config.sessionSpawnMode,
+  aiProvider: config.aiProvider,
   logger: (msg) => process.stderr.write(`${msg}\n`),
 });
 

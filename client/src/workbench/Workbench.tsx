@@ -8,6 +8,7 @@ import { useWorkbenchData } from './useWorkbenchData';
 import { findConcept } from './concepts/registry';
 import { renderConcept } from './concepts/render';
 import { ConceptSwitcher } from './ConceptSwitcher';
+import { DecisionInbox } from './DecisionInbox';
 import { InboxTriage } from './InboxTriage';
 import { ReminderTicker } from './ReminderTicker';
 import { QuickCapture } from './QuickCapture';
@@ -107,6 +108,7 @@ export function Workbench() {
       </div>
       <QuickCapture />
       <InboxTriage />
+      <DecisionInbox reload={reload} />
       <SearchPalette />
       <SmartLists />
       <ReminderTicker />

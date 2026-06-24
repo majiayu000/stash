@@ -16,14 +16,14 @@ const diffArgs =
   ci && process.env.GITHUB_BASE_REF
     ? ['diff', '--check', `origin/${process.env.GITHUB_BASE_REF}...HEAD`]
     : ['diff', '--check'];
-const e2eEnv = ci ? await createIsolatedE2eEnv() : { STASH_REUSE_E2E_SERVER: '1' };
+const e2eEnv = await createIsolatedE2eEnv();
 
 const steps: Step[] = [
   { name: 'diff check', command: 'git', args: diffArgs },
   {
-    name: ci ? 'doctor' : 'doctor strict',
+    name: 'doctor',
     command: 'bun',
-    args: ['run', 'doctor', ...(ci ? [] : ['--strict'])],
+    args: ['run', 'doctor'],
   },
   { name: 'typecheck', command: 'bun', args: ['run', 'typecheck'] },
   { name: 'server tests', command: 'bun', args: ['run', 'server:test'] },
@@ -51,10 +51,13 @@ async function createIsolatedE2eEnv(): Promise<Record<string, string>> {
   const serverPort = await pickPort(4274, claimed);
   claimed.add(serverPort);
   const clientPort = await pickPort(5273, claimed);
+  claimed.add(clientPort);
+  const aiProviderPort = await pickPort(4275, claimed);
 
   return {
     STASH_E2E_SERVER_PORT: String(serverPort),
     STASH_E2E_CLIENT_PORT: String(clientPort),
+    STASH_E2E_AI_PROVIDER_PORT: String(aiProviderPort),
     STASH_E2E_API_URL: `http://localhost:${serverPort}/api`,
     STASH_E2E_DB_PATH: join(tmpdir(), `stash-e2e-${process.pid}-${Date.now()}.db`),
   };

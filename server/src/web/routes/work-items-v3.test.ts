@@ -24,6 +24,14 @@ async function postJson(app: Hono, path: string, body: unknown): Promise<Respons
   }));
 }
 
+async function patchJson(app: Hono, path: string, body: unknown): Promise<Response> {
+  return app.fetch(new Request(`http://test${path}`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  }));
+}
+
 async function getJson(app: Hono, path: string): Promise<Response> {
   return app.fetch(new Request(`http://test${path}`));
 }
@@ -46,8 +54,10 @@ describe('POST /api/work-items/capture', () => {
     expect(json.data.labels).toContain('auth');
     expect(json.data.estimateMinutes).toBe(45);
     expect(json.data.scheduledFor).toBe('2026-05-15');
+    expect(json.data.startAt).toBeUndefined();
     expect(json.data.rawInput).toBe('fix login #aurora ^p1 !tomorrow @auth *45m');
     expect(json.parsed.projectName).toBe('aurora');
+    expect(json.parsed.chips.map((chip: { type: string }) => chip.type)).toContain('date');
   });
 
   test('unknown #project leaves the project unresolved but still creates the item', async () => {
@@ -65,6 +75,43 @@ describe('POST /api/work-items/capture', () => {
 
   test('missing body is rejected', async () => {
     const res = await postJson(app, '/api/work-items/capture', {});
+    expect(res.status).toBe(400);
+  });
+});
+
+describe('POST /api/work-items/capture/preview', () => {
+  let app: Hono;
+  beforeEach(() => { app = setupApp(); });
+
+  test('parses server chips without creating a work item', async () => {
+    const area = await postJson(app, '/api/areas', { name: '家庭' });
+    expect(area.status).toBe(201);
+
+    const res = await postJson(app, '/api/work-items/capture/preview', {
+      raw: '明天下午3点半 修门 #家庭 @家务 ^p2 *30m',
+    });
+    expect(res.status).toBe(200);
+    const json = await res.json() as { parsed: any };
+    expect(json.parsed.title).toBe('修门');
+    expect(json.parsed.projectName).toBe('家庭');
+    expect(json.parsed.scheduledFor).toBe('2026-05-15');
+    expect(json.parsed.startAt).toBe('2026-05-15T15:30:00.000Z');
+    expect(json.parsed.chips).toEqual([
+      { type: 'proj', label: '#家庭', value: json.parsed.projectId },
+      { type: 'tag', label: '@家务', value: '家务' },
+      { type: 'pri', label: '^p2', value: 'p2' },
+      { type: 'date', label: 'scheduled 2026-05-15', value: '2026-05-15' },
+      { type: 'time', label: 'start 15:30', value: '2026-05-15T15:30:00.000Z' },
+      { type: 'est', label: 'estimate 30m', value: '30' },
+    ]);
+
+    const list = await getJson(app, '/api/work-items?status=inbox');
+    expect(list.status).toBe(200);
+    expect(((await list.json()) as any).data).toEqual([]);
+  });
+
+  test('empty raw is rejected with 400', async () => {
+    const res = await postJson(app, '/api/work-items/capture/preview', { raw: '' });
     expect(res.status).toBe(400);
   });
 });
@@ -137,6 +184,32 @@ describe('POST /api/work-items/:id/today-pin + /priority', () => {
     const id = ((await create.json()) as any).data.id;
     const res = await postJson(app, `/api/work-items/${id}/priority`, { priority: 'p9' });
     expect(res.status).toBe(400);
+  });
+});
+
+describe('PATCH /api/work-items/:id', () => {
+  let app: Hono;
+  beforeEach(() => { app = setupApp(); });
+
+  test('persists planned to someday transition', async () => {
+    const create = await postJson(app, '/api/work-items', {
+      title: 'park after weekly review',
+      status: 'planned',
+      scheduledFor: '2026-05-20',
+    });
+    expect(create.status).toBe(201);
+    const id = ((await create.json()) as any).data.id;
+
+    const res = await patchJson(app, `/api/work-items/${id}`, { status: 'someday' });
+    expect(res.status).toBe(200);
+    const updated = (await res.json()) as any;
+    expect(updated.data.status).toBe('someday');
+    expect(updated.data.scheduledFor).toBe('2026-05-20');
+
+    const someday = await getJson(app, '/api/work-items?status=someday');
+    expect(someday.status).toBe(200);
+    const json = await someday.json() as { data: any[] };
+    expect(json.data.map((item) => item.id)).toContain(id);
   });
 });
 
