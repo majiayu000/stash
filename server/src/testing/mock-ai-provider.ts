@@ -14,6 +14,22 @@ function titleFromPrompt(prompt: string): string {
 
 function providerText(prompt: string): string {
   const title = titleFromPrompt(prompt);
+  if (prompt.includes('Turn meeting notes into reviewable todo drafts')) {
+    const note = prompt.match(/Meeting notes:\n([\s\S]+)$/)?.[1]?.trim() ?? 'meeting note';
+    const firstLine = note.split('\n').find((line) => line.trim())?.trim() ?? note;
+    const highRisk = /delete|drop|production|secret|password|credential|payment|legal|data loss/i.test(note);
+    return JSON.stringify({
+      drafts: [{
+        title: highRisk ? 'Review risky meeting action' : 'Follow up from meeting',
+        description: `Review meeting note: ${firstLine}`,
+        priority: highRisk ? 'p0' : 'p2',
+        labels: ['meeting'],
+        sourceSpans: [{ label: 'meeting', text: firstLine }],
+        reviewFlags: highRisk ? ['high_risk'] : [],
+        reviewReason: highRisk ? 'High-risk meeting language needs explicit review.' : undefined,
+      }],
+    });
+  }
   if (prompt.includes('"reply":"string"')) {
     return JSON.stringify({
       reply: `Start by clarifying the next step for ${title}.`,

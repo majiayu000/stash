@@ -129,6 +129,7 @@ describe('migrate', () => {
         '013_dispatch_runs_and_decision_candidates.sql',
         '014_ai_draft_traceability.sql',
         '015_work_item_coach_messages_and_ai_writes.sql',
+        '016_meeting_triage_sources.sql',
       ]);
       const cacheTable = db
         .query<{ name: string }, []>(
@@ -172,6 +173,12 @@ describe('migrate', () => {
         )
         .get();
       expect(aiWritesTable?.name).toBe('work_item_ai_writes');
+      const meetingSourcesTable = db
+        .query<{ name: string }, []>(
+          "select name from sqlite_master where type = 'table' and name = 'meeting_triage_sources'",
+        )
+        .get();
+      expect(meetingSourcesTable?.name).toBe('meeting_triage_sources');
 
       const workItems = new WorkItemService({ db });
       const workItem = workItems.get('wi-auth');

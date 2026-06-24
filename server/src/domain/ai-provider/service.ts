@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type {
   AiGenerationRun,
   DecisionDraft,
+  DecisionDraftReviewFlag,
   Priority,
   SourceSpan,
   WorkItem,
@@ -13,6 +14,7 @@ import { WorkItemNotFoundError, type WorkItemService } from '../work-item/servic
 import {
   buildCoachSummaryPrompt,
   buildIdeaDecompositionPrompt,
+  buildMeetingTriagePrompt,
   buildTaskCoachPrompt,
 } from './prompts.js';
 
@@ -71,6 +73,8 @@ const DraftOutput = z.object({
   labels: z.array(z.string()).optional(),
   checklist: z.array(ChecklistOutput).optional(),
   sourceSpans: z.array(SourceSpanOutput).optional(),
+  reviewFlags: z.array(z.enum(['high_risk', 'unclear', 'missing_source_span'])).optional(),
+  reviewReason: z.string().optional(),
 });
 
 const IdeaDecompositionOutput = z.object({
@@ -97,6 +101,11 @@ const ChatCompletionResponse = z.object({
 });
 
 export interface IdeaDecompositionResult {
+  run: AiGenerationRun;
+  drafts: DecisionDraft[];
+}
+
+export interface MeetingTriageResult {
   run: AiGenerationRun;
   drafts: DecisionDraft[];
 }
@@ -219,6 +228,54 @@ export class AiProviderService {
     }
   }
 
+  async triageMeeting(input: {
+    sourceId: string;
+    title?: string;
+    text: string;
+    sourcePath?: string;
+  }): Promise<MeetingTriageResult> {
+    const prompt = buildMeetingTriagePrompt({ title: input.title, text: input.text });
+    const run = this.createPendingRun({
+      feature: 'meeting_triage',
+      sourceKind: 'meeting_triage',
+      sourceRecordId: input.sourceId,
+      sourcePath: input.sourcePath,
+      prompt,
+    });
+
+    try {
+      const completion = await this.complete(prompt);
+      const parsed = parseProviderJson(completion.text, IdeaDecompositionOutput);
+      const succeeded = this.deps.drafts.recordRunSuccess(run.id, completion.raw);
+      const drafts = this.deps.drafts.createDrafts(succeeded.id, parsed.drafts.map((draft, index) => {
+        const sourceSpans = draft.sourceSpans ?? [];
+        const reviewFlags = classifyMeetingDraft(input.text, draft.reviewFlags ?? [], sourceSpans, draft.title);
+        return {
+          sourceKind: 'meeting_triage',
+          sourceRecordId: input.sourceId,
+          sourcePath: input.sourcePath,
+          proposedTitle: draft.title,
+          proposedDescription: draft.description,
+          proposedPriority: draft.priority as Priority | undefined,
+          proposedLabels: draft.labels ?? [],
+          proposedChecklist: draft.checklist?.map((item, itemIndex) => ({
+            id: `meeting-check-${index + 1}-${itemIndex + 1}`,
+            text: item.text,
+            completed: item.completed ?? false,
+          })),
+          sourceSpans,
+          sortOrder: index + 1,
+          reviewFlags,
+          reviewReason: draft.reviewReason ?? reviewReasonForFlags(reviewFlags),
+        };
+      }));
+      return { run: succeeded, drafts };
+    } catch (err) {
+      this.recordFailedRun(run.id, err);
+      throw err;
+    }
+  }
+
   async coachTask(input: { workItemId: string; question: string; recentJournal?: string[] }): Promise<CoachReplyResult> {
     const task = this.getRequiredWorkItem(input.workItemId);
     const prompt = buildTaskCoachPrompt({ task, question: input.question, recentJournal: input.recentJournal });
@@ -288,15 +345,19 @@ export class AiProviderService {
   }
 
   private createPendingRun(input: {
-    feature: 'idea_decomposition' | 'task_coach' | 'coach_summary';
-    sourceKind: 'idea_decomposition' | 'task_coach' | 'coach_summary';
-    sourceWorkItemId: string;
+    feature: 'idea_decomposition' | 'task_coach' | 'coach_summary' | 'meeting_triage';
+    sourceKind: 'idea_decomposition' | 'task_coach' | 'coach_summary' | 'meeting_triage';
+    sourceWorkItemId?: string;
+    sourceRecordId?: string;
+    sourcePath?: string;
     prompt: string;
   }): AiGenerationRun {
     return this.deps.drafts.createRun({
       feature: input.feature,
       sourceKind: input.sourceKind,
       sourceWorkItemId: input.sourceWorkItemId,
+      sourceRecordId: input.sourceRecordId,
+      sourcePath: input.sourcePath,
       provider: this.deps.config.mode,
       model: this.deps.config.model,
       promptHash: createHash('sha256').update(input.prompt).digest('hex'),
@@ -319,4 +380,29 @@ function parseJson<T>(raw: string, schema: z.ZodType<T>): T {
 
 function parseProviderJson<T>(raw: string, schema: z.ZodType<T>): T {
   return parseJson(raw, schema);
+}
+
+function classifyMeetingDraft(
+  sourceText: string,
+  modelFlags: DecisionDraftReviewFlag[],
+  sourceSpans: SourceSpan[],
+  title: string,
+): DecisionDraftReviewFlag[] {
+  const flags = new Set(modelFlags);
+  if (sourceSpans.length === 0 || sourceSpans.some((span) => !sourceText.includes(span.text))) {
+    flags.add('missing_source_span');
+    flags.add('unclear');
+  }
+  const riskText = `${title}\n${sourceSpans.map((span) => span.text).join('\n')}`.toLowerCase();
+  if (/(delete|drop|production|prod|secret|password|credential|payment|legal|data loss|wipe|remove database)/.test(riskText)) {
+    flags.add('high_risk');
+  }
+  return [...flags];
+}
+
+function reviewReasonForFlags(flags: DecisionDraftReviewFlag[]): string | undefined {
+  if (flags.includes('high_risk')) return 'High-risk language needs explicit human review before adoption.';
+  if (flags.includes('unclear')) return 'Draft is unclear or lacks a reliable source span.';
+  if (flags.includes('missing_source_span')) return 'Draft source span is missing or does not match the imported meeting text.';
+  return undefined;
 }

@@ -1,17 +1,5 @@
-import { test, expect, type APIRequestContext } from '@playwright/test';
-
-const API = process.env.STASH_E2E_API_URL ?? 'http://localhost:4174/api';
-
-async function clearPendingDrafts(request: APIRequestContext) {
-  const list = await request.get(`${API}/work-items/ai-drafts?status=draft`);
-  if (!list.ok()) return;
-  const json = await list.json() as { data: Array<{ id: string }> };
-  for (const draft of json.data) {
-    await request.post(`${API}/work-items/ai-drafts/${draft.id}/reject`, {
-      data: { reason: 'e2e cleanup' },
-    });
-  }
-}
+import { test, expect } from '@playwright/test';
+import { clearPendingDrafts, E2E_API as API } from './helpers/ai-drafts';
 
 test('Decision Inbox reviews AI decomposition drafts before creating child tasks', async ({ page, request }) => {
   await clearPendingDrafts(request);

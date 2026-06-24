@@ -17,6 +17,11 @@ export interface CoachSummaryPromptInput {
   destination: 'journal' | 'description';
 }
 
+export interface MeetingTriagePromptInput {
+  title?: string;
+  text: string;
+}
+
 function formatChecklist(checklist: ChecklistItem[]): string {
   if (checklist.length === 0) return 'none';
   return checklist.map((item) => `- [${item.completed ? 'x' : ' '}] ${item.text}`).join('\n');
@@ -98,4 +103,24 @@ export function buildCoachSummaryPrompt(input: CoachSummaryPromptInput): string 
     'Messages:',
     input.messages.join('\n'),
   ].join('\n');
+}
+
+export function buildMeetingTriagePrompt(input: MeetingTriagePromptInput): string {
+  return [
+    'Turn meeting notes into reviewable todo drafts.',
+    'Return only JSON. Do not include markdown.',
+    '',
+    'Required JSON shape:',
+    '{"drafts":[{"title":"string","description":"string","priority":"p0|p1|p2|p3","labels":["string"],"sourceSpans":[{"text":"string"}],"reviewFlags":["high_risk|unclear|missing_source_span"],"reviewReason":"string"}]}',
+    '',
+    'Rules:',
+    '- Do not create official todos. These are drafts for human review.',
+    '- Use sourceSpans to quote exact meeting text supporting each draft.',
+    '- Mark unclear drafts with reviewFlags: ["unclear"].',
+    '- Mark destructive, secret, payment, legal, production, or data-loss actions as high_risk.',
+    '',
+    input.title ? `Meeting title: ${input.title}` : undefined,
+    'Meeting notes:',
+    input.text,
+  ].filter((line): line is string => line !== undefined).join('\n');
 }

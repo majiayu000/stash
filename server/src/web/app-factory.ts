@@ -39,6 +39,7 @@ import {
   createLessonsRouter,
   createProjectKnowledgeRouter,
 } from './routes/project-knowledge.js';
+import { createMeetingTriageRouter } from './routes/meeting-triage.js';
 import { createProjectSkillsRouter, createSkillsRouter } from './routes/skills.js';
 import { createWorkItemAiRouter } from './routes/work-item-ai.js';
 import { createWorkItemCoachRouter } from './routes/work-item-coach.js';
@@ -168,6 +169,7 @@ export function createApp(ctx: AppContext): Hono {
   app.route('/api/areas', createAreasRouter(areaService));
   app.route('/api/work-items', createWorkItemAiRouter(aiProviderService, aiDraftService));
   app.route('/api/work-items', createWorkItemCoachRouter(coachService));
+  app.route('/api/meeting-triage', createMeetingTriageRouter({ db: ctx.db, ai: aiProviderService, clock }));
   app.route(
     '/api/work-items',
     createWorkItemsRouter(workItemService, sessionLinks, evidenceService, { areaService, journal: journalService, clock }),

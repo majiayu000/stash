@@ -55,6 +55,8 @@ export const CreateDecisionDraftSchema = z.object({
   proposedDueAt: z.string().optional(),
   proposedChecklist: z.array(ChecklistItemSchema).optional(),
   sortOrder: z.number().optional(),
+  reviewFlags: z.array(z.enum(['high_risk', 'unclear', 'missing_source_span'])).optional(),
+  reviewReason: z.string().optional(),
 });
 
 export const AcceptDecisionDraftSchema = z.object({

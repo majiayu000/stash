@@ -5,6 +5,7 @@ import {
   listDecisionDrafts,
   rejectDecisionDraft,
 } from '../api/ai-drafts';
+import { importMeetingTriage } from '../api/meeting-triage';
 
 interface DraftEdit {
   selected: boolean;
@@ -21,6 +22,7 @@ export function DecisionInbox({ reload }: { reload: () => void }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [meetingText, setMeetingText] = useState('');
 
   async function loadDecisionDrafts(options: { openAfter?: boolean } = {}) {
     try {
@@ -48,6 +50,7 @@ export function DecisionInbox({ reload }: { reload: () => void }) {
   }, []);
 
   const selected = drafts.filter((draft) => edits[draft.id]?.selected);
+  const autoAcceptDrafts = drafts.filter(canAutoAdoptDraft);
   const runMap = useMemo(() => new Map(runs.map((run) => [run.id, run])), [runs]);
 
   function patchEdit(id: string, patch: Partial<DraftEdit>) {
@@ -92,7 +95,21 @@ export function DecisionInbox({ reload }: { reload: () => void }) {
     }
   }
 
-  if (drafts.length === 0 && !error) return null;
+  async function importMeeting() {
+    const text = meetingText.trim();
+    if (!text || busy) return;
+    setBusy('meeting');
+    setError(null);
+    try {
+      await importMeetingTriage({ text });
+      setMeetingText('');
+      await loadDecisionDrafts({ openAfter: true });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
 
   return (
     <>
@@ -124,6 +141,18 @@ export function DecisionInbox({ reload }: { reload: () => void }) {
             </header>
 
             {error && <div className="decision-inbox-error" role="status">{error}</div>}
+
+            <div className="meeting-import" data-testid="meeting-import">
+              <textarea
+                value={meetingText}
+                onChange={(e) => setMeetingText(e.currentTarget.value)}
+                placeholder="paste meeting notes"
+                data-testid="meeting-import-text"
+              />
+              <button type="button" onClick={importMeeting} disabled={!meetingText.trim() || !!busy} data-testid="meeting-import-submit">
+                import meeting
+              </button>
+            </div>
 
             <div className="decision-inbox-list">
               {drafts.map((draft) => {
@@ -177,6 +206,12 @@ export function DecisionInbox({ reload }: { reload: () => void }) {
                         ))}
                       </div>
                     )}
+                    {draft.reviewFlags.length > 0 && (
+                      <div className="decision-review-flags" data-testid="decision-review-flags">
+                        {draft.reviewFlags.map((flag) => <span key={flag}>{flag.replaceAll('_', ' ')}</span>)}
+                        {draft.reviewReason && <em>{draft.reviewReason}</em>}
+                      </div>
+                    )}
                   </article>
                 );
               })}
@@ -189,8 +224,8 @@ export function DecisionInbox({ reload }: { reload: () => void }) {
               <button type="button" onClick={() => acceptDraftTargets(selected)} disabled={selected.length === 0 || !!busy}>
                 accept selected
               </button>
-              <button type="button" className="primary" onClick={() => acceptDraftTargets(drafts)} disabled={drafts.length === 0 || !!busy}>
-                accept all
+              <button type="button" className="primary" onClick={() => acceptDraftTargets(autoAcceptDrafts)} disabled={autoAcceptDrafts.length === 0 || !!busy}>
+                {autoAcceptDrafts.length === drafts.length ? 'accept all' : 'accept safe'}
               </button>
             </footer>
           </section>
@@ -226,6 +261,10 @@ function acceptInput(draft: DecisionDraft, edit: DraftEdit) {
     priority: edit.priority,
     labels: edit.labels.split(',').map((label) => label.trim()).filter(Boolean),
   };
+}
+
+function canAutoAdoptDraft(draft: DecisionDraft): boolean {
+  return !draft.reviewFlags.includes('high_risk') && !draft.reviewFlags.includes('unclear');
 }
 
 const decisionInboxStyles = `
@@ -333,6 +372,32 @@ const decisionInboxStyles = `
     display: grid;
     gap: 10px;
   }
+  .meeting-import {
+    margin: 12px 16px 0;
+    display: grid;
+    gap: 8px;
+    grid-template-columns: 1fr auto;
+    align-items: end;
+  }
+  .meeting-import textarea {
+    min-height: 72px;
+    resize: vertical;
+    border: 1px solid var(--border-hair);
+    border-radius: 6px;
+    background: rgba(0,0,0,0.18);
+    color: var(--text-primary);
+    padding: 8px 10px;
+    font: 0.78rem var(--font-body);
+  }
+  .meeting-import button {
+    border: 1px solid var(--border-subtle);
+    border-radius: 6px;
+    background: rgba(255,255,255,0.03);
+    color: var(--text-primary);
+    font: 700 0.72rem var(--font-mono);
+    padding: 8px 10px;
+    cursor: pointer;
+  }
   .decision-draft-card {
     border: 1px solid var(--border-hair);
     border-radius: 8px;
@@ -383,5 +448,23 @@ const decisionInboxStyles = `
     color: var(--text-secondary);
     padding: 4px 6px;
     font: 0.68rem var(--font-mono);
+  }
+  .decision-review-flags {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    color: var(--text-muted);
+    font: 0.68rem var(--font-mono);
+  }
+  .decision-review-flags span {
+    border: 1px solid rgba(255, 159, 10, 0.35);
+    border-radius: 5px;
+    color: var(--neon-orange);
+    padding: 3px 6px;
+    background: rgba(255, 159, 10, 0.08);
+  }
+  .decision-review-flags em {
+    font-style: normal;
   }
 `;

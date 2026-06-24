@@ -45,6 +45,11 @@ export type AiGenerationStatus =
 
 export type DecisionDraftStatus = 'draft' | 'accepted' | 'rejected' | 'edited';
 
+export type DecisionDraftReviewFlag =
+  | 'high_risk'
+  | 'unclear'
+  | 'missing_source_span';
+
 export interface SourceSpan {
   label?: string;
   start?: number;
@@ -88,6 +93,8 @@ export interface DecisionDraft {
   proposedChecklist: ChecklistItem[];
   sortOrder?: number;
   status: DecisionDraftStatus;
+  reviewFlags: DecisionDraftReviewFlag[];
+  reviewReason?: string;
   rejectReason?: string;
   createdWorkItemId?: string;
   acceptedAt?: string;
@@ -125,6 +132,8 @@ export interface CreateDecisionDraftInput {
   proposedDueAt?: string;
   proposedChecklist?: ChecklistItem[];
   sortOrder?: number;
+  reviewFlags?: DecisionDraftReviewFlag[];
+  reviewReason?: string;
 }
 
 export interface AcceptDecisionDraftInput {
