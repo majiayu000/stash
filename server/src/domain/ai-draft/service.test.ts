@@ -150,6 +150,27 @@ describe('AiDraftService', () => {
     expect(created?.areaId).toBe('area-1');
   });
 
+  test('draft source work item must match the run source', () => {
+    const { workItems, drafts } = setupAiDraftTest();
+    const ideaA = workItems.create({ title: 'Source idea A', kind: 'idea' });
+    const ideaB = workItems.create({ title: 'Source idea B', kind: 'idea' });
+    const run = drafts.createRun({
+      feature: 'idea_decomposition',
+      sourceKind: 'idea_decomposition',
+      sourceWorkItemId: ideaA.id,
+      provider: 'local-test',
+      promptHash: 'hash-3ba',
+      status: 'succeeded',
+    });
+
+    expect(() => drafts.createDrafts(run.id, [{
+      sourceKind: 'idea_decomposition',
+      sourceWorkItemId: ideaB.id,
+      proposedTitle: 'Should not split audit across ideas',
+    }])).toThrow(DecisionDraftConflictError);
+    expect(drafts.listDrafts({ runId: run.id })).toEqual([]);
+  });
+
   test('provenance-only runs cannot create drafts', () => {
     const { workItems, drafts } = setupAiDraftTest();
     const idea = workItems.create({ title: 'Coach this task', kind: 'idea' });
@@ -223,11 +244,15 @@ describe('AiDraftService', () => {
     }]);
 
     const [first] = drafts.acceptDrafts(run.id, { drafts: [{ draftId: draft!.id }] });
-    const [second] = drafts.acceptDrafts(run.id, { drafts: [{ draftId: draft!.id, title: 'Ignored edit' }] });
+    const [second] = drafts.acceptDrafts(run.id, {
+      drafts: [{ draftId: draft!.id, title: 'Ignored edit' }],
+      sourceIdeaStatus: 'planned',
+    });
 
     expect(second?.createdWorkItemId).toBe(first?.createdWorkItemId);
     expect(workItems.list({ parentId: idea.id })).toHaveLength(1);
     expect(workItems.get(first!.createdWorkItemId!)?.title).toBe('Define the first milestone');
+    expect(workItems.get(idea.id)?.status).toBe('inbox');
     expect(() => drafts.recordRunFailure(run.id, 'late provider error')).toThrow(DecisionDraftConflictError);
     expect(drafts.getRun(run.id)?.status).toBe('accepted');
   });
@@ -371,6 +396,35 @@ describe('AiDraftService', () => {
     expect(() => drafts.acceptDrafts(run.id, { drafts: [{ draftId: draft!.id }] })).toThrow(DecisionDraftConflictError);
     expect(workItems.list()).toEqual([]);
     expect(drafts.getRun(run.id)?.status).toBe('succeeded');
+  });
+
+  test('accept rejects stale drafts after source idea becomes terminal', () => {
+    for (const status of ['done', 'dropped'] as const) {
+      const { workItems, drafts } = setupAiDraftTest();
+      const idea = workItems.create({ title: `Terminal ${status} idea`, kind: 'idea' });
+      const run = drafts.createRun({
+        feature: 'idea_decomposition',
+        sourceKind: 'idea_decomposition',
+        sourceWorkItemId: idea.id,
+        provider: 'local-test',
+        promptHash: `hash-terminal-${status}`,
+        status: 'succeeded',
+      });
+      const [draft] = drafts.createDrafts(run.id, [{
+        sourceKind: 'idea_decomposition',
+        proposedTitle: 'Should not be accepted under a terminal idea',
+      }]);
+
+      workItems.update(idea.id, { status });
+
+      expect(() => drafts.acceptDrafts(run.id, {
+        drafts: [{ draftId: draft!.id }],
+        sourceIdeaStatus: 'planned',
+      })).toThrow(DecisionDraftConflictError);
+      expect(workItems.get(idea.id)?.status).toBe(status);
+      expect(workItems.list({ parentId: idea.id })).toEqual([]);
+      expect(drafts.getRun(run.id)?.status).toBe('succeeded');
+    }
   });
 
   test('reject preserves source evidence and cannot be accepted later', () => {

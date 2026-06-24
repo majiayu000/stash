@@ -145,6 +145,9 @@ export class AiDraftService {
         if (parsed.sourceKind !== run.sourceKind) {
           throw new DecisionDraftConflictError(`draft source kind ${parsed.sourceKind} does not match run ${run.sourceKind}`);
         }
+        if (parsed.sourceWorkItemId !== undefined && parsed.sourceWorkItemId !== run.sourceWorkItemId) {
+          throw new DecisionDraftConflictError(`draft source work item does not match run ${run.id}`);
+        }
         const draft: DecisionDraft = {
           id: ulid(this.clock.now()),
           runId,
@@ -238,6 +241,7 @@ export class AiDraftService {
     const parsed = AcceptDecisionDraftsSchema.parse(input);
     const now = this.clock.nowIso();
     const accepted: DecisionDraft[] = [];
+    let acceptedNewDraft = false;
 
     this.deps.db.transaction(() => {
       for (const draftInput of parsed.drafts) {
@@ -277,10 +281,13 @@ export class AiDraftService {
            where id = ?`,
         ).run(hasUserEdits(draft, draftInput) ? 'edited' : 'accepted', created.id, now, now, draft.id);
         accepted.push(this.getRequiredDraft(draft.id));
+        acceptedNewDraft = true;
       }
 
-      this.updateSourceIdeaStatus(run, parsed.sourceIdeaStatus);
-      this.markRunAccepted(runId, now);
+      if (acceptedNewDraft) {
+        this.updateSourceIdeaStatus(run, parsed.sourceIdeaStatus);
+        this.markRunAccepted(runId, now);
+      }
     })();
 
     return accepted;
@@ -382,6 +389,9 @@ export class AiDraftService {
     }
     if (draft.sourceKind === 'idea_decomposition' && source.kind !== 'idea') {
       throw new DecisionDraftConflictError('idea decomposition drafts require an idea source work item');
+    }
+    if (draft.sourceKind === 'idea_decomposition' && (source.status === 'done' || source.status === 'dropped')) {
+      throw new DecisionDraftConflictError(`source idea work item ${source.id} is terminal`);
     }
     return { projectId: source.projectId, areaId: source.areaId };
   }
