@@ -191,7 +191,7 @@ export interface CreateJournalEntryInput {
 // Allowed status transitions (SPEC §10).
 export const STATUS_TRANSITIONS: Readonly<Record<WorkItemStatus, readonly WorkItemStatus[]>> = {
   inbox: ['planned', 'active', 'someday', 'dropped', 'done'],
-  planned: ['active', 'waiting', 'blocked', 'done', 'dropped', 'inbox'],
+  planned: ['active', 'waiting', 'blocked', 'done', 'dropped', 'inbox', 'someday'],
   active: ['waiting', 'blocked', 'done', 'planned', 'dropped'],
   waiting: ['active', 'blocked', 'done', 'planned', 'dropped'],
   blocked: ['active', 'waiting', 'dropped', 'planned'],

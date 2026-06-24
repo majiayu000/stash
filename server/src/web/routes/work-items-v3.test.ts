@@ -24,6 +24,14 @@ async function postJson(app: Hono, path: string, body: unknown): Promise<Respons
   }));
 }
 
+async function patchJson(app: Hono, path: string, body: unknown): Promise<Response> {
+  return app.fetch(new Request(`http://test${path}`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  }));
+}
+
 async function getJson(app: Hono, path: string): Promise<Response> {
   return app.fetch(new Request(`http://test${path}`));
 }
@@ -176,6 +184,32 @@ describe('POST /api/work-items/:id/today-pin + /priority', () => {
     const id = ((await create.json()) as any).data.id;
     const res = await postJson(app, `/api/work-items/${id}/priority`, { priority: 'p9' });
     expect(res.status).toBe(400);
+  });
+});
+
+describe('PATCH /api/work-items/:id', () => {
+  let app: Hono;
+  beforeEach(() => { app = setupApp(); });
+
+  test('persists planned to someday transition', async () => {
+    const create = await postJson(app, '/api/work-items', {
+      title: 'park after weekly review',
+      status: 'planned',
+      scheduledFor: '2026-05-20',
+    });
+    expect(create.status).toBe(201);
+    const id = ((await create.json()) as any).data.id;
+
+    const res = await patchJson(app, `/api/work-items/${id}`, { status: 'someday' });
+    expect(res.status).toBe(200);
+    const updated = (await res.json()) as any;
+    expect(updated.data.status).toBe('someday');
+    expect(updated.data.scheduledFor).toBe('2026-05-20');
+
+    const someday = await getJson(app, '/api/work-items?status=someday');
+    expect(someday.status).toBe(200);
+    const json = await someday.json() as { data: any[] };
+    expect(json.data.map((item) => item.id)).toContain(id);
   });
 });
 
