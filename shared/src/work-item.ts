@@ -151,7 +151,7 @@ export type UpdateWorkItemInput = Partial<Omit<WorkItemUpdateBase, ClearableWork
   [K in ClearableWorkItemInputField]?: WorkItemUpdateBase[K] | null;
 };
 
-export const WORK_ITEM_KINDS: readonly WorkItemKind[] = [
+export const WORK_ITEM_KINDS = [
   'epic',
   'feature',
   'task',
@@ -161,9 +161,9 @@ export const WORK_ITEM_KINDS: readonly WorkItemKind[] = [
   'research',
   'decision',
   'reminder',
-] as const;
+] as const satisfies readonly WorkItemKind[];
 
-export const WORK_ITEM_STATUSES: readonly WorkItemStatus[] = [
+export const WORK_ITEM_STATUSES = [
   'inbox',
   'planned',
   'active',
@@ -172,9 +172,9 @@ export const WORK_ITEM_STATUSES: readonly WorkItemStatus[] = [
   'someday',
   'done',
   'dropped',
-] as const;
+] as const satisfies readonly WorkItemStatus[];
 
-export const PRIORITIES: readonly Priority[] = ['p0', 'p1', 'p2', 'p3'] as const;
+export const PRIORITIES = ['p0', 'p1', 'p2', 'p3'] as const satisfies readonly Priority[];
 
 /** v0.8 — append-only dated journal entry on a work item. */
 export interface JournalEntry {
