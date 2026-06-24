@@ -25,6 +25,7 @@ import { WeeklyReviewService } from '../domain/analytics/weekly.js';
 import { ProjectKnowledgeService } from '../domain/project-knowledge/service.js';
 import { SkillService } from '../domain/skill/service.js';
 import { JournalService } from '../domain/work-item/journal.js';
+import { WorkItemCoachService } from '../domain/work-item/coach.js';
 import { WorkItemService } from '../domain/work-item/service.js';
 import { WorkItemSessionService } from '../domain/work-item-session/service.js';
 import { createAreasRouter } from './routes/areas.js';
@@ -40,6 +41,7 @@ import {
 } from './routes/project-knowledge.js';
 import { createProjectSkillsRouter, createSkillsRouter } from './routes/skills.js';
 import { createWorkItemAiRouter } from './routes/work-item-ai.js';
+import { createWorkItemCoachRouter } from './routes/work-item-coach.js';
 import { createWorkItemsRouter } from './routes/work-items.js';
 import { createWorkboardRouter } from './routes/workboard.js';
 import { apiError } from './errors.js';
@@ -109,6 +111,14 @@ export function createApp(ctx: AppContext): Hono {
     drafts: aiDraftService,
     client: ctx.aiClient,
   });
+  const coachService = new WorkItemCoachService({
+    db: ctx.db,
+    clock,
+    workItems: workItemService,
+    journal: journalService,
+    ai: aiProviderService,
+    drafts: aiDraftService,
+  });
   const dispatchService = new SessionDispatchService({
     workItems: workItemService,
     areas: areaService,
@@ -157,6 +167,7 @@ export function createApp(ctx: AppContext): Hono {
 
   app.route('/api/areas', createAreasRouter(areaService));
   app.route('/api/work-items', createWorkItemAiRouter(aiProviderService, aiDraftService));
+  app.route('/api/work-items', createWorkItemCoachRouter(coachService));
   app.route(
     '/api/work-items',
     createWorkItemsRouter(workItemService, sessionLinks, evidenceService, { areaService, journal: journalService, clock }),

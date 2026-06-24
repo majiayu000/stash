@@ -237,6 +237,87 @@ const conceptLStyles = `
   border-radius: 3px;
 }
 
+.td-coach {
+  border-color: rgba(0,255,242,0.18);
+}
+.td-coach .td-section-label select {
+  margin-left: auto;
+  background: transparent;
+  border: 1px solid var(--border-hair);
+  color: var(--text-secondary);
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+}
+.td-coach-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  max-height: 260px;
+  overflow: auto;
+}
+.td-coach-empty,
+.td-coach-error {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+.td-coach-error { color: var(--neon-pink); }
+.td-coach-message {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--border-hair);
+  border-radius: var(--radius-sm);
+  background: rgba(255,255,255,0.025);
+}
+.td-coach-message > span {
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+.td-coach-message.assistant { border-left: 2px solid var(--neon-cyan); }
+.td-coach-message.summary { border-left: 2px solid var(--neon-purple); }
+.td-coach-message p {
+  margin: 0;
+  white-space: pre-wrap;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+.td-coach-message button,
+.td-coach-actions button {
+  justify-self: start;
+  border: 1px solid var(--border-hair);
+  border-radius: 5px;
+  background: rgba(0,255,242,0.06);
+  color: var(--neon-cyan);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+.td-coach textarea {
+  min-height: 58px;
+  resize: vertical;
+  border: 1px solid var(--border-hair);
+  border-radius: var(--radius-sm);
+  background: rgba(0,0,0,0.16);
+  color: var(--text-primary);
+  padding: 0.55rem 0.65rem;
+  font-family: var(--font-body);
+}
+.td-coach-actions {
+  display: flex;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+.td-coach-actions button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 .td-modal-foot {
   display: flex; gap: 0.5rem; align-items: center;
   padding: 0.85rem 1.25rem;

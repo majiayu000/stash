@@ -9,6 +9,7 @@ import {
   ValidationError,
   WorkItemNotFoundError,
 } from '../domain/work-item/service.js';
+import { WorkItemCoachConflictError } from '../domain/work-item/coach.js';
 import { NoPendingCandidateError } from '../domain/evidence/service.js';
 import { BudgetConflictError, BudgetNotFoundError } from '../domain/budget/service.js';
 import { SkillConflictError, SkillNotFoundError } from '../domain/skill/service.js';
@@ -64,7 +65,8 @@ export function mapError(err: unknown): { status: 400 | 404 | 409 | 422 | 500 | 
   if (
     err instanceof SkillConflictError ||
     err instanceof BudgetConflictError ||
-    err instanceof DecisionDraftConflictError
+    err instanceof DecisionDraftConflictError ||
+    err instanceof WorkItemCoachConflictError
   ) {
     return { status: 409, body: apiError('CONFLICT', err.message) };
   }

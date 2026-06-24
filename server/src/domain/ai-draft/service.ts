@@ -209,6 +209,17 @@ export class AiDraftService {
     return this.getRequiredRun(id);
   }
 
+  recordRunAccepted(id: string): AiGenerationRun {
+    const existing = this.getRun(id);
+    if (!existing) throw new AiGenerationRunNotFoundError(id);
+    if (existing.status === 'failed' || existing.status === 'discarded') {
+      throw new DecisionDraftConflictError(`run ${id} cannot be accepted from ${existing.status}`);
+    }
+    const now = this.clock.nowIso();
+    this.markRunAccepted(id, now);
+    return this.getRequiredRun(id);
+  }
+
   listDrafts(filter: { runId?: string; status?: DecisionDraftStatus } = {}): DecisionDraft[] {
     const where: string[] = [];
     const params: string[] = [];

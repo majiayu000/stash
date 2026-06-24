@@ -10,3 +10,4 @@ export * from './project-knowledge.js';
 export * from './cost.js';
 export * from './dispatch-run.js';
 export * from './ai-draft.js';
+export * from './work-item-coach.js';

@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import type { JournalEntry, Lesson, Priority, WorkItem, WorkItemStatus } from '@stash/shared';
+import type { CoachApplySummaryResponse, JournalEntry, Lesson, Priority, WorkItem, WorkItemStatus } from '@stash/shared';
 import { apiGet } from '../../api/client';
 import { ChecklistPanel, useChecklist } from './conceptL.checklist';
 import { useEscToClose } from './conceptL.hooks';
 import { EvidencePanel, usePendingEvidence } from './conceptL.evidence';
 import { IdeaDecomposeAction } from './conceptL.ai';
+import { TaskCoachPanel } from './conceptL.coach';
 import {
   EditableDescription,
   EditableTitle,
@@ -232,6 +233,12 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
       await deleteJournalEntry(journalTodoId, entry.id);
       setJournalEntries((cur) => cur.filter((e) => e.id !== entry.id));
     } catch { /* swallow */ }
+  }
+
+  function onCoachApplied(result: CoachApplySummaryResponse) {
+    if (result.item) setItem(result.item);
+    if (result.journalEntry) setJournalEntries((cur) => [result.journalEntry!, ...cur]);
+    reload();
   }
 
   const evidence = usePendingEvidence({
@@ -535,6 +542,8 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
               </div>
 
               <EvidencePanel state={evidence} />
+
+              <TaskCoachPanel item={item} onApplied={onCoachApplied} onFlash={flashSaved} />
 
               <div className="td-section">
                 <div className="td-section-label">
