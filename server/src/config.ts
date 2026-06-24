@@ -32,12 +32,20 @@ function envLoopbackHost(name: string, fallback: string): string {
 }
 
 export type SessionSpawnMode = 'real' | 'disabled';
+export type AiProviderMode = 'disabled' | 'openai_compatible';
 
 function envSessionSpawnMode(name: string, fallback: SessionSpawnMode): SessionSpawnMode {
   const raw = process.env[name];
   if (!raw) return fallback;
   if (raw === 'real' || raw === 'disabled') return raw;
   throw new Error(`env ${name} must be one of real, disabled, got ${raw}`);
+}
+
+function envAiProviderMode(name: string, fallback: AiProviderMode): AiProviderMode {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  if (raw === 'disabled' || raw === 'openai_compatible') return raw;
+  throw new Error(`env ${name} must be one of disabled, openai_compatible, got ${raw}`);
 }
 
 const home = homedir();
@@ -88,6 +96,13 @@ export interface Config {
   inMemoryDb: boolean;
   // Controls whether /api/sessions/start may spawn a real agent CLI.
   sessionSpawnMode: SessionSpawnMode;
+  aiProvider: {
+    mode: AiProviderMode;
+    baseUrl?: string;
+    apiKey?: string;
+    model?: string;
+    timeoutMs: number;
+  };
 }
 
 export function loadConfig(overrides: Partial<Config> = {}): Config {
@@ -102,6 +117,13 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     allowedOrigins: envList('STASH_ALLOWED_ORIGINS'),
     inMemoryDb: process.env.STASH_IN_MEMORY === '1',
     sessionSpawnMode: envSessionSpawnMode('STASH_SESSION_SPAWN_MODE', 'real'),
+    aiProvider: {
+      mode: envAiProviderMode('STASH_AI_PROVIDER', 'disabled'),
+      baseUrl: process.env.STASH_AI_BASE_URL,
+      apiKey: process.env.STASH_AI_API_KEY,
+      model: process.env.STASH_AI_MODEL,
+      timeoutMs: envInt('STASH_AI_TIMEOUT_MS', 30_000),
+    },
     ...overrides,
   };
 }

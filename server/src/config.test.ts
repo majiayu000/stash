@@ -5,23 +5,29 @@ import { defaultDbPath, loadConfig } from './config';
 const originalStashHost = process.env.STASH_HOST;
 const originalAllowedOrigins = process.env.STASH_ALLOWED_ORIGINS;
 const originalSessionSpawnMode = process.env.STASH_SESSION_SPAWN_MODE;
+const originalAiProvider = process.env.STASH_AI_PROVIDER;
+const originalAiBaseUrl = process.env.STASH_AI_BASE_URL;
+const originalAiApiKey = process.env.STASH_AI_API_KEY;
+const originalAiModel = process.env.STASH_AI_MODEL;
+const originalAiTimeoutMs = process.env.STASH_AI_TIMEOUT_MS;
+
+function restoreEnv(name: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[name];
+  } else {
+    process.env[name] = value;
+  }
+}
 
 afterEach(() => {
-  if (originalStashHost === undefined) {
-    delete process.env.STASH_HOST;
-  } else {
-    process.env.STASH_HOST = originalStashHost;
-  }
-  if (originalAllowedOrigins === undefined) {
-    delete process.env.STASH_ALLOWED_ORIGINS;
-  } else {
-    process.env.STASH_ALLOWED_ORIGINS = originalAllowedOrigins;
-  }
-  if (originalSessionSpawnMode === undefined) {
-    delete process.env.STASH_SESSION_SPAWN_MODE;
-  } else {
-    process.env.STASH_SESSION_SPAWN_MODE = originalSessionSpawnMode;
-  }
+  restoreEnv('STASH_HOST', originalStashHost);
+  restoreEnv('STASH_ALLOWED_ORIGINS', originalAllowedOrigins);
+  restoreEnv('STASH_SESSION_SPAWN_MODE', originalSessionSpawnMode);
+  restoreEnv('STASH_AI_PROVIDER', originalAiProvider);
+  restoreEnv('STASH_AI_BASE_URL', originalAiBaseUrl);
+  restoreEnv('STASH_AI_API_KEY', originalAiApiKey);
+  restoreEnv('STASH_AI_MODEL', originalAiModel);
+  restoreEnv('STASH_AI_TIMEOUT_MS', originalAiTimeoutMs);
 });
 
 describe('defaultDbPath', () => {
@@ -135,6 +141,43 @@ describe('loadConfig local API security', () => {
 
     expect(() => loadConfig({ dbPath: ':memory:' })).toThrow(
       'env STASH_SESSION_SPAWN_MODE must be one of real, disabled, got stub',
+    );
+  });
+
+  test('keeps AI provider disabled by default', () => {
+    delete process.env.STASH_AI_PROVIDER;
+    delete process.env.STASH_AI_API_KEY;
+
+    expect(loadConfig({ dbPath: ':memory:' }).aiProvider).toEqual({
+      mode: 'disabled',
+      baseUrl: undefined,
+      apiKey: undefined,
+      model: undefined,
+      timeoutMs: 30_000,
+    });
+  });
+
+  test('parses server-side AI provider configuration from env', () => {
+    process.env.STASH_AI_PROVIDER = 'openai_compatible';
+    process.env.STASH_AI_BASE_URL = 'https://local-llm.example/v1/chat/completions';
+    process.env.STASH_AI_API_KEY = 'test-secret';
+    process.env.STASH_AI_MODEL = 'local-json-model';
+    process.env.STASH_AI_TIMEOUT_MS = '1500';
+
+    expect(loadConfig({ dbPath: ':memory:' }).aiProvider).toEqual({
+      mode: 'openai_compatible',
+      baseUrl: 'https://local-llm.example/v1/chat/completions',
+      apiKey: 'test-secret',
+      model: 'local-json-model',
+      timeoutMs: 1500,
+    });
+  });
+
+  test('rejects invalid AI provider mode', () => {
+    process.env.STASH_AI_PROVIDER = 'browser_local_storage';
+
+    expect(() => loadConfig({ dbPath: ':memory:' })).toThrow(
+      'env STASH_AI_PROVIDER must be one of disabled, openai_compatible, got browser_local_storage',
     );
   });
 });

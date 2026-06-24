@@ -193,6 +193,22 @@ export class AiDraftService {
     return this.getRequiredRun(id);
   }
 
+  recordRunSuccess(id: string, rawResponseJson: string): AiGenerationRun {
+    const existing = this.getRun(id);
+    if (!existing) throw new AiGenerationRunNotFoundError(id);
+    if (existing.status === 'accepted' || existing.status === 'discarded') {
+      throw new DecisionDraftConflictError(`run ${id} is terminal and cannot be succeeded`);
+    }
+    const now = this.clock.nowIso();
+    const updated = this.deps.db.prepare(
+      `update ai_generation_runs
+       set status = 'succeeded', raw_response_json = ?, error = null, updated_at = ?
+       where id = ?`,
+    ).run(rawResponseJson, now, id);
+    if (updated.changes === 0) throw new AiGenerationRunNotFoundError(id);
+    return this.getRequiredRun(id);
+  }
+
   listDrafts(filter: { runId?: string; status?: DecisionDraftStatus } = {}): DecisionDraft[] {
     const where: string[] = [];
     const params: string[] = [];

@@ -20,6 +20,11 @@ import {
   DecisionDraftConflictError,
   DecisionDraftNotFoundError,
 } from '../domain/ai-draft/service.js';
+import {
+  AiProviderInvalidOutputError,
+  AiProviderTimeoutError,
+  AiProviderUnavailableError,
+} from '../domain/ai-provider/service.js';
 
 export interface ApiError {
   error: {
@@ -33,7 +38,7 @@ export function apiError(code: string, message: string, details?: unknown): ApiE
   return { error: { code, message, details } };
 }
 
-export function mapError(err: unknown): { status: 400 | 404 | 409 | 422 | 500; body: ApiError } {
+export function mapError(err: unknown): { status: 400 | 404 | 409 | 422 | 500 | 503 | 504; body: ApiError } {
   if (err instanceof z.ZodError) {
     return {
       status: 400,
@@ -65,6 +70,15 @@ export function mapError(err: unknown): { status: 400 | 404 | 409 | 422 | 500; b
   }
   if (err instanceof NoPendingCandidateError) {
     return { status: 422, body: apiError('NO_PENDING_CANDIDATE', err.message) };
+  }
+  if (err instanceof AiProviderInvalidOutputError) {
+    return { status: 422, body: apiError('AI_INVALID_OUTPUT', err.message) };
+  }
+  if (err instanceof AiProviderUnavailableError) {
+    return { status: 503, body: apiError('AI_PROVIDER_UNAVAILABLE', err.message) };
+  }
+  if (err instanceof AiProviderTimeoutError) {
+    return { status: 504, body: apiError('AI_PROVIDER_TIMEOUT', err.message) };
   }
   if (err instanceof AreaNameConflictError) {
     return { status: 409, body: apiError('CONFLICT', err.message) };

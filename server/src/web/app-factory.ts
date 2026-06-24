@@ -3,12 +3,14 @@ import { cors } from 'hono/cors';
 import { logger as honoLogger } from 'hono/logger';
 import type { Database } from 'bun:sqlite';
 import { systemClock, type AgentProvider, type Clock } from '@stash/shared';
-import type { SessionSpawnMode } from '../config.js';
+import type { Config, SessionSpawnMode } from '../config.js';
 import { AgentSourceAggregator } from '../adapters/aggregator.js';
 import { ClaudeSource } from '../adapters/claude/scanner.js';
 import { CodexSource } from '../adapters/codex/scanner.js';
 import { AgentSessionCache } from '../adapters/session-cache.js';
 import type { AgentSource } from '../adapters/source.js';
+import { AiDraftService } from '../domain/ai-draft/service.js';
+import { AiProviderService, type AiJsonClient } from '../domain/ai-provider/service.js';
 import { AreaService } from '../domain/area/service.js';
 import { EvidenceService } from '../domain/evidence/service.js';
 import { BurnService } from '../domain/analytics/burn.js';
@@ -37,6 +39,7 @@ import {
   createProjectKnowledgeRouter,
 } from './routes/project-knowledge.js';
 import { createProjectSkillsRouter, createSkillsRouter } from './routes/skills.js';
+import { createWorkItemAiRouter } from './routes/work-item-ai.js';
 import { createWorkItemsRouter } from './routes/work-items.js';
 import { createWorkboardRouter } from './routes/workboard.js';
 import { apiError } from './errors.js';
@@ -72,6 +75,10 @@ export interface AppContext {
   sourcesOverride?: Map<AgentProvider, { source: AgentSource; root: string }>;
   /** Disables real CLI spawning for deterministic test/browser runs. */
   sessionSpawnMode?: SessionSpawnMode;
+  /** Server-side AI provider configuration. API keys are never returned to clients. */
+  aiProvider?: Config['aiProvider'];
+  /** Test override for deterministic AI provider responses. */
+  aiClient?: AiJsonClient;
   /** When set, every request gets logged via Hono's logger middleware. */
   logger?: (msg: string) => void;
 }
@@ -95,6 +102,13 @@ export function createApp(ctx: AppContext): Hono {
   const budgetService = new BudgetService({ db: ctx.db, clock });
   const dispatchRunService = new DispatchRunService({ db: ctx.db, clock });
   const decisionCandidateService = new DecisionCandidateService({ db: ctx.db, clock });
+  const aiDraftService = new AiDraftService({ db: ctx.db, clock, workItems: workItemService });
+  const aiProviderService = new AiProviderService({
+    config: ctx.aiProvider ?? { mode: 'disabled', timeoutMs: 30_000 },
+    workItems: workItemService,
+    drafts: aiDraftService,
+    client: ctx.aiClient,
+  });
   const dispatchService = new SessionDispatchService({
     workItems: workItemService,
     areas: areaService,
@@ -146,6 +160,7 @@ export function createApp(ctx: AppContext): Hono {
     '/api/work-items',
     createWorkItemsRouter(workItemService, sessionLinks, evidenceService, { areaService, journal: journalService, clock }),
   );
+  app.route('/api/work-items', createWorkItemAiRouter(aiProviderService));
   app.route('/api/overview', createOverviewRouter(workItemService, clock));
   app.route('/api/agent-sessions', createAgentSessionsRouter(aggregator, sessionLinks, decisionCandidateService));
   app.route('/api/workboard', createWorkboardRouter(workItemService, sessionLinks, aggregator));
