@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { captureWorkItem } from '../api/work-items';
+import { captureWorkItem, previewCapture, type CapturePreviewChip } from '../api/work-items';
+import { shouldOpenQuickCapture, shouldSubmitQuickCapture } from './keyboard';
 import { useDialogA11y } from './useDialogA11y';
 
 /**
@@ -12,20 +13,20 @@ import { useDialogA11y } from './useDialogA11y';
 export function QuickCapture() {
   const [open, setOpen] = useState(false);
   const [text, setText] = useState('');
+  const [chips, setChips] = useState<CapturePreviewChip[]>([]);
+  const [previewError, setPreviewError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const previewSeq = useRef(0);
   const closeDialog = useCallback(() => setOpen(false), []);
   const dialogRef = useDialogA11y(open, closeDialog, inputRef);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      const tag = (e.target as HTMLElement | null)?.tagName?.toLowerCase();
-      const editing = tag === 'input' || tag === 'textarea' || (e.target as HTMLElement | null)?.isContentEditable;
       if (open) return;
-      if (editing) return;
-      if (e.key === 'c' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      if (shouldOpenQuickCapture(e)) {
         e.preventDefault();
         setOpen(true);
       }
@@ -37,8 +38,38 @@ export function QuickCapture() {
   useEffect(() => {
     if (!open) {
       setText('');
+      setChips([]);
+      setPreviewError(null);
     }
   }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const raw = text.trim();
+    if (!raw) {
+      previewSeq.current += 1;
+      setChips([]);
+      setPreviewError(null);
+      return;
+    }
+
+    const seq = ++previewSeq.current;
+    const timer = setTimeout(() => {
+      previewCapture(raw)
+        .then((res) => {
+          if (seq !== previewSeq.current) return;
+          setChips(res.parsed.chips);
+          setPreviewError(null);
+        })
+        .catch((e) => {
+          if (seq !== previewSeq.current) return;
+          setChips([]);
+          setPreviewError(e instanceof Error ? e.message : 'preview failed');
+        });
+    }, 120);
+
+    return () => clearTimeout(timer);
+  }, [open, text]);
 
   function flashToast(msg: string) {
     setToast(msg);
@@ -62,8 +93,6 @@ export function QuickCapture() {
       setSubmitting(false);
     }
   }
-
-  const chips = previewChips(text);
 
   return (
     <>
@@ -90,17 +119,18 @@ export function QuickCapture() {
               data-testid="qc-input"
               onChange={(e) => setText(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') { e.preventDefault(); submit(); }
+                if (shouldSubmitQuickCapture(e)) { e.preventDefault(); submit(); }
               }}
               placeholder="e.g. fix login #aurora ^p1 !tomorrow @auth *45m"
               spellCheck={false}
               autoComplete="off"
             />
-            {chips.length > 0 && (
+            {(chips.length > 0 || previewError) && (
               <div className="qc-chips">
                 {chips.map((c, i) => (
                   <span key={i} className={`qc-chip qc-chip-${c.type}`}>{c.label}</span>
                 ))}
+                {previewError && <span className="qc-chip qc-chip-unresolved">preview unavailable</span>}
               </div>
             )}
             <div className="qc-footer">
@@ -118,23 +148,6 @@ export function QuickCapture() {
       <style>{qcStyles}</style>
     </>
   );
-}
-
-interface Chip { type: string; label: string }
-function previewChips(text: string): Chip[] {
-  const out: Chip[] = [];
-  const re = /(#[\w-]+|@[\w-]+|\^p[0-3]|!![\w-]+|![\w-]+|\*\d+[hm])/gi;
-  for (const m of text.matchAll(re)) {
-    const tok = m[0];
-    const lower = tok.toLowerCase();
-    if (lower.startsWith('#'))   out.push({ type: 'proj', label: tok });
-    else if (lower.startsWith('@'))   out.push({ type: 'tag',  label: tok });
-    else if (lower.startsWith('^p'))  out.push({ type: 'pri',  label: tok });
-    else if (lower.startsWith('!!'))  out.push({ type: 'due',  label: tok });
-    else if (lower.startsWith('!'))   out.push({ type: 'date', label: tok });
-    else if (lower.startsWith('*'))   out.push({ type: 'est',  label: tok });
-  }
-  return out;
 }
 
 const qcStyles = `
@@ -187,7 +200,9 @@ const qcStyles = `
 .qc-chip-pri  { color: var(--neon-orange); border-color: rgba(255,159,10,0.3); }
 .qc-chip-date { color: var(--neon-green);  border-color: rgba(48,209,88,0.3); }
 .qc-chip-due  { color: var(--neon-pink);   border-color: rgba(255,55,95,0.3); }
+.qc-chip-time { color: var(--neon-green);  border-color: rgba(48,209,88,0.3); }
 .qc-chip-est  { color: var(--text-secondary, #ccc); }
+.qc-chip-unresolved { color: var(--text-muted, #888); border-color: rgba(255,255,255,0.14); }
 .qc-footer { display: flex; flex-wrap: wrap; gap: 0.6rem; font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-muted, #888); }
 .qc-footer code { background: rgba(255,255,255,0.04); padding: 1px 6px; border-radius: 4px; }
 .qc-toast {

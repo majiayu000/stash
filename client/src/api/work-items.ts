@@ -1,19 +1,35 @@
 import type { CreateWorkItemInput, JournalEntry, Priority, UpdateWorkItemInput, WorkItem, WorkItemStatus } from '@stash/shared';
 import { apiDelete, apiGet, apiPatch, apiPost } from './client';
 
-interface CaptureResponse {
+export type CapturePreviewChipType = 'proj' | 'tag' | 'pri' | 'date' | 'due' | 'time' | 'est' | 'unresolved';
+
+export interface CapturePreviewChip {
+  type: CapturePreviewChipType;
+  label: string;
+  value?: string;
+}
+
+export interface CaptureParsed {
+  title: string;
+  projectId?: string;
+  areaId?: string;
+  projectName?: string;
+  labels: string[];
+  priority?: Priority;
+  scheduledFor?: string;
+  dueAt?: string;
+  startAt?: string;
+  estimateMinutes?: number;
+  unresolved: string[];
+  chips: CapturePreviewChip[];
+}
+
+export interface CapturePreviewResponse {
+  parsed: CaptureParsed;
+}
+
+export interface CaptureResponse extends CapturePreviewResponse {
   data: WorkItem;
-  parsed: {
-    title: string;
-    projectId?: string;
-    areaId?: string;
-    labels: string[];
-    priority?: Priority;
-    scheduledFor?: string;
-    dueAt?: string;
-    estimateMinutes?: number;
-    unresolved: string[];
-  };
 }
 
 export interface WorkItemFilter {
@@ -101,6 +117,11 @@ export async function removeChecklist(id: string, itemId: string): Promise<WorkI
 /** SPEC v0.3 §3b/§3f — token-aware quick capture. Returns the saved item + parsed structure. */
 export async function captureWorkItem(raw: string): Promise<CaptureResponse> {
   return apiPost<CaptureResponse>('/work-items/capture', { raw });
+}
+
+/** SPEC v0.5 §7.1 — server-owned quick capture preview without persistence. */
+export async function previewCapture(raw: string): Promise<CapturePreviewResponse> {
+  return apiPost<CapturePreviewResponse>('/work-items/capture/preview', { raw });
 }
 
 /** SPEC v0.3 §3d — canonical Today list. */
