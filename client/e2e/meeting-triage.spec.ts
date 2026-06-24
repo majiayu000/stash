@@ -34,5 +34,16 @@ test('Meeting triage blocks high-risk drafts from safe auto-adopt', async ({ pag
 
   const card = page.getByTestId('decision-draft-card').first();
   await expect(card.getByTestId('decision-review-flags')).toContainText('high risk', { timeout: 10_000 });
+  await expect(card.getByRole('checkbox')).not.toBeChecked();
+  await expect(page.getByRole('button', { name: 'accept selected' })).toBeDisabled();
   await expect(page.getByRole('button', { name: 'accept safe' })).toBeDisabled();
+
+  await card.getByRole('checkbox').check();
+  await page.getByRole('button', { name: 'accept reviewed' }).click();
+
+  await expect.poll(async () => {
+    const res = await request.get(`${API}/work-items?status=inbox`);
+    const json = await res.json() as { data: Array<{ title: string }> };
+    return json.data.some((item) => item.title === 'Review risky meeting action');
+  }, { timeout: 10_000 }).toBe(true);
 });

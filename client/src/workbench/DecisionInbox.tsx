@@ -51,6 +51,7 @@ export function DecisionInbox({ reload }: { reload: () => void }) {
 
   const selected = drafts.filter((draft) => edits[draft.id]?.selected);
   const autoAcceptDrafts = drafts.filter(canAutoAdoptDraft);
+  const selectedNeedsReview = selected.some(requiresManualReview);
   const runMap = useMemo(() => new Map(runs.map((run) => [run.id, run])), [runs]);
 
   function patchEdit(id: string, patch: Partial<DraftEdit>) {
@@ -60,8 +61,15 @@ export function DecisionInbox({ reload }: { reload: () => void }) {
     }));
   }
 
-  async function acceptDraftTargets(targets: DecisionDraft[]) {
+  async function acceptDraftTargets(
+    targets: DecisionDraft[],
+    options: { allowManualReview?: boolean } = {},
+  ) {
     if (targets.length === 0 || busy) return;
+    if (!options.allowManualReview && targets.some(requiresManualReview)) {
+      setError('Flagged drafts need explicit review before adoption.');
+      return;
+    }
     setBusy('accept');
     try {
       for (const [runId, group] of groupByRun(targets)) {
@@ -221,8 +229,12 @@ export function DecisionInbox({ reload }: { reload: () => void }) {
               <button type="button" onClick={() => discard(selected)} disabled={selected.length === 0 || !!busy}>
                 discard selected
               </button>
-              <button type="button" onClick={() => acceptDraftTargets(selected)} disabled={selected.length === 0 || !!busy}>
-                accept selected
+              <button
+                type="button"
+                onClick={() => acceptDraftTargets(selected, { allowManualReview: selectedNeedsReview })}
+                disabled={selected.length === 0 || !!busy}
+              >
+                {selectedNeedsReview ? 'accept reviewed' : 'accept selected'}
               </button>
               <button type="button" className="primary" onClick={() => acceptDraftTargets(autoAcceptDrafts)} disabled={autoAcceptDrafts.length === 0 || !!busy}>
                 {autoAcceptDrafts.length === drafts.length ? 'accept all' : 'accept safe'}
@@ -239,7 +251,7 @@ export function DecisionInbox({ reload }: { reload: () => void }) {
 
 function editFromDraft(draft: DecisionDraft): DraftEdit {
   return {
-    selected: true,
+    selected: canAutoAdoptDraft(draft),
     title: draft.proposedTitle,
     description: draft.proposedDescription ?? '',
     priority: draft.proposedPriority,
@@ -264,7 +276,11 @@ function acceptInput(draft: DecisionDraft, edit: DraftEdit) {
 }
 
 function canAutoAdoptDraft(draft: DecisionDraft): boolean {
-  return !draft.reviewFlags.includes('high_risk') && !draft.reviewFlags.includes('unclear');
+  return !requiresManualReview(draft);
+}
+
+function requiresManualReview(draft: DecisionDraft): boolean {
+  return draft.reviewFlags.includes('high_risk') || draft.reviewFlags.includes('unclear');
 }
 
 const decisionInboxStyles = `
