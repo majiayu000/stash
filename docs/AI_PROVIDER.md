@@ -32,7 +32,7 @@ AI flows are review-first:
 - Coach summaries do not write to a todo until the user clicks append.
 - Confirmed summary writes insert `work_item_ai_writes` rows that point back to the originating `ai_generation_runs.id`.
 
-High-risk or unclear meeting drafts are flagged in Decision Inbox and are skipped by the safe auto-adopt action. They require explicit manual review before adoption.
+Drafts with review flags are skipped by the safe auto-adopt action. They require explicit manual review before adoption.
 
 ## Local Smoke
 

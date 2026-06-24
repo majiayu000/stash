@@ -249,7 +249,16 @@ export class AiProviderService {
       const succeeded = this.deps.drafts.recordRunSuccess(run.id, completion.raw);
       const drafts = this.deps.drafts.createDrafts(succeeded.id, parsed.drafts.map((draft, index) => {
         const sourceSpans = draft.sourceSpans ?? [];
-        const reviewFlags = classifyMeetingDraft(input.text, draft.reviewFlags ?? [], sourceSpans, draft.title);
+        const proposedChecklist = draft.checklist?.map((item, itemIndex) => ({
+          id: `meeting-check-${index + 1}-${itemIndex + 1}`,
+          text: item.text,
+          completed: item.completed ?? false,
+        }));
+        const reviewFlags = classifyMeetingDraft(input.text, draft.reviewFlags ?? [], sourceSpans, {
+          title: draft.title,
+          description: draft.description,
+          checklist: proposedChecklist?.map((item) => item.text) ?? [],
+        });
         return {
           sourceKind: 'meeting_triage',
           sourceRecordId: input.sourceId,
@@ -258,11 +267,7 @@ export class AiProviderService {
           proposedDescription: draft.description,
           proposedPriority: draft.priority as Priority | undefined,
           proposedLabels: draft.labels ?? [],
-          proposedChecklist: draft.checklist?.map((item, itemIndex) => ({
-            id: `meeting-check-${index + 1}-${itemIndex + 1}`,
-            text: item.text,
-            completed: item.completed ?? false,
-          })),
+          proposedChecklist,
           sourceSpans,
           sortOrder: index + 1,
           reviewFlags,
@@ -318,7 +323,7 @@ export class AiProviderService {
       return {
         run: succeeded,
         summary: parsed.summary,
-        destination: parsed.destination,
+        destination: input.destination,
         sourceSpans: parsed.sourceSpans ?? input.messages.map((text) => ({ text })),
       };
     } catch (err) {
@@ -386,15 +391,20 @@ function classifyMeetingDraft(
   sourceText: string,
   modelFlags: DecisionDraftReviewFlag[],
   sourceSpans: SourceSpan[],
-  title: string,
+  draft: { title: string; description?: string; checklist: string[] },
 ): DecisionDraftReviewFlag[] {
   const flags = new Set(modelFlags);
   if (sourceSpans.length === 0 || sourceSpans.some((span) => !sourceText.includes(span.text))) {
     flags.add('missing_source_span');
     flags.add('unclear');
   }
-  const riskText = `${title}\n${sourceSpans.map((span) => span.text).join('\n')}`.toLowerCase();
-  if (/(delete|drop|production|prod|secret|password|credential|payment|legal|data loss|wipe|remove database)/.test(riskText)) {
+  const riskText = [
+    draft.title,
+    draft.description,
+    ...draft.checklist,
+    ...sourceSpans.map((span) => span.text),
+  ].filter(Boolean).join('\n');
+  if (/\b(delete|drop|production|prod|secret|password|credential|payment|legal|wipe)\b|data loss|remove database/i.test(riskText)) {
     flags.add('high_risk');
   }
   return [...flags];

@@ -69,6 +69,7 @@ export const AcceptDecisionDraftSchema = z.object({
   scheduledFor: z.string().optional(),
   dueAt: z.string().optional(),
   checklist: z.array(ChecklistItemSchema).optional(),
+  reviewed: z.literal(true).optional(),
 });
 
 export const AcceptDecisionDraftsSchema = z.object({

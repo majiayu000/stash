@@ -147,7 +147,7 @@ describe('AiProviderService', () => {
       raw: '{"summary":true}',
       text: JSON.stringify({
         summary: 'User chose the smallest testable slice.',
-        destination: 'journal',
+        destination: 'description',
         sourceSpans: [{ text: 'smallest testable slice' }],
       }),
     });

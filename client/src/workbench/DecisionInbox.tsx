@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { AiGenerationRun, DecisionDraft, Priority } from '@stash/shared';
+import type { AcceptDecisionDraftInput, AiGenerationRun, DecisionDraft, Priority } from '@stash/shared';
 import {
   acceptDecisionDrafts,
   listDecisionDrafts,
@@ -75,7 +75,11 @@ export function DecisionInbox({ reload }: { reload: () => void }) {
       for (const [runId, group] of groupByRun(targets)) {
         await acceptDecisionDrafts(runId, {
           sourceIdeaStatus: group.some((draft) => draft.sourceKind === 'idea_decomposition') ? 'planned' : undefined,
-          drafts: group.map((draft) => acceptInput(draft, edits[draft.id] ?? editFromDraft(draft))),
+          drafts: group.map((draft) => acceptInput(
+            draft,
+            edits[draft.id] ?? editFromDraft(draft),
+            options.allowManualReview === true && requiresManualReview(draft),
+          )),
         });
       }
       await loadDecisionDrafts();
@@ -265,14 +269,17 @@ function groupByRun(drafts: DecisionDraft[]): Array<[string, DecisionDraft[]]> {
   return Array.from(grouped.entries());
 }
 
-function acceptInput(draft: DecisionDraft, edit: DraftEdit) {
-  return {
+function acceptInput(draft: DecisionDraft, edit: DraftEdit, reviewed: boolean): AcceptDecisionDraftInput {
+  const description = edit.description.trim();
+  const input: AcceptDecisionDraftInput = {
     draftId: draft.id,
     title: edit.title.trim(),
-    description: edit.description.trim() || undefined,
+    description: draft.proposedDescription === undefined && description === '' ? undefined : description,
     priority: edit.priority,
     labels: edit.labels.split(',').map((label) => label.trim()).filter(Boolean),
   };
+  if (reviewed) input.reviewed = true;
+  return input;
 }
 
 function canAutoAdoptDraft(draft: DecisionDraft): boolean {
@@ -280,7 +287,7 @@ function canAutoAdoptDraft(draft: DecisionDraft): boolean {
 }
 
 function requiresManualReview(draft: DecisionDraft): boolean {
-  return draft.reviewFlags.includes('high_risk') || draft.reviewFlags.includes('unclear');
+  return draft.reviewFlags.length > 0;
 }
 
 const decisionInboxStyles = `

@@ -296,6 +296,36 @@ describe('AiDraftService', () => {
     expect(drafts.getDraft(accepted!.id)?.status).toBe('edited');
   });
 
+  test('flagged drafts require reviewed acceptance and preserve explicit description clears', () => {
+    const { workItems, drafts } = setupAiDraftTest();
+    const run = drafts.createRun({
+      feature: 'meeting_triage',
+      sourceKind: 'meeting_triage',
+      provider: 'local-test',
+      promptHash: 'hash-5a',
+      status: 'succeeded',
+    });
+    const [draft] = drafts.createDrafts(run.id, [{
+      sourceKind: 'meeting_triage',
+      proposedTitle: 'Review risky follow-up',
+      proposedDescription: 'Generated text that reviewer removed.',
+      reviewFlags: ['missing_source_span'],
+    }]);
+
+    expect(() => drafts.acceptDrafts(run.id, {
+      drafts: [{ draftId: draft!.id }],
+    })).toThrow(DecisionDraftConflictError);
+    expect(workItems.list()).toEqual([]);
+
+    const [accepted] = drafts.acceptDrafts(run.id, {
+      drafts: [{ draftId: draft!.id, description: '', reviewed: true }],
+    });
+    const created = workItems.get(accepted!.createdWorkItemId!);
+
+    expect(accepted?.status).toBe('edited');
+    expect(created?.description).toBeUndefined();
+  });
+
   test('deleting an accepted work item keeps the accepted draft audit row', () => {
     const { workItems, drafts } = setupAiDraftTest();
     const idea = workItems.create({ title: 'Trace generated task deletion', kind: 'idea' });

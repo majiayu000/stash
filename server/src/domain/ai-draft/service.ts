@@ -292,6 +292,9 @@ export class AiDraftService {
           accepted.push(draft);
           continue;
         }
+        if (draft.reviewFlags.length > 0 && draftInput.reviewed !== true) {
+          throw new DecisionDraftConflictError(`flagged draft ${draft.id} requires explicit review before acceptance`);
+        }
 
         const sourceContext = this.getAcceptSourceContext(draft);
         const created = this.workItems.create({

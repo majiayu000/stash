@@ -49,7 +49,7 @@ describe('work item coach routes', () => {
       },
       {
         raw: '{"summary":"ok"}',
-        text: JSON.stringify({ summary: 'Coach summary for the journal.', destination: 'journal' }),
+        text: JSON.stringify({ summary: 'Coach summary for the journal.', destination: 'description' }),
       },
     ]);
     const { db, app } = setupCoachApp(client);
@@ -70,6 +70,7 @@ describe('work item coach routes', () => {
     const summaryJson = await summary.json() as any;
     expect(summary.status).toBe(201);
     expect(summaryJson.data.message.purpose).toBe('summary');
+    expect(summaryJson.data.destination).toBe('journal');
 
     const beforeApplyJournal = await app.fetch(new Request(`http://test/api/work-items/${taskId}/journal`));
     expect(((await beforeApplyJournal.json()) as any).data).toEqual([]);

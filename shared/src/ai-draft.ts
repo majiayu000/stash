@@ -146,6 +146,7 @@ export interface AcceptDecisionDraftInput {
   scheduledFor?: string;
   dueAt?: string;
   checklist?: ChecklistItem[];
+  reviewed?: true;
 }
 
 export interface AcceptDecisionDraftsInput {

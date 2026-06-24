@@ -91,4 +91,34 @@ describe('POST /api/meeting-triage/import', () => {
     expect(json.data.drafts[0].reviewFlags).toContain('high_risk');
     expect(json.data.drafts[0].reviewReason).toContain('High-risk');
   });
+
+  test('classifies risk from draft body without matching product as prod', async () => {
+    const client = new StaticMeetingClient({
+      raw: '{"drafts":[]}',
+      text: JSON.stringify({
+        drafts: [
+          {
+            title: 'Product roadmap follow-up',
+            description: 'Discuss product launch sequencing.',
+            sourceSpans: [{ text: 'product roadmap follow-up' }],
+          },
+          {
+            title: 'Follow up with ops',
+            description: 'Delete production database after export.',
+            sourceSpans: [{ text: 'follow up with ops' }],
+          },
+        ],
+      }),
+    });
+    const { app } = meetingApp(client);
+
+    const res = await postMeetingJson(app, '/api/meeting-triage/import', {
+      text: 'product roadmap follow-up. follow up with ops.',
+    });
+    const json = await res.json() as any;
+
+    expect(res.status).toBe(201);
+    expect(json.data.drafts[0].reviewFlags).not.toContain('high_risk');
+    expect(json.data.drafts[1].reviewFlags).toContain('high_risk');
+  });
 });
