@@ -256,7 +256,7 @@ function ToolCall({ name, args, status, lines, plus, minus, collapsed, children 
   const statusGlyph = status === 'ok' ? '✓' : status === 'warn' ? '⚠' : '✕';
   return (
     <div className={`td-tool ${open ? 'open' : ''}`}>
-      <button className="td-tool-head" onClick={() => setOpen(!open)} type="button">
+      <button className="td-tool-head" onClick={() => setOpen(!open)} type="button" aria-expanded={open}>
         <span className="td-tool-chevron">{open ? '▾' : '▸'}</span>
         <span className="td-tool-name">tool_call</span>
         <span className="td-tool-fn">{name}</span>
@@ -289,13 +289,23 @@ function Diff({ lines }: { lines: DiffLine[] }) {
  * Real transcript renderer over /events. Maps AgentSessionEvent → existing
  * Turn / ToolCall layout so the design stays intact.
  */
-function RealTranscript({ events, session }: { events: AgentSessionEvent[]; session: WBSession }) {
+export function RealTranscript({ events, session }: { events: AgentSessionEvent[]; session: WBSession }) {
+  const pairedOutputIndexes = findPairedToolOutputIndexes(events);
   return (
     <>
       {events.map((e, i) => {
         if (e.kind === 'tool_call') {
           const argPreview = e.meta ? truncateArgs(e.meta) : '';
-          return <ToolCall key={i} name={e.tool ?? e.text} args={argPreview} status="ok" />;
+          const output = findPairedToolOutput(events, i)?.event;
+          const details = formatToolCallDetails(e, output);
+          return (
+            <ToolCall key={i} name={e.tool ?? e.text} args={argPreview} status="ok" collapsed={Boolean(details)}>
+              {details ? <pre className="td-code">{details}</pre> : null}
+            </ToolCall>
+          );
+        }
+        if (e.kind === 'tool_output' && pairedOutputIndexes.has(i)) {
+          return null;
         }
         const who = e.kind === 'user' ? 'you' : e.kind === 'assistant' ? 'agent' : e.kind;
         const kind: 'user' | 'assistant' | 'thinking' | 'tool' =
@@ -315,6 +325,62 @@ function RealTranscript({ events, session }: { events: AgentSessionEvent[]; sess
       )}
     </>
   );
+}
+
+function findPairedToolOutputIndexes(events: AgentSessionEvent[]): Set<number> {
+  const indexes = new Set<number>();
+  for (let i = 0; i < events.length; i++) {
+    const event = events[i];
+    if (event?.kind !== 'tool_call') continue;
+    const output = findPairedToolOutput(events, i);
+    if (output) indexes.add(output.index);
+  }
+  return indexes;
+}
+
+function findPairedToolOutput(events: AgentSessionEvent[], toolCallIndex: number): { event: AgentSessionEvent; index: number } | undefined {
+  const call = events[toolCallIndex];
+  if (!call || call.kind !== 'tool_call') return undefined;
+
+  if (call.callId) {
+    for (let i = toolCallIndex + 1; i < events.length; i++) {
+      const candidate = events[i];
+      if (candidate?.kind === 'tool_output' && candidate.callId === call.callId) {
+        return { event: candidate, index: i };
+      }
+    }
+    return undefined;
+  }
+
+  for (let i = toolCallIndex + 1; i < events.length; i++) {
+    const candidate = events[i];
+    if (!candidate) continue;
+    if (candidate.kind === 'tool_call') return undefined;
+    if (candidate.kind !== 'tool_output') continue;
+    if (!candidate.callId) {
+      return { event: candidate, index: i };
+    }
+  }
+  return undefined;
+}
+
+export function formatToolCallDetails(call: AgentSessionEvent, output?: AgentSessionEvent): string {
+  const sections: string[] = [];
+  if (call.meta && Object.keys(call.meta).length > 0) {
+    sections.push(`Arguments:\n${stringifyToolValue(call.meta)}`);
+  }
+  if (output?.text) {
+    sections.push(`Output:\n${output.text.trimEnd()}`);
+  }
+  return sections.join('\n\n');
+}
+
+function stringifyToolValue(value: unknown): string {
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
 }
 
 function truncateArgs(meta: Record<string, unknown> | undefined): string {

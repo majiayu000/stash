@@ -40,6 +40,15 @@ describe('CodexSource.scan', () => {
     expect(kinds.has('user')).toBe(true);
     expect(kinds.has('assistant')).toBe(true);
     expect(kinds.has('tool_call')).toBe(true);
+    expect(kinds.has('tool_output')).toBe(true);
+
+    const toolCall = events.find((e) => e.kind === 'tool_call');
+    expect(toolCall?.callId).toBe('call_patch_1');
+    expect(toolCall?.meta?.path).toBe('/Users/test/demo-codex/src/cache.ts');
+
+    const toolOutput = events.find((e) => e.kind === 'tool_output');
+    expect(toolOutput?.callId).toBe('call_patch_1');
+    expect(toolOutput?.text).toContain('Patch applied cleanly');
   });
 
   test('getUsage extracts token_count totals', () => {
