@@ -22,13 +22,17 @@ interface ContentPart {
   text?: string;
 }
 
+const TEXT_CONTENT_TYPES = new Set(['text', 'input_text', 'output_text']);
+
 function extractText(content: unknown): string {
   if (typeof content === 'string') return content;
   if (!Array.isArray(content)) return '';
   const parts: string[] = [];
   for (const p of content as ContentPart[]) {
     if (typeof p === 'string') parts.push(p);
-    else if (p?.type === 'text' && typeof p.text === 'string') parts.push(p.text);
+    else if (p?.type && TEXT_CONTENT_TYPES.has(p.type) && typeof p.text === 'string') {
+      parts.push(p.text);
+    }
   }
   return parts.join('\n');
 }

@@ -75,4 +75,55 @@ describe('ConceptG real transcript', () => {
     expect(screen.getByText(/"cmd": "pwd"/)).toBeInTheDocument();
     expect(screen.getByText(/Chunk ID: abc/)).toBeInTheDocument();
   });
+
+  test('pairs batched Codex tool outputs by call id', async () => {
+    const user = userEvent.setup();
+    const events: AgentSessionEvent[] = [
+      {
+        kind: 'tool_call',
+        text: 'exec_command',
+        tool: 'exec_command',
+        timestamp: '2026-05-14T08:00:10.000Z',
+        callId: 'call_1',
+        meta: { cmd: 'pwd' },
+      },
+      {
+        kind: 'tool_call',
+        text: 'exec_command',
+        tool: 'exec_command',
+        timestamp: '2026-05-14T08:00:10.100Z',
+        callId: 'call_2',
+        meta: { cmd: 'ls' },
+      },
+      {
+        kind: 'tool_output',
+        text: 'first output',
+        timestamp: '2026-05-14T08:00:11.000Z',
+        callId: 'call_1',
+      },
+      {
+        kind: 'tool_output',
+        text: 'second output',
+        timestamp: '2026-05-14T08:00:11.100Z',
+        callId: 'call_2',
+      },
+    ];
+
+    render(<RealTranscript events={events} session={session()} />);
+
+    expect(screen.queryByText(/first output/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/second output/)).not.toBeInTheDocument();
+
+    const buttons = screen.getAllByRole('button', { name: /exec_command/ });
+    await user.click(buttons[0]!);
+
+    expect(screen.getByText(/"cmd": "pwd"/)).toBeInTheDocument();
+    expect(screen.getByText(/first output/)).toBeInTheDocument();
+    expect(screen.queryByText(/second output/)).not.toBeInTheDocument();
+
+    await user.click(buttons[1]!);
+
+    expect(screen.getByText(/"cmd": "ls"/)).toBeInTheDocument();
+    expect(screen.getByText(/second output/)).toBeInTheDocument();
+  });
 });

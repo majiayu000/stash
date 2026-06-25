@@ -341,14 +341,23 @@ function findPairedToolOutputIndexes(events: AgentSessionEvent[]): Set<number> {
 function findPairedToolOutput(events: AgentSessionEvent[], toolCallIndex: number): { event: AgentSessionEvent; index: number } | undefined {
   const call = events[toolCallIndex];
   if (!call || call.kind !== 'tool_call') return undefined;
+
+  if (call.callId) {
+    for (let i = toolCallIndex + 1; i < events.length; i++) {
+      const candidate = events[i];
+      if (candidate?.kind === 'tool_output' && candidate.callId === call.callId) {
+        return { event: candidate, index: i };
+      }
+    }
+    return undefined;
+  }
+
   for (let i = toolCallIndex + 1; i < events.length; i++) {
     const candidate = events[i];
     if (!candidate) continue;
     if (candidate.kind === 'tool_call') return undefined;
     if (candidate.kind !== 'tool_output') continue;
-    if (call.callId) {
-      if (candidate.callId === call.callId) return { event: candidate, index: i };
-    } else if (!candidate.callId) {
+    if (!candidate.callId) {
       return { event: candidate, index: i };
     }
   }
