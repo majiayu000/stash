@@ -12,6 +12,8 @@ interface RawRecord {
     content?: unknown;
     name?: string;
     arguments?: unknown;
+    call_id?: string;
+    output?: unknown;
   };
 }
 
@@ -36,6 +38,34 @@ function pickFilePath(args: unknown): string | undefined {
   const obj = args as Record<string, unknown>;
   const candidate = obj.path ?? obj.file_path ?? obj.filepath ?? obj.target ?? obj.filename;
   return typeof candidate === 'string' ? candidate : undefined;
+}
+
+function parseToolArguments(args: unknown): Record<string, unknown> | undefined {
+  if (!args) return undefined;
+  if (typeof args === 'object' && !Array.isArray(args)) return args as Record<string, unknown>;
+  if (typeof args !== 'string') return { value: args };
+
+  const trimmed = args.trim();
+  if (!trimmed) return undefined;
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+    return { value: parsed };
+  } catch {
+    return { arguments: args };
+  }
+}
+
+function extractOutputText(output: unknown): string {
+  if (typeof output === 'string') return output;
+  if (output == null) return '';
+  try {
+    return JSON.stringify(output);
+  } catch {
+    return String(output);
+  }
 }
 
 export interface ParseCodexOptions {
@@ -96,7 +126,8 @@ export function parseCodexSession(opts: ParseCodexOptions): AgentSession {
       const name = typeof rec.payload.name === 'string' ? rec.payload.name : undefined;
       if (name) lastTool = name;
       const args = rec.payload.arguments;
-      const path = pickFilePath(args);
+      const parsedArgs = parseToolArguments(args);
+      const path = pickFilePath(parsedArgs);
       if (path) filesTouched.add(path);
       try {
         const stringified =
@@ -155,14 +186,23 @@ export function parseCodexEvents(sourcePath: string, limit = 200): AgentSessionE
       else if (role === 'assistant') out.push({ kind: 'assistant', text, timestamp: rec.timestamp });
       else out.push({ kind: 'system', text, timestamp: rec.timestamp });
     } else if (rec.type === 'response_item' && rec.payload?.type === 'function_call') {
+      const meta = parseToolArguments(rec.payload.arguments);
       out.push({
         kind: 'tool_call',
         text: typeof rec.payload.name === 'string' ? rec.payload.name : 'tool',
         tool: typeof rec.payload.name === 'string' ? rec.payload.name : undefined,
         timestamp: rec.timestamp,
-        meta: rec.payload.arguments && typeof rec.payload.arguments === 'object'
-          ? (rec.payload.arguments as Record<string, unknown>)
-          : undefined,
+        callId: typeof rec.payload.call_id === 'string' ? rec.payload.call_id : undefined,
+        meta,
+      });
+    } else if (rec.type === 'response_item' && rec.payload?.type === 'function_call_output') {
+      const text = extractOutputText(rec.payload.output);
+      if (!text) continue;
+      out.push({
+        kind: 'tool_output',
+        text,
+        timestamp: rec.timestamp,
+        callId: typeof rec.payload.call_id === 'string' ? rec.payload.call_id : undefined,
       });
     }
   }

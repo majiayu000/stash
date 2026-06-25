@@ -42,5 +42,6 @@ export interface AgentSessionEvent {
   text: string;
   timestamp: string;
   tool?: string;
+  callId?: string;
   meta?: Record<string, unknown>;
 }
