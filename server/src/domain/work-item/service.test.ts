@@ -287,6 +287,9 @@ describe('isTransitionAllowed (pure)', () => {
   test('allows planned → someday', () => {
     expect(isTransitionAllowed('planned', 'someday')).toBe(true);
   });
+  test('allows blocked → done', () => {
+    expect(isTransitionAllowed('blocked', 'done')).toBe(true);
+  });
   test('disallows done → blocked', () => {
     expect(isTransitionAllowed('done', 'blocked')).toBe(false);
   });
