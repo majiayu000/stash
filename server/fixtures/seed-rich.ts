@@ -247,6 +247,51 @@ if (exists > 0) {
     });
     created++;
   }
+
+  const systems = [
+    {
+      title: 'Morning routine',
+      projectName: 'personal',
+      labels: ['routine', 'daily'],
+      checklist: ['check calendar', 'pack bag', 'start focus playlist'],
+      runOffset: -1,
+    },
+    {
+      title: 'Packing checklist',
+      projectName: 'personal',
+      labels: ['travel'],
+      checklist: ['documents', 'chargers', 'medicine', 'weather check'],
+      runOffset: -8,
+    },
+    {
+      title: 'Airbnb turnover',
+      projectName: 'personal',
+      labels: ['home', 'ops'],
+      checklist: ['replace towels', 'restock coffee', 'check thermostat', 'send guest note'],
+      runOffset: -3,
+    },
+  ];
+
+  for (const s of systems) {
+    const projectId = s.projectName ? areaByName.get(s.projectName)?.id : undefined;
+    const system = items.create({
+      title: s.title,
+      kind: 'system',
+      status: 'planned',
+      priority: 'p2',
+      labels: s.labels,
+      projectId,
+      areaId: projectId,
+      checklist: s.checklist.map((text, index) => ({ id: `seed-system-${created + index}`, text, completed: false })),
+      scheduledFor: rel(1),
+    });
+    const run = items.instantiateSystem(system.id, { scheduledFor: rel(s.runOffset) });
+    items.update(run.id, {
+      checklist: run.checklist.map((step, index) => ({ ...step, completed: index < Math.max(1, run.checklist.length - 1) })),
+      status: 'done',
+    });
+    created += 2;
+  }
   process.stderr.write(`[seed-rich] work items: +${created}\n`);
 }
 

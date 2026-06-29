@@ -4,6 +4,7 @@ import {
   ulid,
   type AiGenerationRun,
   type AiWriteDestination,
+  type ChecklistItem,
   type Clock,
   type CoachApplySummaryResponse,
   type CoachAskResponse,
@@ -26,6 +27,7 @@ interface CoachMessageRow {
   run_id: string | null;
   role: CoachMessageRole;
   purpose: CoachMessagePurpose;
+  summary_destination: AiWriteDestination | null;
   body: string;
   provider: string | null;
   model: string | null;
@@ -132,6 +134,7 @@ export class WorkItemCoachService {
       runId: result.run.id,
       role: 'assistant',
       purpose: 'summary',
+      destination: result.destination,
       body: result.summary,
       provider: result.run.provider,
       model: result.run.model,
@@ -149,6 +152,12 @@ export class WorkItemCoachService {
     if (source.runId !== input.runId) throw new WorkItemCoachConflictError('summary message does not match the run');
     if (source.role !== 'assistant' || source.purpose !== 'summary') {
       throw new WorkItemCoachConflictError('only assistant summary messages can be applied');
+    }
+    if (!source.destination) {
+      throw new WorkItemCoachConflictError('summary destination is missing; regenerate the summary before applying it');
+    }
+    if (source.destination !== input.destination) {
+      throw new WorkItemCoachConflictError(`summary destination is ${source.destination}, not ${input.destination}`);
     }
 
     const run = this.getRequiredRun(input.runId);
@@ -172,8 +181,18 @@ export class WorkItemCoachService {
           ? `${current.description}\n\n${source.body}`
           : source.body;
         item = this.deps.workItems.update(workItemId, { description });
-      } else {
+      } else if (input.destination === 'journal') {
         journalEntry = this.deps.journal.append(workItemId, { body: source.body });
+      } else {
+        const current = this.getRequiredWorkItem(workItemId);
+        if (current.kind !== 'system') {
+          throw new WorkItemCoachConflictError('checklist summaries can only be applied to system templates');
+        }
+        const checklist = checklistFromSummary(source.body, this.clock);
+        if (checklist.length === 0) {
+          throw new WorkItemCoachConflictError('checklist summary did not include any steps');
+        }
+        item = this.deps.workItems.update(workItemId, { checklist });
       }
 
       const row: WorkItemAiWrite = {
@@ -211,6 +230,7 @@ export class WorkItemCoachService {
     runId?: string;
     role: CoachMessageRole;
     purpose: CoachMessagePurpose;
+    destination?: AiWriteDestination;
     body: string;
     provider?: string;
     model?: string;
@@ -221,6 +241,7 @@ export class WorkItemCoachService {
       runId: input.runId,
       role: input.role,
       purpose: input.purpose,
+      destination: input.destination,
       body: input.body,
       provider: input.provider,
       model: input.model,
@@ -228,14 +249,15 @@ export class WorkItemCoachService {
     };
     this.deps.db.prepare(
       `insert into work_item_coach_messages(
-        id, work_item_id, run_id, role, purpose, body, provider, model, created_at
-      ) values (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        id, work_item_id, run_id, role, purpose, summary_destination, body, provider, model, created_at
+      ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       message.id,
       message.workItemId,
       message.runId ?? null,
       message.role,
       message.purpose,
+      message.destination ?? null,
       message.body,
       message.provider ?? null,
       message.model ?? null,
@@ -291,10 +313,20 @@ export class WorkItemCoachService {
   private responseForExistingWrite(write: WorkItemAiWrite): CoachApplySummaryResponse {
     return {
       write,
-      item: write.destination === 'description' ? (this.deps.workItems.get(write.workItemId) ?? undefined) : undefined,
+      item: write.destination === 'description' || write.destination === 'checklist'
+        ? (this.deps.workItems.get(write.workItemId) ?? undefined)
+        : undefined,
       journalEntry: write.createdJournalEntryId ? this.deps.journal.list(write.workItemId).find((entry) => entry.id === write.createdJournalEntryId) : undefined,
     };
   }
+}
+
+function checklistFromSummary(body: string, clock: Clock): ChecklistItem[] {
+  return body
+    .split('\n')
+    .map((line) => line.trim().replace(/^[-*]\s+/, '').replace(/^\d+[.)]\s+/, '').replace(/^\[[ xX]\]\s+/, ''))
+    .filter((line) => line.length > 0)
+    .map((text) => ({ id: ulid(clock.now()), text, completed: false }));
 }
 
 function mapMessage(row: CoachMessageRow): WorkItemCoachMessage {
@@ -304,6 +336,7 @@ function mapMessage(row: CoachMessageRow): WorkItemCoachMessage {
     runId: row.run_id ?? undefined,
     role: row.role,
     purpose: row.purpose,
+    destination: row.summary_destination ?? undefined,
     body: row.body,
     provider: row.provider ?? undefined,
     model: row.model ?? undefined,

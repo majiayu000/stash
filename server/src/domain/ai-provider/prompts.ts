@@ -14,7 +14,7 @@ export interface TaskCoachPromptInput {
 export interface CoachSummaryPromptInput {
   task: WorkItem;
   messages: string[];
-  destination: 'journal' | 'description';
+  destination: 'journal' | 'description' | 'checklist';
 }
 
 export interface MeetingTriagePromptInput {
@@ -88,11 +88,12 @@ export function buildCoachSummaryPrompt(input: CoachSummaryPromptInput): string 
     'Return only JSON. Do not include markdown.',
     '',
     'Required JSON shape:',
-    '{"summary":"string","destination":"journal|description","sourceSpans":[{"text":"string"}]}',
+    '{"summary":"string","destination":"journal|description|checklist","sourceSpans":[{"text":"string"}]}',
     '',
     'Rules:',
     '- Do not write directly to the todo.',
     '- The user will choose whether to append this summary.',
+    '- If destination is checklist, write one checklist step per line for the improved template.',
     '- Preserve provenance with sourceSpans from the messages.',
     '',
     'Task:',

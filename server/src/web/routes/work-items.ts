@@ -102,13 +102,13 @@ export function createWorkItemsRouter(
         projectId: parsed.projectId,
         areaId: parsed.areaId,
         labels: parsed.labels,
+        kind: parsed.kind ?? 'idea',
         priority: parsed.priority,
         scheduledFor: parsed.scheduledFor,
         dueAt: parsed.dueAt,
         startAt: parsed.startAt,
         estimateMinutes: parsed.estimateMinutes,
         rawInput: raw,
-        kind: 'idea',
         status: 'inbox',
       });
       return c.json({ data: item, parsed: buildCapturePreview(parsed, areas) }, 201);

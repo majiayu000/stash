@@ -240,18 +240,18 @@ interface WorkItem {
 
 ### MVP 仍需补齐
 
-- [ ] 创建入口：UI / capture 能直接创建 `kind=system`
-- [ ] System 详情页历史 runs 列表（最小版：日期、状态、完成率）
-- [ ] e2e 覆盖 Run system 按钮创建并跳转
-- [ ] seed 示例：Morning routine / Travel packing / Airbnb turnover
-- [ ] 文档更新：README 或 docs/PLAN 中说明 Systems 入口与约束
+- [x] 创建入口：UI / capture 能直接创建 `kind=system`
+- [x] System 详情页历史 runs 列表（最小版：日期、状态、完成率）
+- [x] e2e 覆盖 Run system 按钮创建并跳转
+- [x] seed 示例：Morning routine / Packing checklist / Airbnb turnover
+- [x] 文档更新：README 或 docs/PLAN 中说明 Systems 入口与约束
 
 ### MVP 之后（高优先）
 
 - System 专用列表视图 + 统计（上次执行、上次完成率、平均用时）
 - 在 System 详情中展示历史 runs 列表（带摘要）
 - 支持从 Run 快速 “采纳改进到模板”
-- Capture token 支持 `:system` 或 `stash system "xxx"`
+- Capture token 已支持 `:system` / `kind:system`；CLI 专用 `stash system "xxx"` 可后续补
 - 模板上可设置默认 Area / Labels
 
 ---

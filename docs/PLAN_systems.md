@@ -63,7 +63,7 @@
 
 ## Phase 2 — 前端入口 + 基础 UX（用户可见）
 
-**状态**: 基础入口已完成；历史计数和 e2e 后移到 Phase 3。
+**状态**: MVP 入口已完成；历史列表和 e2e 已在 Phase 3 补齐。
 
 **Touches**:
 - `client/src/api/work-items.ts`（加 runSystem）
@@ -76,8 +76,8 @@
 2. 在 SmartLists 增加默认 chip `{ id: 'systems', label: '🔁 systems', filter: { kind: 'system' } }`。
 3. 在 Concept L 的详情页，当 `item.kind === 'system'` 时显示 Run 按钮，点击后调用 API 并跳转到新 Run。
 4. Run 详情页复用现有 ChecklistPanel + Journal（无需大改）。
-5. 在 System 模板详情简单显示 “历史 Run 数量”（Phase 3）。
-6. e2e：增加或扩展测试验证 Run 按钮创建并跳转（Phase 3）。
+5. 在 System 模板详情显示历史 Run 列表（日期、状态、完成进度）。
+6. e2e：增加测试验证 Run 按钮创建、跳转、勾 checklist、Done、返回历史。
 7. **验证**:
    - `bun run client:typecheck`
    - `bun run client:test`
@@ -92,6 +92,8 @@
 
 ## Phase 3 — 历史、创建入口、文档 & Seed（MVP 收尾）
 
+**状态**: 已完成。
+
 **Touches**:
 - `client/src/workbench/concepts/ConceptL.tsx`（增强历史列表）
 - `client/src/workbench/QuickCapture.tsx` 或 capture parser（支持创建 system）
@@ -101,7 +103,7 @@
 
 **步骤**:
 1. 在 System 模板详情页增加“历史 Runs”最小列表（日期 + 状态 + 完成进度，点击跳转）。
-2. 增强 capture：支持 token 如 `kind:system` 或 `:system`，或在 create 表单增加 kind 选择。
+2. 增强 capture：支持 token `kind:system` 和 `:system`。
 3. 添加 seed 示例：
    - Morning routine
    - Travel packing
@@ -123,8 +125,8 @@
 
 - 专用 Systems 视图（可选新 Concept 's'）
 - Run 统计（平均用时、完成率）
-- AI Coach 针对 System 模板的优化建议
-- Capture 语法 `:system` + `stash system "xxx"`
+- AI Coach 针对 System 模板的优化建议（MVP 已支持 checklist proposal → 用户确认 → 应用）
+- CLI 专用 `stash system "xxx"`
 - 从 Run “采纳改进回模板”
 - 模板版本提示（简单）
 - 更多预置模板（dev onboarding, research workflow, weekly reset）
@@ -158,6 +160,6 @@
 - GitHub Issues 已创建：#85-#97。
 - Phase 1 基础闭环已完成：`kind=system`、`instantiateSystem`、`POST /work-items/:id/run`、fail-closed kind filter、System template 禁止 done。
 - Phase 2 基础入口已完成：SmartLists systems chip、Concept L `Run system` 按钮、Run 跳转。
-- 仍需完成 Phase 3：创建入口、历史 Runs 面板、e2e、seed、README。
+- Phase 3 MVP 收尾已完成：`:system` / `kind:system` 创建入口、历史 Runs 面板、e2e、seed、README。
 
-下一步：优先处理 #95（e2e）和 #93（创建入口），再处理 #91（历史 Runs 面板）与 #94/#97（seed + docs）。
+下一步：合并前跑完整 verify；Post-MVP 再拆专用 Systems 视图、统计、CLI `stash system` 和更丰富的 Run → 模板改进流。

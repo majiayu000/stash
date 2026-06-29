@@ -121,7 +121,7 @@ export function QuickCapture() {
               onKeyDown={(e) => {
                 if (shouldSubmitQuickCapture(e)) { e.preventDefault(); submit(); }
               }}
-              placeholder="e.g. fix login #aurora ^p1 !tomorrow @auth *45m"
+              placeholder="e.g. fix login #aurora ^p1 !tomorrow @auth *45m or :system"
               spellCheck={false}
               autoComplete="off"
             />
@@ -136,6 +136,7 @@ export function QuickCapture() {
             <div className="qc-footer">
               <code>#project</code>
               <code>@tag</code>
+              <code>:system</code>
               <code>^p0..^p3</code>
               <code>!today</code>
               <code>!!due-fri</code>
@@ -198,6 +199,7 @@ const qcStyles = `
 .qc-chip-proj { color: var(--neon-cyan);   border-color: rgba(0,255,242,0.3); }
 .qc-chip-tag  { color: var(--neon-purple); border-color: rgba(191,90,242,0.3); }
 .qc-chip-pri  { color: var(--neon-orange); border-color: rgba(255,159,10,0.3); }
+.qc-chip-kind { color: var(--neon-cyan);   border-color: rgba(0,255,242,0.3); }
 .qc-chip-date { color: var(--neon-green);  border-color: rgba(48,209,88,0.3); }
 .qc-chip-due  { color: var(--neon-pink);   border-color: rgba(255,55,95,0.3); }
 .qc-chip-time { color: var(--neon-green);  border-color: rgba(48,209,88,0.3); }

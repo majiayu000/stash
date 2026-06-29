@@ -37,9 +37,16 @@ function providerText(prompt: string): string {
     });
   }
   if (prompt.includes('"summary":"string"')) {
+    const destination = prompt.includes('Requested destination: checklist')
+      ? 'checklist'
+      : prompt.includes('Requested destination: description')
+        ? 'description'
+        : 'journal';
     return JSON.stringify({
-      summary: `AI summary for ${title}`,
-      destination: prompt.includes('Requested destination: description') ? 'description' : 'journal',
+      summary: destination === 'checklist'
+        ? `Confirm ${title} inputs\nRun the ${title} checklist\nRecord what changed`
+        : `AI summary for ${title}`,
+      destination,
       sourceSpans: [{ text: title }],
     });
   }

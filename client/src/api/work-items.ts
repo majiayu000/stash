@@ -1,7 +1,7 @@
 import type { CreateWorkItemInput, JournalEntry, Priority, UpdateWorkItemInput, WorkItem, WorkItemKind, WorkItemStatus } from '@stash/shared';
 import { apiDelete, apiGet, apiPatch, apiPost } from './client';
 
-export type CapturePreviewChipType = 'proj' | 'tag' | 'pri' | 'date' | 'due' | 'time' | 'est' | 'unresolved';
+export type CapturePreviewChipType = 'proj' | 'tag' | 'pri' | 'kind' | 'date' | 'due' | 'time' | 'est' | 'unresolved';
 
 export interface CapturePreviewChip {
   type: CapturePreviewChipType;
@@ -15,6 +15,7 @@ export interface CaptureParsed {
   areaId?: string;
   projectName?: string;
   labels: string[];
+  kind?: WorkItemKind;
   priority?: Priority;
   scheduledFor?: string;
   dueAt?: string;
@@ -37,6 +38,7 @@ export interface WorkItemFilter {
   kind?: WorkItemKind | WorkItemKind[];
   areaId?: string;
   projectId?: string;
+  parentId?: string;
   scheduledFrom?: string;
   scheduledTo?: string;
   scheduledIsNull?: boolean;
@@ -67,6 +69,7 @@ export async function listWorkItems(filter: WorkItemFilter = {}): Promise<WorkIt
   }
   if (filter.areaId) query.areaId = filter.areaId;
   if (filter.projectId) query.projectId = filter.projectId;
+  if (filter.parentId) query.parentId = filter.parentId;
   if (filter.scheduledFrom) query.scheduledFrom = filter.scheduledFrom;
   if (filter.scheduledTo) query.scheduledTo = filter.scheduledTo;
   if (filter.scheduledIsNull !== undefined) {

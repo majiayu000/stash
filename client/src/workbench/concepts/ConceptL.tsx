@@ -50,9 +50,25 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
   const dialog = useWorkbenchDialog();
 
   // Pick the todo from URL, or default to first idea/inbox, else first todo.
-  const todo = workItemId
+  const selectedTodo = workItemId
     ? todos.find((t) => t.id === workItemId)
     : todos.find((t) => t.kind === 'idea' && !t.done) ?? todos.find((t) => !t.done) ?? todos[0];
+  const todo = selectedTodo ?? (workItemId
+    ? ({
+      id: workItemId,
+      text: 'loading…',
+      project: null,
+      tags: [],
+      done: false,
+      status: 'planned',
+      priority: 'med',
+      kind: 'task',
+      todayPinned: false,
+      updatedAt: '',
+      recurring: false,
+      reminding: false,
+    } satisfies WBTodo)
+    : undefined);
 
   if (!todo) {
     return (
@@ -116,8 +132,8 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
     try {
       const run = await runSystem(item.id);
       flashSaved('run created');
-      // navigate to the new run's detail or just refresh parent list
-      window.dispatchEvent(new CustomEvent('stash:refresh-workboard'));
+      reload();
+      window.dispatchEvent(new CustomEvent('stash:captured'));
       navigate(`/c/l/${run.id}`, { replace: false });
     } catch (e) {
       flashSaved(`✕ ${e instanceof Error ? e.message : String(e)}`);
@@ -295,6 +311,7 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
   const showStub = realSubs === null;
   const subs = showStub ? stubSubs : [];
   const doneSubs = subs.filter((s) => s.done).length;
+  const historyRuns = item?.kind === 'system' ? (realSubs ?? []) : [];
 
   // SPEC v0.3 — real linked sessions via /api/work-items/:id/sessions (proxied by listLinkedSessions).
   const todoId = todo.id;
@@ -432,6 +449,7 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
                 <button
                   type="button"
                   onClick={runThisSystem}
+                  data-testid="system-run-button"
                   style={{ marginLeft: 'auto', marginRight: 8, fontFamily: 'var(--font-mono)', fontSize: '0.7rem', padding: '2px 8px', border: '1px solid var(--neon-cyan)', color: 'var(--neon-cyan)', background: 'transparent', borderRadius: 4, cursor: 'pointer' }}
                   title="Create a fresh run instance with current checklist"
                 >
@@ -490,6 +508,39 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
               </div>
 
               <ChecklistPanel state={checklist} />
+
+              {item?.kind === 'system' && (
+                <div className="td-section" data-testid="system-history">
+                  <div className="td-section-label">
+                    <span>history Runs</span>
+                    <span style={{ color: 'var(--text-muted)' }}>{historyRuns.length}</span>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {realSubs === null ? (
+                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)' }}>loading runs…</div>
+                    ) : historyRuns.length === 0 ? (
+                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)' }}>no runs yet — press Run system to create the first execution.</div>
+                    ) : historyRuns.map((run) => {
+                      const total = run.checklist.length;
+                      const done = run.checklist.filter((step) => step.completed).length;
+                      const date = run.scheduledFor ?? run.createdAt.slice(0, 10);
+                      return (
+                        <button
+                          key={run.id}
+                          type="button"
+                          className="td-history-run"
+                          onClick={() => navigate(`/c/l/${run.id}`)}
+                          data-testid="system-history-run"
+                        >
+                          <span>{date}</span>
+                          <strong>{run.title}</strong>
+                          <em>{run.status} · {done}/{total}</em>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
               {lessons.length > 0 && (
                 <div className="td-section">
@@ -733,10 +784,11 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
             <button
               className="np-btn primary"
               type="button"
-              disabled={!item}
+              disabled={!item || item.kind === 'system'}
+              title={item?.kind === 'system' ? 'System templates cannot be completed. Run the system and complete the Run instead.' : undefined}
               onClick={() => { void save('status', item?.status === 'done' ? ('planned' as WorkItemStatus) : ('done' as WorkItemStatus)); }}
               data-testid="td-done"
-            >{item?.status === 'done' ? '↶ reopen' : '✓ mark done'}</button>
+            >{item?.kind === 'system' ? 'template only' : item?.status === 'done' ? '↶ reopen' : '✓ mark done'}</button>
           </div>
         </div>
       </div>

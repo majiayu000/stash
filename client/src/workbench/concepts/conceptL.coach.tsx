@@ -34,6 +34,7 @@ export function TaskCoachPanel({
       setMessages([]);
       return () => { cancelled = true; };
     }
+    setDestination(item.kind === 'system' ? 'checklist' : 'journal');
     listCoachMessages(item.id)
       .then((rows) => { if (!cancelled) setMessages(rows); })
       .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : String(e)); });
@@ -78,16 +79,20 @@ export function TaskCoachPanel({
 
   async function applySummary(message: WorkItemCoachMessage) {
     if (!item || !message.runId || busy) return;
+    if (!message.destination) {
+      setError('summary destination is missing; regenerate the summary before applying it.');
+      return;
+    }
     setBusy('apply');
     setError(null);
     try {
       const result = await applyCoachSummary(item.id, {
         runId: message.runId,
         sourceMessageId: message.id,
-        destination,
+        destination: message.destination,
       });
       onApplied(result);
-      onFlash(destination === 'journal' ? '+ coach journal' : '+ coach description');
+      onFlash(destination === 'journal' ? '+ coach journal' : destination === 'checklist' ? '+ checklist proposal applied' : '+ coach description');
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -100,7 +105,7 @@ export function TaskCoachPanel({
   return (
     <div className="td-section td-coach" data-testid="task-coach-panel">
       <div className="td-section-label">
-        <span>task coach</span>
+        <span>{item.kind === 'system' ? 'system coach' : 'task coach'}</span>
         <select
           value={destination}
           onChange={(e) => setDestination(e.currentTarget.value as AiWriteDestination)}
@@ -108,11 +113,14 @@ export function TaskCoachPanel({
         >
           <option value="journal">journal</option>
           <option value="description">description</option>
+          {item.kind === 'system' && <option value="checklist">checklist</option>}
         </select>
       </div>
       <div className="td-coach-messages">
         {messages.length === 0 ? (
-          <div className="td-coach-empty">ask for a next step or summarize the current thread when it exists.</div>
+          <div className="td-coach-empty">
+            {item.kind === 'system' ? 'ask how to optimize this template, then apply the checklist proposal.' : 'ask for a next step or summarize the current thread when it exists.'}
+          </div>
         ) : (
           messages.map((message) => (
             <div key={message.id} className={`td-coach-message ${message.role} ${message.purpose}`}>
@@ -141,7 +149,7 @@ export function TaskCoachPanel({
             void submitQuestion();
           }
         }}
-        placeholder="ask for a next action"
+        placeholder={item.kind === 'system' ? 'ask how to optimize this system template' : 'ask for a next action'}
         data-testid="coach-input"
       />
       {error && <div className="td-coach-error" role="status">{error}</div>}
