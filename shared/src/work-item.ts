@@ -194,7 +194,7 @@ export const STATUS_TRANSITIONS: Readonly<Record<WorkItemStatus, readonly WorkIt
   planned: ['active', 'waiting', 'blocked', 'done', 'dropped', 'inbox', 'someday'],
   active: ['waiting', 'blocked', 'done', 'planned', 'dropped'],
   waiting: ['active', 'blocked', 'done', 'planned', 'dropped'],
-  blocked: ['active', 'waiting', 'dropped', 'planned'],
+  blocked: ['active', 'waiting', 'done', 'dropped', 'planned'],
   someday: ['planned', 'dropped', 'inbox'],
   done: ['planned', 'active'],
   dropped: ['inbox', 'planned'],
