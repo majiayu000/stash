@@ -8,14 +8,14 @@ const AskBody = z.object({
 });
 
 const SummarizeBody = z.object({
-  destination: z.enum(['description', 'journal']),
+  destination: z.enum(['description', 'journal', 'checklist']),
   messageIds: z.array(z.string().trim().min(1)).optional(),
 });
 
 const ApplySummaryBody = z.object({
   runId: z.string().trim().min(1),
   sourceMessageId: z.string().trim().min(1),
-  destination: z.enum(['description', 'journal']),
+  destination: z.enum(['description', 'journal', 'checklist']),
 });
 
 export function createWorkItemCoachRouter(coach: WorkItemCoachService): Hono {

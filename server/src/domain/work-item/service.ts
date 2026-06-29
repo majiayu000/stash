@@ -8,6 +8,7 @@ import {
   type CreateWorkItemInput,
   type UpdateWorkItemInput,
   type WorkItem,
+  type WorkItemKind,
   type WorkItemStatus,
 } from '@stash/shared';
 import { nextInstanceFromCompleted } from './recurrence.js';
@@ -59,6 +60,8 @@ export class WorkItemService {
 
     const now = this.clock.nowIso();
     const status: WorkItemStatus = input.status ?? 'inbox';
+    const kind = input.kind ?? 'task';
+    assertSystemTemplateStatus(kind, status);
     const item: WorkItem = {
       id: ulid(this.clock.now()),
       projectId: input.projectId,
@@ -68,7 +71,7 @@ export class WorkItemService {
       description: input.description?.trim() || undefined,
       outcome: input.outcome?.trim() || undefined,
       context: input.context?.trim() || undefined,
-      kind: input.kind ?? 'task',
+      kind,
       status,
       priority: input.priority ?? 'p2',
       source: input.source ?? 'manual',
@@ -170,7 +173,9 @@ export class WorkItemService {
       if (!trimmed) throw new ValidationError('title cannot be empty');
     }
 
+    const nextKind = input.kind ?? existing.kind;
     const nextStatus = input.status ?? existing.status;
+    assertSystemTemplateStatus(nextKind, nextStatus);
     const completedAt =
       nextStatus === 'done'
         ? (existing.completedAt ?? this.clock.nowIso())
@@ -283,6 +288,42 @@ export class WorkItemService {
     if (!existing) throw new WorkItemNotFoundError(id);
     const next = existing.checklist.filter((c) => c.id !== itemId);
     return this.update(id, { checklist: next });
+  }
+
+  /**
+   * Systems feature (local-first repeatable processes).
+   * Given a system template (kind='system'), create a fresh run instance.
+   * Copies the current checklist state so each run has independent completion history.
+   * Links via parentId for easy history queries (list children of the template).
+   */
+  instantiateSystem(templateId: string, opts: { title?: string; areaId?: string; scheduledFor?: string } = {}): WorkItem {
+    const tmpl = this.repo.getById(templateId);
+    if (!tmpl) throw new WorkItemNotFoundError(templateId);
+    if (tmpl.kind !== 'system') {
+      throw new ValidationError('only work items with kind="system" can be used as templates');
+    }
+    const now = this.clock.nowIso();
+    const run: CreateWorkItemInput = {
+      title: (opts.title || tmpl.title).trim(),
+      kind: 'chore', // run instances are actionable chores/tasks
+      parentId: templateId,
+      areaId: opts.areaId ?? tmpl.areaId,
+      checklist: tmpl.checklist.map((c) => ({ ...c, id: ulid(this.clock.now()), completed: false })),
+      status: 'active',
+      priority: tmpl.priority,
+      labels: [...tmpl.labels],
+      estimateMinutes: tmpl.estimateMinutes,
+      scheduledFor: opts.scheduledFor,
+      source: 'manual',
+      rawInput: `run system: ${tmpl.title}`,
+    };
+    return this.create(run);
+  }
+}
+
+function assertSystemTemplateStatus(kind: WorkItemKind, status: WorkItemStatus): void {
+  if (kind === 'system' && status === 'done') {
+    throw new ValidationError('system templates cannot be marked done; create and complete a system run instead');
   }
 }
 

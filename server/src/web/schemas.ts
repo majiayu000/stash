@@ -11,6 +11,7 @@ const Kind = z.enum([
   'research',
   'decision',
   'reminder',
+  'system',
 ]);
 const Status = z.enum([
   'inbox',
@@ -113,6 +114,10 @@ export const UpdateWorkItemBody = CreateWorkItemBody.partial().extend({
 export const ListWorkItemsQuery = z.object({
   status: z
     .union([Status, z.array(Status)])
+    .optional()
+    .transform((v) => (v === undefined ? undefined : Array.isArray(v) ? v : [v])),
+  kind: z
+    .union([Kind, z.array(Kind)])
     .optional()
     .transform((v) => (v === undefined ? undefined : Array.isArray(v) ? v : [v])),
   areaId: z.string().optional(),

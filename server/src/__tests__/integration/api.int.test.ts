@@ -164,6 +164,66 @@ describe('work-items API', () => {
     );
     expect(today.body.count).toBe(1);
     expect(today.body.data[0].title).toBe('B planned today');
+
+    await jsonRequest(app, 'POST', '/api/work-items', { title: 'D system', kind: 'system' });
+    const systems = await jsonRequest(app, 'GET', '/api/work-items?kind=system');
+    expect(systems.status).toBe(200);
+    expect(systems.body.data.map((item: any) => item.title)).toEqual(['D system']);
+  });
+
+  test('GET / rejects invalid kind filters', async () => {
+    const { app } = setupApp();
+    const res = await jsonRequest(app, 'GET', '/api/work-items?kind=not-a-kind');
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('VALIDATION');
+  });
+
+  test('POST /:id/run creates a system run and rejects invalid sources', async () => {
+    const { app } = setupApp();
+    const system = await jsonRequest(app, 'POST', '/api/work-items', {
+      title: 'clean kitchen',
+      kind: 'system',
+      checklist: [
+        { id: 'a', text: 'wipe counters', completed: true },
+        { id: 'b', text: 'empty trash', completed: false },
+      ],
+    });
+    const systemId = system.body.data.id;
+
+    const run = await jsonRequest(app, 'POST', `/api/work-items/${systemId}/run`, {
+      scheduledFor: '2026-05-15',
+    });
+    expect(run.status).toBe(201);
+    expect(run.body.data.kind).toBe('chore');
+    expect(run.body.data.parentId).toBe(systemId);
+    expect(run.body.data.scheduledFor).toBe('2026-05-15');
+    expect(run.body.data.checklist.map((item: any) => item.completed)).toEqual([false, false]);
+    expect(run.body.data.checklist.map((item: any) => item.id)).not.toEqual(['a', 'b']);
+
+    const history = await jsonRequest(app, 'GET', `/api/work-items?parentId=${systemId}`);
+    expect(history.body.data.map((item: any) => item.id)).toEqual([run.body.data.id]);
+
+    const task = await jsonRequest(app, 'POST', '/api/work-items', { title: 'ordinary task' });
+    const rejected = await jsonRequest(app, 'POST', `/api/work-items/${task.body.data.id}/run`);
+    expect(rejected.status).toBe(400);
+    expect(rejected.body.error.code).toBe('VALIDATION');
+  });
+
+  test('POST /:id/run rejects malformed JSON', async () => {
+    const { app } = setupApp();
+    const system = await jsonRequest(app, 'POST', '/api/work-items', {
+      title: 'travel checklist',
+      kind: 'system',
+    });
+
+    const res = await app.request(`/api/work-items/${system.body.data.id}/run`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{bad',
+    });
+    const body = await res.json() as any;
+    expect(res.status).toBe(400);
+    expect(body.error.code).toBe('VALIDATION');
   });
 
   test('PATCH transitions status; 422 on invalid transition', async () => {

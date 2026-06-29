@@ -3,7 +3,7 @@ import type { JournalEntry, WorkItem } from './work-item.js';
 
 export type CoachMessageRole = 'user' | 'assistant';
 export type CoachMessagePurpose = 'chat' | 'summary';
-export type AiWriteDestination = 'description' | 'journal';
+export type AiWriteDestination = 'description' | 'journal' | 'checklist';
 
 export interface WorkItemCoachMessage {
   id: string;
@@ -11,6 +11,7 @@ export interface WorkItemCoachMessage {
   runId?: string;
   role: CoachMessageRole;
   purpose: CoachMessagePurpose;
+  destination?: AiWriteDestination;
   body: string;
   provider?: string;
   model?: string;

@@ -88,7 +88,7 @@ const CoachReplyOutput = z.object({
 
 const CoachSummaryOutput = z.object({
   summary: z.string().trim().min(1),
-  destination: z.enum(['journal', 'description']),
+  destination: z.enum(['journal', 'description', 'checklist']),
   sourceSpans: z.array(SourceSpanOutput).optional(),
 });
 
@@ -119,7 +119,7 @@ export interface CoachReplyResult {
 export interface CoachSummaryResult {
   run: AiGenerationRun;
   summary: string;
-  destination: 'journal' | 'description';
+  destination: 'journal' | 'description' | 'checklist';
   sourceSpans: SourceSpan[];
 }
 
@@ -305,7 +305,7 @@ export class AiProviderService {
   async summarizeTask(input: {
     workItemId: string;
     messages: string[];
-    destination: 'journal' | 'description';
+    destination: 'journal' | 'description' | 'checklist';
   }): Promise<CoachSummaryResult> {
     const task = this.getRequiredWorkItem(input.workItemId);
     const prompt = buildCoachSummaryPrompt({ task, messages: input.messages, destination: input.destination });

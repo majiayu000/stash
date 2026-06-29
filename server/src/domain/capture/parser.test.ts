@@ -51,6 +51,13 @@ describe('parseCaptureInput', () => {
     expect(r.title).toBe('triage');
   });
 
+  test('system token sets kind and is stripped from title', () => {
+    const r = parseCaptureInput('morning routine :system @daily', CTX);
+    expect(r.title).toBe('morning routine');
+    expect(r.kind).toBe('system');
+    expect(r.labels).toEqual(['daily']);
+  });
+
   test('! sets scheduledFor', () => {
     const r = parseCaptureInput('plan !tomorrow', CTX);
     expect(r.scheduledFor).toBe('2026-05-15');
@@ -125,12 +132,13 @@ describe('parseCaptureInput', () => {
   });
 
   test('buildCapturePreview exposes normalized server chip labels', () => {
-    const parsed = parseCaptureInput('明天下午3点半 修门 #家庭 @家务 ^p2 *30m', CTX);
+    const parsed = parseCaptureInput('明天下午3点半 修门 #家庭 @家务 :system ^p2 *30m', CTX);
     const preview = buildCapturePreview(parsed, AREAS);
     expect(preview.projectName).toBe('家庭');
     expect(preview.chips).toEqual([
       { type: 'proj', label: '#家庭', value: 'a4' },
       { type: 'tag', label: '@家务', value: '家务' },
+      { type: 'kind', label: 'kind:system', value: 'system' },
       { type: 'pri', label: '^p2', value: 'p2' },
       { type: 'date', label: 'scheduled 2026-05-15', value: '2026-05-15' },
       { type: 'time', label: 'start 15:30', value: '2026-05-15T15:30:00.000Z' },

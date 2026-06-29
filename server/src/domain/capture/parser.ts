@@ -1,4 +1,4 @@
-import type { Area, Priority } from '@stash/shared';
+import type { Area, Priority, WorkItemKind } from '@stash/shared';
 
 /**
  * SPEC v0.3 §3b + v0.5 §7.1 — inline token parser for quick capture.
@@ -20,6 +20,7 @@ export interface ParsedCapture {
   projectId?: string;
   areaId?: string;
   labels: string[];
+  kind?: WorkItemKind;
   priority?: Priority;
   scheduledFor?: string;
   dueAt?: string;
@@ -29,7 +30,7 @@ export interface ParsedCapture {
   unresolved: string[];
 }
 
-export type CapturePreviewChipType = 'proj' | 'tag' | 'pri' | 'date' | 'due' | 'time' | 'est' | 'unresolved';
+export type CapturePreviewChipType = 'proj' | 'tag' | 'pri' | 'kind' | 'date' | 'due' | 'time' | 'est' | 'unresolved';
 
 export interface CapturePreviewChip {
   type: CapturePreviewChipType;
@@ -50,7 +51,7 @@ export interface ParserContext {
 }
 
 const TOKEN_RE =
-  /(#[\p{L}\p{N}_-]+|@[\p{L}\p{N}_-]+|\^p[0-3]|!![\p{L}\p{N}_:+-]+|![\p{L}\p{N}_:+-]+|\*\d+[hm]|\+\d+[dw]|大后天|下周[一二三四五六日天]?|周[一二三四五六日天]|今天|今晚|明天|后天|(?:上午|下午|晚上|早上|中午)\d{1,2}点半?|\d{1,2}:\d{2})/giu;
+  /(:system|kind:system|#[\p{L}\p{N}_-]+|@[\p{L}\p{N}_-]+|\^p[0-3]|!![\p{L}\p{N}_:+-]+|![\p{L}\p{N}_:+-]+|\*\d+[hm]|\+\d+[dw]|大后天|下周[一二三四五六日天]?|周[一二三四五六日天]|今天|今晚|明天|后天|(?:上午|下午|晚上|早上|中午)\d{1,2}点半?|\d{1,2}:\d{2})/giu;
 
 interface TimeOfDay {
   hour: number;
@@ -62,6 +63,7 @@ export function parseCaptureInput(raw: string, ctx: ParserContext): ParsedCaptur
   const unresolved: string[] = [];
   let projectId: string | undefined;
   let areaId: string | undefined;
+  let kind: WorkItemKind | undefined;
   let priority: Priority | undefined;
   let scheduledFor: string | undefined;
   let dueAt: string | undefined;
@@ -85,6 +87,10 @@ export function parseCaptureInput(raw: string, ctx: ParserContext): ParsedCaptur
     if (lower.startsWith('@')) {
       const tag = match.slice(1);
       if (tag && !labels.includes(tag)) labels.push(tag);
+      return '';
+    }
+    if (lower === ':system' || lower === 'kind:system') {
+      kind = 'system';
       return '';
     }
     if (lower.startsWith('^p')) {
@@ -137,6 +143,7 @@ export function parseCaptureInput(raw: string, ctx: ParserContext): ParsedCaptur
     projectId,
     areaId,
     labels,
+    kind,
     priority,
     scheduledFor,
     dueAt,
@@ -154,6 +161,7 @@ export function buildCapturePreview(parsed: ParsedCapture, areas: Area[]): Parse
 
   if (projectName) chips.push({ type: 'proj', label: `#${projectName}`, value: parsed.projectId });
   for (const label of parsed.labels) chips.push({ type: 'tag', label: `@${label}`, value: label });
+  if (parsed.kind) chips.push({ type: 'kind', label: `kind:${parsed.kind}`, value: parsed.kind });
   if (parsed.priority) chips.push({ type: 'pri', label: `^${parsed.priority}`, value: parsed.priority });
   if (parsed.scheduledFor) chips.push({ type: 'date', label: `scheduled ${parsed.scheduledFor}`, value: parsed.scheduledFor });
   if (parsed.dueAt) chips.push({ type: 'due', label: `due ${parsed.dueAt}`, value: parsed.dueAt });

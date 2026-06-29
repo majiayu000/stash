@@ -318,6 +318,39 @@ const conceptLStyles = `
   cursor: default;
 }
 
+.td-history-run {
+  display: grid;
+  grid-template-columns: 7.5rem 1fr auto;
+  gap: 0.6rem;
+  align-items: center;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid var(--border-hair);
+  border-radius: 4px;
+  background: rgba(0,255,242,0.03);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  text-align: left;
+  cursor: pointer;
+}
+.td-history-run:hover {
+  border-color: var(--neon-cyan);
+  color: var(--text-primary);
+}
+.td-history-run strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.td-history-run em {
+  font-style: normal;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
 .td-modal-foot {
   display: flex; gap: 0.5rem; align-items: center;
   padding: 0.85rem 1.25rem;

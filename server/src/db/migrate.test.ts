@@ -130,6 +130,8 @@ describe('migrate', () => {
         '014_ai_draft_traceability.sql',
         '015_work_item_coach_messages_and_ai_writes.sql',
         '016_meeting_triage_sources.sql',
+        '017_work_item_ai_writes_checklist_destination.sql',
+        '018_work_item_coach_summary_destination.sql',
       ]);
       const cacheTable = db
         .query<{ name: string }, []>(
@@ -167,12 +169,23 @@ describe('migrate', () => {
         )
         .get();
       expect(coachMessagesTable?.name).toBe('work_item_coach_messages');
+      const coachMessageColumns = db
+        .query<{ name: string }, []>('pragma table_info(work_item_coach_messages)')
+        .all()
+        .map((column) => column.name);
+      expect(coachMessageColumns).toContain('summary_destination');
       const aiWritesTable = db
         .query<{ name: string }, []>(
           "select name from sqlite_master where type = 'table' and name = 'work_item_ai_writes'",
         )
         .get();
       expect(aiWritesTable?.name).toBe('work_item_ai_writes');
+      const aiWritesSql = db
+        .query<{ sql: string }, []>(
+          "select sql from sqlite_master where type = 'table' and name = 'work_item_ai_writes'",
+        )
+        .get();
+      expect(aiWritesSql?.sql).toContain("'checklist'");
       const meetingSourcesTable = db
         .query<{ name: string }, []>(
           "select name from sqlite_master where type = 'table' and name = 'meeting_triage_sources'",

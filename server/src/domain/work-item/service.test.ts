@@ -111,6 +111,11 @@ describe('WorkItemService.list', () => {
     const planned = service.list({ status: 'planned' });
     expect(planned.map((i) => i.title)).toEqual(['B today', 'C tomorrow']);
   });
+
+  test('filters by kind', () => {
+    service.create({ title: 'morning reset', kind: 'system' });
+    expect(service.list({ kind: 'system' }).map((i) => i.title)).toEqual(['morning reset']);
+  });
 });
 
 describe('WorkItemService.update', () => {
@@ -253,6 +258,58 @@ describe('WorkItemService.checklist', () => {
   test('rejects empty checklist text', () => {
     const item = service.create({ title: 'parent' });
     expect(() => service.appendChecklistItem(item.id, '  ')).toThrow(ValidationError);
+  });
+});
+
+describe('WorkItemService.systems', () => {
+  let db: Database;
+  let service: WorkItemService;
+
+  beforeEach(() => {
+    db = freshDb();
+    service = new WorkItemService({ db, clock: fixedClock('2026-05-14T10:00:00.000Z') });
+  });
+
+  test('rejects system templates marked done', () => {
+    expect(() => service.create({ title: 'weekly reset', kind: 'system', status: 'done' })).toThrow(ValidationError);
+    const system = service.create({ title: 'weekly reset', kind: 'system' });
+    expect(() => service.update(system.id, { status: 'done' })).toThrow(ValidationError);
+  });
+
+  test('creates a fresh run linked to the system template', () => {
+    const system = service.create({
+      title: 'airbnb turnover',
+      kind: 'system',
+      areaId: 'area-home',
+      priority: 'p1',
+      labels: ['home', 'ops'],
+      estimateMinutes: 45,
+      checklist: [
+        { id: 'step-1', text: 'replace towels', completed: true },
+        { id: 'step-2', text: 'check supplies', completed: false },
+      ],
+    });
+
+    const run = service.instantiateSystem(system.id, { scheduledFor: '2026-05-15' });
+
+    expect(run.kind).toBe('chore');
+    expect(run.status).toBe('active');
+    expect(run.parentId).toBe(system.id);
+    expect(run.areaId).toBe('area-home');
+    expect(run.priority).toBe('p1');
+    expect(run.labels).toEqual(['home', 'ops']);
+    expect(run.estimateMinutes).toBe(45);
+    expect(run.scheduledFor).toBe('2026-05-15');
+    expect(run.rawInput).toBe('run system: airbnb turnover');
+    expect(run.checklist.map((item) => item.text)).toEqual(['replace towels', 'check supplies']);
+    expect(run.checklist.map((item) => item.completed)).toEqual([false, false]);
+    expect(run.checklist.map((item) => item.id)).not.toEqual(system.checklist.map((item) => item.id));
+    expect(service.list({ parentId: system.id }).map((item) => item.id)).toEqual([run.id]);
+  });
+
+  test('rejects non-system templates', () => {
+    const task = service.create({ title: 'ordinary task', kind: 'task' });
+    expect(() => service.instantiateSystem(task.id)).toThrow(ValidationError);
   });
 });
 

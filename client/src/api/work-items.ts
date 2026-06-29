@@ -1,7 +1,7 @@
-import type { CreateWorkItemInput, JournalEntry, Priority, UpdateWorkItemInput, WorkItem, WorkItemStatus } from '@stash/shared';
+import type { CreateWorkItemInput, JournalEntry, Priority, UpdateWorkItemInput, WorkItem, WorkItemKind, WorkItemStatus } from '@stash/shared';
 import { apiDelete, apiGet, apiPatch, apiPost } from './client';
 
-export type CapturePreviewChipType = 'proj' | 'tag' | 'pri' | 'date' | 'due' | 'time' | 'est' | 'unresolved';
+export type CapturePreviewChipType = 'proj' | 'tag' | 'pri' | 'kind' | 'date' | 'due' | 'time' | 'est' | 'unresolved';
 
 export interface CapturePreviewChip {
   type: CapturePreviewChipType;
@@ -15,6 +15,7 @@ export interface CaptureParsed {
   areaId?: string;
   projectName?: string;
   labels: string[];
+  kind?: WorkItemKind;
   priority?: Priority;
   scheduledFor?: string;
   dueAt?: string;
@@ -34,8 +35,10 @@ export interface CaptureResponse extends CapturePreviewResponse {
 
 export interface WorkItemFilter {
   status?: WorkItemStatus | WorkItemStatus[];
+  kind?: WorkItemKind | WorkItemKind[];
   areaId?: string;
   projectId?: string;
+  parentId?: string;
   scheduledFrom?: string;
   scheduledTo?: string;
   scheduledIsNull?: boolean;
@@ -61,8 +64,12 @@ export async function listWorkItems(filter: WorkItemFilter = {}): Promise<WorkIt
   if (filter.status) {
     query.status = Array.isArray(filter.status) ? filter.status : [filter.status];
   }
+  if (filter.kind) {
+    query.kind = Array.isArray(filter.kind) ? filter.kind : [filter.kind];
+  }
   if (filter.areaId) query.areaId = filter.areaId;
   if (filter.projectId) query.projectId = filter.projectId;
+  if (filter.parentId) query.parentId = filter.parentId;
   if (filter.scheduledFrom) query.scheduledFrom = filter.scheduledFrom;
   if (filter.scheduledTo) query.scheduledTo = filter.scheduledTo;
   if (filter.scheduledIsNull !== undefined) {
@@ -161,4 +168,10 @@ export async function appendJournal(workItemId: string, body: string): Promise<J
 
 export async function deleteJournalEntry(workItemId: string, entryId: string): Promise<void> {
   await apiDelete<void>(`/work-items/${workItemId}/journal/${entryId}`);
+}
+
+/** Systems feature: run a system template to create a fresh checklist instance. */
+export async function runSystem(templateId: string, opts: { title?: string; areaId?: string; scheduledFor?: string } = {}): Promise<WorkItem> {
+  const res = await apiPost<ItemResponse>(`/work-items/${templateId}/run`, opts);
+  return res.data;
 }

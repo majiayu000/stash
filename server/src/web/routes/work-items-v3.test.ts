@@ -68,6 +68,16 @@ describe('POST /api/work-items/capture', () => {
     expect(json.parsed.unresolved).toContain('#ghost');
   });
 
+  test('system capture token creates a system template', async () => {
+    const res = await postJson(app, '/api/work-items/capture', { raw: 'morning routine :system @daily' });
+    expect(res.status).toBe(201);
+    const json = await res.json() as { data: any; parsed: any };
+    expect(json.data.title).toBe('morning routine');
+    expect(json.data.kind).toBe('system');
+    expect(json.data.status).toBe('inbox');
+    expect(json.parsed.chips).toContainEqual({ type: 'kind', label: 'kind:system', value: 'system' });
+  });
+
   test('empty raw is rejected with 400', async () => {
     const res = await postJson(app, '/api/work-items/capture', { raw: '' });
     expect(res.status).toBe(400);
@@ -88,7 +98,7 @@ describe('POST /api/work-items/capture/preview', () => {
     expect(area.status).toBe(201);
 
     const res = await postJson(app, '/api/work-items/capture/preview', {
-      raw: '明天下午3点半 修门 #家庭 @家务 ^p2 *30m',
+      raw: '明天下午3点半 修门 #家庭 @家务 :system ^p2 *30m',
     });
     expect(res.status).toBe(200);
     const json = await res.json() as { parsed: any };
@@ -99,6 +109,7 @@ describe('POST /api/work-items/capture/preview', () => {
     expect(json.parsed.chips).toEqual([
       { type: 'proj', label: '#家庭', value: json.parsed.projectId },
       { type: 'tag', label: '@家务', value: '家务' },
+      { type: 'kind', label: 'kind:system', value: 'system' },
       { type: 'pri', label: '^p2', value: 'p2' },
       { type: 'date', label: 'scheduled 2026-05-15', value: '2026-05-15' },
       { type: 'time', label: 'start 15:30', value: '2026-05-15T15:30:00.000Z' },

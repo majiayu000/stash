@@ -45,6 +45,7 @@ Try UI capture from the default page:
 
 ```txt
 press c, type: fix login #aurora ^p1 !tomorrow @auth *45m, press Enter
+press c, type: morning routine :system @daily, press Enter
 ```
 
 Try shell capture from a normal shell after `bun run install:cli`:
@@ -76,6 +77,7 @@ Find:           Cmd+K  search title/description/labels
 Smart lists:    `  toggles a chip row: overdue / today-pinned / p0 / etc
 Detail:         Enter on a row opens the modal; edit anything; ✓ done; Cmd+Z undo
 Reminders:      ConceptN → enable browser notifications; reminderAt fires automatically
+Systems:        create with :system, open the 🔁 systems chip, Run system, complete the Run
 ```
 
 ## The 16 concept pages
@@ -117,9 +119,25 @@ Quick Capture (`c`) and the CLI (`stash …`) both parse the same inline tokens:
 | `!date` | `!tomorrow` / `!fri` / `!next-tue` / `!2026-05-20` | `scheduledFor` |
 | `!!date` | `!!2026-05-30` | `dueAt` (the deadline, not the start) |
 | `*duration` | `*45m` / `*2h` | estimate in minutes |
+| `:system` / `kind:system` | `morning routine :system` | creates a reusable System template |
 
 Anything that doesn't match falls into the `unresolved` field so the original
 text is never lost; the raw input is also stored in `rawInput` for re-parsing.
+
+## Systems / reusable flows
+
+Systems are reusable WorkItem templates for routines and checklists. A System is
+created with `kind=system`, usually through Quick Capture (`:system`) or the API.
+It is a template, so it cannot be marked done. Open the built-in SmartLists
+`🔁 systems` chip, choose a template, then use `Run system` to create an
+independent Run with a fresh checklist copy. Complete the Run, not the template.
+
+The rich seed includes three examples: Morning routine, Packing checklist, and
+Airbnb turnover. Each has checklist steps and a historical Run so the System
+detail page shows prior execution history immediately after seeding.
+
+More detail lives in [`docs/PRD_systems.md`](docs/PRD_systems.md) and
+[`docs/PLAN_systems.md`](docs/PLAN_systems.md).
 
 ## CLI install and diagnostics
 

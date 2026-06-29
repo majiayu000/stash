@@ -7,7 +7,8 @@ export type WorkItemKind =
   | 'idea'
   | 'research'
   | 'decision'
-  | 'reminder';
+  | 'reminder'
+  | 'system';
 
 export type WorkItemStatus =
   | 'inbox'
@@ -161,6 +162,7 @@ export const WORK_ITEM_KINDS = [
   'research',
   'decision',
   'reminder',
+  'system',
 ] as const satisfies readonly WorkItemKind[];
 
 export const WORK_ITEM_STATUSES = [

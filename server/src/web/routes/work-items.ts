@@ -5,7 +5,7 @@ import type { AreaService } from '../../domain/area/service.js';
 import { buildCapturePreview, parseCaptureInput } from '../../domain/capture/parser.js';
 import type { EvidenceService } from '../../domain/evidence/service.js';
 import type { JournalService } from '../../domain/work-item/journal.js';
-import type { WorkItemService } from '../../domain/work-item/service.js';
+import { ValidationError, type WorkItemService } from '../../domain/work-item/service.js';
 import type { WorkItemSessionService } from '../../domain/work-item-session/service.js';
 import { handleError } from '../errors.js';
 import {
@@ -17,6 +17,11 @@ import {
 } from '../schemas.js';
 
 const CaptureBody = z.object({ raw: z.string().min(1) });
+const RunSystemBody = z.object({
+  title: z.string().optional(),
+  areaId: z.string().optional(),
+  scheduledFor: z.string().optional(),
+});
 
 const LinkSessionBody = z.object({
   provider: z.enum(['claude', 'codex']),
@@ -97,13 +102,13 @@ export function createWorkItemsRouter(
         projectId: parsed.projectId,
         areaId: parsed.areaId,
         labels: parsed.labels,
+        kind: parsed.kind ?? 'idea',
         priority: parsed.priority,
         scheduledFor: parsed.scheduledFor,
         dueAt: parsed.dueAt,
         startAt: parsed.startAt,
         estimateMinutes: parsed.estimateMinutes,
         rawInput: raw,
-        kind: 'idea',
         status: 'inbox',
       });
       return c.json({ data: item, parsed: buildCapturePreview(parsed, areas) }, 201);
@@ -247,6 +252,17 @@ export function createWorkItemsRouter(
     }
   });
 
+  /** Systems: instantiate a fresh run from a system template (kind=system). */
+  r.post('/:id/run', async (c) => {
+    try {
+      const body = RunSystemBody.parse(await optionalJsonBody(c.req.raw));
+      const item = service.instantiateSystem(c.req.param('id'), body);
+      return c.json({ data: item }, 201);
+    } catch (e) {
+      return handleError(c, e);
+    }
+  });
+
   if (links) {
     r.get('/:id/sessions', (c) => {
       try {
@@ -298,4 +314,14 @@ export function createWorkItemsRouter(
   }
 
   return r;
+}
+
+async function optionalJsonBody(req: Request): Promise<unknown> {
+  const raw = await req.text();
+  if (!raw.trim()) return {};
+  try {
+    return JSON.parse(raw);
+  } catch {
+    throw new ValidationError('request body must be valid JSON');
+  }
 }
