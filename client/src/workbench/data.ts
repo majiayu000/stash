@@ -2,7 +2,7 @@
 // Concept components consume `{ projects, todos, sessions, stats }` exactly like
 // the original workbench (window.AppData), but the values come from real hooks.
 
-import type { AgentSession, Area, WorkItem } from '@stash/shared';
+import type { AgentSession, Area, WorkItem, WorkItemKind } from '@stash/shared';
 import type { SourceHealthError } from '../api/agent-sessions';
 
 export interface WBProject {
@@ -47,7 +47,7 @@ export interface WBTodo {
   /** Raw work-item status — needed by InboxTriage to match what the API filters on. */
   status: 'inbox' | 'planned' | 'active' | 'waiting' | 'blocked' | 'someday' | 'done' | 'dropped';
   priority: 'high' | 'med' | 'low';
-  kind: 'task' | 'idea';
+  kind: WorkItemKind;
   due?: 'today' | 'this-week' | 'someday';
   scheduledFor?: string;
   startAt?: string;
@@ -207,7 +207,7 @@ export function adaptToWorkbenchData(input: AdaptInput): WBData {
       done: i.status === 'done',
       status: i.status as WBTodo['status'],
       priority: PRIORITY_MAP[i.priority] ?? 'med',
-      kind: i.kind === 'idea' ? 'idea' : 'task',
+      kind: i.kind,
       due: todoDue(i, today),
       scheduledFor: i.scheduledFor,
       startAt: i.startAt,

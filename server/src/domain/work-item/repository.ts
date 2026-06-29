@@ -108,6 +108,7 @@ function rowToWorkItem(row: WorkItemRow): WorkItem {
 
 export interface ListFilter {
   status?: WorkItemStatus | WorkItemStatus[];
+  kind?: WorkItemKind | WorkItemKind[];
   areaId?: string;
   projectId?: string;
   parentId?: string;
@@ -197,6 +198,12 @@ export class WorkItemRepository {
       params.push(...statuses);
     } else if (!filter.includeDropped) {
       where.push("status != 'dropped'");
+    }
+
+    if (filter.kind) {
+      const kinds = Array.isArray(filter.kind) ? filter.kind : [filter.kind];
+      where.push(`kind in (${kinds.map(() => '?').join(',')})`);
+      params.push(...kinds);
     }
 
     if (filter.areaId) {

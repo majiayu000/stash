@@ -27,6 +27,7 @@ import {
   deleteJournalEntry,
   getWorkItem,
   listJournal,
+  runSystem,
   updateWorkItem,
 } from '../../api/work-items';
 import { fmt, type WBData, type WBTodo } from '../data';
@@ -34,6 +35,12 @@ import { reportAsyncError } from '../reportAsyncError';
 import { Topbar } from '../shared';
 import { conceptLStyles } from './conceptL.styles';
 import { slugify, stubSubTasks } from './conceptL.stubs';
+
+function kindChrome(kind: WorkItem['kind']): { label: string; color: string } {
+  if (kind === 'idea') return { label: '💡 idea', color: 'var(--neon-purple)' };
+  if (kind === 'system') return { label: '🔁 system', color: 'var(--neon-cyan)' };
+  return { label: `✓ ${kind}`, color: 'var(--neon-cyan)' };
+}
 
 /** Concept L — Todo detail modal over a dimmed board preview. */
 export function ConceptL({ data, reload }: { data: WBData; reload: () => void }) {
@@ -68,6 +75,7 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
   // v0.4 — full work item loaded for editing.
   const [item, setItem] = useState<WorkItem | null>(null);
   const [savedFlash, setSavedFlash] = useState<string | null>(null);
+  const shownKind = kindChrome(item?.kind ?? todo.kind);
 
   useEffect(() => {
     let cancelled = false;
@@ -102,6 +110,19 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
   }, [todo.id]);
 
   useEscToClose(() => navigate(-1));
+
+  async function runThisSystem() {
+    if (!item || item.kind !== 'system') return;
+    try {
+      const run = await runSystem(item.id);
+      flashSaved('run created');
+      // navigate to the new run's detail or just refresh parent list
+      window.dispatchEvent(new CustomEvent('stash:refresh-workboard'));
+      navigate(`/c/l/${run.id}`, { replace: false });
+    } catch (e) {
+      flashSaved(`✕ ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
 
   async function save<K extends 'title' | 'description' | 'priority' | 'status' | 'dueAt' | 'projectId' | 'areaId' | 'labels' | 'recurrence' | 'reminderAt'>(field: K, value: WorkItem[K]) {
     if (!item) return;
@@ -386,8 +407,8 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
           {/* Header */}
           <div className="td-modal-head">
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.4rem' }}>
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.65rem', color: 'var(--neon-purple)', background: 'rgba(191,90,242,0.1)', padding: '2px 7px', borderRadius: 'var(--radius-pill)', border: '1px solid rgba(191,90,242,0.25)', fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
-                {todo.kind === 'idea' ? '💡 idea' : '✓ task'} {proj ? `· #${proj.name}` : '· from inbox'}
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.65rem', color: shownKind.color, background: 'rgba(191,90,242,0.1)', padding: '2px 7px', borderRadius: 'var(--radius-pill)', border: '1px solid rgba(191,90,242,0.25)', fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+                {shownKind.label} {proj ? `· #${proj.name}` : '· from inbox'}
               </span>
               <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.66rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
                 {item?.status === 'done' ? 'completed · ' : ''}priority:
@@ -407,7 +428,17 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
                   >{p}</button>
                 ))}
               </span>
-              <button className="td-close" style={{ marginLeft: 'auto' }} type="button" onClick={() => navigate(-1)}>✕</button>
+              {item?.kind === 'system' && (
+                <button
+                  type="button"
+                  onClick={runThisSystem}
+                  style={{ marginLeft: 'auto', marginRight: 8, fontFamily: 'var(--font-mono)', fontSize: '0.7rem', padding: '2px 8px', border: '1px solid var(--neon-cyan)', color: 'var(--neon-cyan)', background: 'transparent', borderRadius: 4, cursor: 'pointer' }}
+                  title="Create a fresh run instance with current checklist"
+                >
+                  ▶ Run system
+                </button>
+              )}
+              <button className="td-close" style={{ marginLeft: item?.kind === 'system' ? 0 : 'auto' }} type="button" onClick={() => navigate(-1)}>✕</button>
             </div>
             <EditableTitle
               key={`title-${todo.id}`}
@@ -635,7 +666,7 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
                   />
                 } />
 
-                <MetaRow k="kind" v={<span style={{ color: todo.kind === 'idea' ? 'var(--neon-purple)' : 'var(--neon-cyan)' }}>{todo.kind === 'idea' ? '💡 idea' : '✓ task'}</span>} />
+                <MetaRow k="kind" v={<span style={{ color: shownKind.color }}>{shownKind.label}</span>} />
 
                 <MetaRow k="repeats" v={
                   <select

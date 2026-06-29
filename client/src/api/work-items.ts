@@ -1,4 +1,4 @@
-import type { CreateWorkItemInput, JournalEntry, Priority, UpdateWorkItemInput, WorkItem, WorkItemStatus } from '@stash/shared';
+import type { CreateWorkItemInput, JournalEntry, Priority, UpdateWorkItemInput, WorkItem, WorkItemKind, WorkItemStatus } from '@stash/shared';
 import { apiDelete, apiGet, apiPatch, apiPost } from './client';
 
 export type CapturePreviewChipType = 'proj' | 'tag' | 'pri' | 'date' | 'due' | 'time' | 'est' | 'unresolved';
@@ -34,6 +34,7 @@ export interface CaptureResponse extends CapturePreviewResponse {
 
 export interface WorkItemFilter {
   status?: WorkItemStatus | WorkItemStatus[];
+  kind?: WorkItemKind | WorkItemKind[];
   areaId?: string;
   projectId?: string;
   scheduledFrom?: string;
@@ -60,6 +61,9 @@ export async function listWorkItems(filter: WorkItemFilter = {}): Promise<WorkIt
   const query: Record<string, string | string[] | undefined> = {};
   if (filter.status) {
     query.status = Array.isArray(filter.status) ? filter.status : [filter.status];
+  }
+  if (filter.kind) {
+    query.kind = Array.isArray(filter.kind) ? filter.kind : [filter.kind];
   }
   if (filter.areaId) query.areaId = filter.areaId;
   if (filter.projectId) query.projectId = filter.projectId;
@@ -161,4 +165,10 @@ export async function appendJournal(workItemId: string, body: string): Promise<J
 
 export async function deleteJournalEntry(workItemId: string, entryId: string): Promise<void> {
   await apiDelete<void>(`/work-items/${workItemId}/journal/${entryId}`);
+}
+
+/** Systems feature: run a system template to create a fresh checklist instance. */
+export async function runSystem(templateId: string, opts: { title?: string; areaId?: string; scheduledFor?: string } = {}): Promise<WorkItem> {
+  const res = await apiPost<ItemResponse>(`/work-items/${templateId}/run`, opts);
+  return res.data;
 }

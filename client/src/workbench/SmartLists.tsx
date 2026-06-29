@@ -30,6 +30,7 @@ const BUILTIN: SavedList[] = [
   { id: 'p1', label: '🟠 p1', filter: { priority: 'p1' } },
   { id: 'inbox', label: '📥 inbox', filter: { status: 'inbox' } },
   { id: 'someday', label: '🌌 someday', filter: { status: 'someday' } },
+  { id: 'systems', label: '🔁 systems', filter: { kind: 'system' } },
 ];
 
 function loadSaved(): SavedList[] {
