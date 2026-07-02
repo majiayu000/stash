@@ -132,7 +132,7 @@ export function Topbar({ data, right }: { data: WBData; right?: ReactNode }) {
         </button>
       </div>
       {right ?? (
-        <div className="topbar-stats">
+        <div className="topbar-stats" data-testid="topbar-stats">
           <div className="tb-stat">
             <span className="tb-stat-val gradient">
               {stats.activeSessions}
