@@ -102,7 +102,7 @@ export function Workbench() {
 
   return (
     <div className="workbench-shell">
-      <div className="workbench-floating">
+      <div className="workbench-floating" data-testid="workbench-floating">
         <ConceptSwitcher />
         <ThemeSwitcher />
       </div>
@@ -119,8 +119,15 @@ export function Workbench() {
       <style>{`
         .workbench-shell {
           min-height: 100vh;
-          padding: 1.5rem;
+          /* extra bottom padding keeps page content clear of the fixed
+             bottom overlays (AI drafts pill, capture fab) */
+          padding: 1.5rem 1.5rem 5.5rem;
           position: relative;
+        }
+        /* reserve the top-right corner for the fixed switcher stack so it
+           never covers the topbar stats */
+        .workbench-shell .topbar {
+          padding-right: 200px;
         }
         .workbench-floating {
           position: fixed;
@@ -133,12 +140,12 @@ export function Workbench() {
           gap: 8px;
         }
         .dashboard-canvas {
-          min-height: calc(100vh - 3rem);
+          min-height: calc(100vh - 7rem);
           height: auto;
         }
         .dashboard-canvas .inner {
           height: auto !important;
-          min-height: calc(100vh - 3rem);
+          min-height: calc(100vh - 7rem);
           display: flex;
           flex-direction: column;
         }
