@@ -62,6 +62,7 @@ test('Systems: run template, complete run, and return to history', async ({ page
 test('Quick Capture can create a System template with :system token', async ({ page, request }) => {
   const title = `e2e-capture-system-${Date.now()}`;
   await page.goto('/');
+  await expect(page.getByTestId('board-col-inbox')).toBeVisible({ timeout: 10_000 });
   await page.keyboard.press('c');
   await page.getByTestId('qc-input').fill(`${title} :system @routine`);
 
