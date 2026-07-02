@@ -50,3 +50,39 @@ test('Concept E column add uses the in-app dialog', async ({ page }) => {
   await expect(today.getByText(unique)).toBeVisible({ timeout: 10_000 });
   expect(nativeDialogSeen).toBe(false);
 });
+
+/**
+ * GH #103 — the hero capture legend must teach the same grammar the parser
+ * implements (#project / @tag / ^p0..^p3 priority / !today schedule).
+ */
+test('Concept E hero legend matches the capture grammar end-to-end', async ({ page }) => {
+  const API = process.env.STASH_E2E_API_URL ?? 'http://localhost:4174/api';
+
+  await page.goto('/');
+  const hints = page.locator('.capture-hints');
+  await expect(hints).toBeVisible();
+
+  // legend advertises the real tokens…
+  await expect(hints).toContainText('^p0..^p3');
+  await expect(hints).toContainText('!today');
+  await expect(hints).toContainText('@tag');
+  // …and no longer the contradictory ones (`!` as priority, `@today` as when)
+  await expect(hints).not.toContainText('@today');
+  await expect(hints).not.toContainText('💡');
+  await expect(page.locator('.capture-placeholder')).not.toContainText('!high');
+
+  // capturing with the advertised grammar produces the advertised result
+  const unique = `e2e legend ${Date.now()}`;
+  await page.getByTestId('capture-input').fill(`${unique} ^p1 !today @legendcheck`);
+  await page.getByTestId('capture-submit').click();
+  await expect(page.getByTestId('board-col-inbox').getByText(unique)).toBeVisible();
+
+  const res = await page.request.get(`${API}/work-items`);
+  expect(res.ok()).toBe(true);
+  const { data } = await res.json();
+  const item = data.find((w: { title: string }) => w.title === unique);
+  expect(item, 'captured item should be queryable').toBeTruthy();
+  expect(item.priority).toBe('p1');
+  expect(item.labels).toContain('legendcheck');
+  expect(item.scheduledFor).toBe(new Date().toISOString().slice(0, 10));
+});

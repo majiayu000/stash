@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { CountUp, LiveDot, ParticleField } from '../../components/effects';
 import { useWorkbenchDialog } from '../../components/ui/workbench-dialogs';
-import { createWorkItem, updateWorkItem } from '../../api/work-items';
+import { captureWorkItem, createWorkItem, updateWorkItem } from '../../api/work-items';
 import type { WBData, WBProject, WBTodo } from '../data';
 import { ConnectedFlow } from '../ConnectedFlow';
 import { ProgressBar, Topbar, TodoItem } from '../shared';
@@ -41,7 +41,7 @@ export function ConceptE({ data, reload }: { data: WBData; reload: () => void })
     if (!trimmed || submitting) return;
     setSubmitting(true);
     try {
-      await createWorkItem({ title: trimmed, kind: 'idea', status: 'inbox' });
+      await captureWorkItem(trimmed);
       setCaptureText('');
       showFeedback('Captured to inbox');
       reload();
@@ -75,7 +75,7 @@ export function ConceptE({ data, reload }: { data: WBData; reload: () => void })
                 />
                 {!captureText && (
                   <span className="capture-placeholder" aria-hidden>
-                    fix oauth callback edge case #aurora !high
+                    fix oauth callback edge case #aurora ^p1 !today
                   </span>
                 )}
               </div>
@@ -90,10 +90,11 @@ export function ConceptE({ data, reload }: { data: WBData; reload: () => void })
               </button>
             </form>
             <div className="capture-hints">
-              <span><kbd>#proj</kbd> tag project</span>
-              <span><kbd>!</kbd> priority</span>
-              <span><kbd>@today</kbd> when</span>
-              <span><kbd>💡</kbd> idea, not task</span>
+              <span><kbd>#project</kbd> project</span>
+              <span><kbd>@tag</kbd> tag</span>
+              <span><kbd>^p0..^p3</kbd> priority</span>
+              <span><kbd>!today</kbd> when</span>
+              <span><kbd>*45m</kbd> estimate</span>
               <span style={{ marginLeft: 'auto', color: 'var(--text-muted)' }}>
                 <CountUp to={todos.filter((t) => !t.done).length} duration={800} /> open ·{' '}
                 <CountUp to={todos.filter((t) => t.done).length} duration={800} /> done ·{' '}
