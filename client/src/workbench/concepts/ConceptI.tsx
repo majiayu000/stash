@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { LiveDot } from '../../components/effects';
 import { fmt, type WBData } from '../data';
-import { ProjectCardFull, Topbar } from '../shared';
+import { PriorityBadge, ProjectCardFull, Topbar } from '../shared';
 
 /**
  * Concept I — Command Palette (⌘K).
@@ -107,7 +107,7 @@ export function ConceptI({ data }: { data: WBData; reload: () => void }) {
                       icon={t.kind === 'idea' ? '💡' : '☐'}
                       title={t.text}
                       hint={<>{proj ? <span style={{ color: 'var(--neon-cyan)' }}>#{proj.name}</span> : <span style={{ color: 'var(--neon-orange)' }}>#inbox</span>} · {t.tags.join(' ')}</>}
-                      badge={<span className={`todo-prio ${t.priority}`} style={{ margin: 0 }}>{t.priority === 'high' ? '!!' : t.priority === 'med' ? '!' : '·'}</span>}
+                      badge={<PriorityBadge priority={t.priority} style={{ margin: 0 }} />}
                       onClick={() => navigate(`/c/l/${t.id}`)}
                     />
                   );

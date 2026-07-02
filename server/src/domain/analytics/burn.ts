@@ -61,8 +61,13 @@ export class BurnService {
 
   private collectEvents(sinceIso: string, scanResult?: AggregateResult): UsageEvent[] {
     const out: UsageEvent[] = [];
+    const sinceMs = Date.parse(sinceIso);
     const { sessions } = scanResult ?? this.aggregator.scan({});
     for (const s of sessions) {
+      const lastActiveMs = Date.parse(s.lastActiveAt);
+      if (!Number.isNaN(sinceMs) && !Number.isNaN(lastActiveMs) && lastActiveMs < sinceMs) {
+        continue;
+      }
       for (const e of this.aggregator.getUsage(s.provider, s.sourcePath)) {
         if (e.ts < sinceIso) continue;
         out.push({ ...e, projectId: s.projectId });

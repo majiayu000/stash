@@ -603,17 +603,36 @@
 }
 .todo-prio {
   font-family: var(--font-mono);
-  font-size: 0.6rem;
+  font-size: 0.62rem;
   font-weight: 700;
-  padding: 1px 5px;
+  padding: 2px 6px;
   border-radius: var(--radius-sm);
   text-transform: uppercase;
   flex-shrink: 0;
   margin-top: 2px;
+  border: 1px solid transparent;
+  letter-spacing: 0;
 }
-.todo-prio.high { color: var(--neon-pink); background: rgba(255,55,95,0.1); }
-.todo-prio.med  { color: var(--neon-orange); background: rgba(255,159,10,0.1); }
-.todo-prio.low  { color: var(--text-muted); background: rgba(160,160,176,0.06); }
+.todo-prio.p0 {
+  color: var(--semantic-priority-high);
+  background: color-mix(in srgb, var(--semantic-priority-high) 13%, transparent);
+  border-color: color-mix(in srgb, var(--semantic-priority-high) 34%, transparent);
+}
+.todo-prio.p1 {
+  color: var(--semantic-priority-medium);
+  background: color-mix(in srgb, var(--semantic-priority-medium) 12%, transparent);
+  border-color: color-mix(in srgb, var(--semantic-priority-medium) 32%, transparent);
+}
+.todo-prio.p2 {
+  color: var(--semantic-priority-low);
+  background: color-mix(in srgb, var(--semantic-priority-low) 10%, transparent);
+  border-color: color-mix(in srgb, var(--semantic-priority-low) 22%, transparent);
+}
+.todo-prio.p3 {
+  color: var(--text-muted);
+  background: rgba(160,160,176,0.06);
+  border-color: var(--border-hair);
+}
 
 /* ─── Stat tile ──────────────────────────────────────────────────────── */
 .stat-tile {

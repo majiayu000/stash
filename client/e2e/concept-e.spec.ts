@@ -86,3 +86,45 @@ test('Concept E hero legend matches the capture grammar end-to-end', async ({ pa
   expect(item.labels).toContain('legendcheck');
   expect(item.scheduledFor).toBe(new Date().toISOString().slice(0, 10));
 });
+
+/**
+ * GH #104/#105 — the default home prioritizes capture + board, while context
+ * cards stay available behind a persisted disclosure and priority is readable
+ * without color.
+ */
+test('Concept E first viewport is todo-first with semantic priority labels', async ({ page }) => {
+  await page.addInitScript(() => {
+    if (window.sessionStorage.getItem('stash:e2e:insights-init') === '1') return;
+    window.localStorage.removeItem('stash:concept-e:insights-open');
+    window.sessionStorage.setItem('stash:e2e:insights-init', '1');
+  });
+  await page.goto('/', { waitUntil: 'networkidle' });
+
+  const topbarStats = page.getByTestId('topbar-stats');
+  await expect(topbarStats).toContainText('inbox');
+  await expect(topbarStats).toContainText('today');
+  await expect(topbarStats).toContainText('p0/p1');
+  await expect(topbarStats).not.toContainText('tokens');
+  await expect(topbarStats).not.toContainText('cost');
+
+  const board = page.getByTestId('concept-e-board-shell');
+  await expect(board).toBeVisible();
+  const boardBox = await board.boundingBox();
+  expect(boardBox, 'board should have a stable first-viewport box').toBeTruthy();
+  expect((boardBox?.y ?? 0) + (boardBox?.height ?? 0)).toBeLessThanOrEqual(900);
+
+  const insights = page.getByTestId('ce-insights');
+  await expect(insights.locator('.ce-insights-summary')).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.getByTestId('connected-flow')).toBeHidden();
+
+  await insights.locator('.ce-insights-summary').click();
+  await expect(insights.locator('.ce-insights-summary')).toHaveAttribute('aria-expanded', 'true');
+  await page.reload({ waitUntil: 'networkidle' });
+  await expect(page.getByTestId('ce-insights').locator('.ce-insights-summary')).toHaveAttribute('aria-expanded', 'true');
+
+  const unique = `e2e priority ${Date.now()}`;
+  await page.getByTestId('capture-input').fill(`${unique} ^p1`);
+  await page.getByTestId('capture-submit').click();
+  const row = page.getByTestId('board-col-inbox').getByText(unique).locator('xpath=ancestor::*[contains(@class, "todo")]');
+  await expect(row.locator('.todo-prio')).toHaveText('P1');
+});

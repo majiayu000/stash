@@ -15,6 +15,7 @@ import { BurnService } from './burn.js';
 
 class FakeSource implements AgentSource {
   readonly provider: AgentProvider;
+  readonly usageReads: string[] = [];
   private readonly sessions: AgentSession[];
   private readonly usageBySource: Map<string, UsageEvent[]>;
 
@@ -35,6 +36,7 @@ class FakeSource implements AgentSource {
     return [];
   }
   getUsage(sourcePath: string): UsageEvent[] {
+    this.usageReads.push(sourcePath);
     return this.usageBySource.get(sourcePath) ?? [];
   }
 }
@@ -164,6 +166,39 @@ describe('BurnService', () => {
     };
     const snap = build([s], usage).snapshot({ days: 7 });
     expect(snap.totals.tokens).toBe(0);
+  });
+
+  test('does not read usage files for sessions older than the burn window', () => {
+    const old = makeSession({
+      id: 'old',
+      sourcePath: '/old.jsonl',
+      lastActiveAt: '2026-04-01T08:00:00.000Z',
+    });
+    const recent = makeSession({
+      id: 'recent',
+      sourcePath: '/recent.jsonl',
+      lastActiveAt: '2026-05-14T08:00:00.000Z',
+    });
+    const source = new FakeSource('claude', [old, recent], {
+      '/old.jsonl': [
+        { ts: '2026-04-01T08:00:00.000Z', model: 'claude-sonnet-4-6', inputTokens: 9000, outputTokens: 1000, sourcePath: '/old.jsonl' },
+      ],
+      '/recent.jsonl': [
+        { ts: '2026-05-14T08:00:00.000Z', model: 'claude-sonnet-4-6', inputTokens: 1000, outputTokens: 500, sourcePath: '/recent.jsonl' },
+      ],
+    });
+    const sources = new Map<AgentProvider, { source: AgentSource; root: string }>();
+    sources.set('claude', { source, root: '/fake' });
+    const svc = new BurnService({
+      aggregator: new AgentSourceAggregator(sources),
+      areaService,
+      clock: fixedClock(at),
+    });
+
+    const snap = svc.snapshot({ days: 7 });
+
+    expect(snap.totals.tokens).toBe(1500);
+    expect(source.usageReads).toEqual(['/recent.jsonl']);
   });
 
   test('clamps days between 1 and 365', () => {

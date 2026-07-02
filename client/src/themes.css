@@ -33,6 +33,15 @@
   --accent-warning:   var(--neon-orange);
   --accent-danger:    var(--neon-pink);
 
+  --semantic-priority-high:   var(--neon-pink);
+  --semantic-priority-medium: var(--neon-orange);
+  --semantic-priority-low:    var(--text-secondary);
+  --semantic-due:             var(--neon-orange);
+  --semantic-active:          var(--neon-green);
+  --semantic-someday:         var(--neon-purple);
+  --semantic-inbox:           var(--neon-cyan);
+  --semantic-muted-readable:  var(--text-secondary);
+
   --text-primary:   #ffffff;
   --text-secondary: #a0a0b0;
   --text-muted:     #606070;

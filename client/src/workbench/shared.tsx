@@ -113,10 +113,10 @@ function pathPart(value: string | undefined): string | undefined {
   return value ? encodeURIComponent(value) : undefined;
 }
 
-export function Topbar({ data, right }: { data: WBData; right?: ReactNode }) {
+export function Topbar({ data, right, tag }: { data: WBData; right?: ReactNode; tag?: ReactNode }) {
   const navigate = useNavigate();
   const { stats } = data;
-  const status_line = `> ${stats.projects} projects · ${stats.activeSessions} live · ${fmt.cost(stats.totalCost24h)} burn`;
+  const status_line = tag ?? `> ${stats.projects} projects · ${stats.activeSessions} live · ${fmt.cost(stats.totalCost24h)} burn`;
   return (
     <div className="topbar">
       <div className="topbar-main">
@@ -250,6 +250,15 @@ export function ModelBadge({ model }: { model: string }) {
     : model.startsWith('haiku') ? 'haiku'
     : model.startsWith('opus') ? 'opus' : 'sonnet';
   return <span className={`model-badge ${kind}`}>● {model}</span>;
+}
+
+export function PriorityBadge({ priority, style }: { priority: WBTodo['priority']; style?: React.CSSProperties }) {
+  const label = priority.toUpperCase();
+  return (
+    <span className={`todo-prio ${priority}`} title={`priority ${label}`} aria-label={`priority ${label}`} style={style}>
+      {label}
+    </span>
+  );
 }
 
 export function StatusPill({ status }: { status: WBProject['status'] }) {
@@ -406,11 +415,7 @@ export function TodoItem({ t, projects, showProject = true }: { t: WBTodo; proje
           {t.tags.map((tag) => <span key={tag} className="todo-tag">{tag}</span>)}
         </div>
       </div>
-      {!t.done && (
-        <span className={`todo-prio ${t.priority}`}>
-          {t.priority === 'high' ? '!!' : t.priority === 'med' ? '!' : '·'}
-        </span>
-      )}
+      {!t.done && <PriorityBadge priority={t.priority} />}
     </div>
   );
 }

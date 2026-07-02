@@ -13,6 +13,28 @@ import {
   todayIso,
   type TodoBoardColumn,
 } from './conceptE.lifecycle';
+import { conceptEStyles } from './conceptE.styles';
+
+const INSIGHTS_STORAGE_KEY = 'stash:concept-e:insights-open';
+
+type ConceptEBoard = ReturnType<typeof groupTodosForBoard>;
+
+function readInsightsOpen(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return window.localStorage.getItem(INSIGHTS_STORAGE_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function persistInsightsOpen(open: boolean): void {
+  try {
+    window.localStorage.setItem(INSIGHTS_STORAGE_KEY, open ? '1' : '0');
+  } catch {
+    // Rendering must not depend on storage availability.
+  }
+}
 
 /**
  * Concept E — Capture & Plan (todo-first).
@@ -26,9 +48,11 @@ export function ConceptE({ data, reload }: { data: WBData; reload: () => void })
   const [submitting, setSubmitting] = useState(false);
   const [captureText, setCaptureText] = useState('');
   const [feedback, setFeedback] = useState<{ message: string; tone: 'ok' | 'error' } | null>(null);
+  const [insightsOpen, setInsightsOpen] = useState(readInsightsOpen);
 
   const liveProjectIds = new Set(sessions.filter((s) => s.state === 'live').map((s) => s.project));
   const board = groupTodosForBoard(todos, liveProjectIds);
+  const openTodos = todos.filter((t) => !t.done).length;
 
   function showFeedback(message: string, tone: 'ok' | 'error' = 'ok') {
     setFeedback({ message, tone });
@@ -54,8 +78,12 @@ export function ConceptE({ data, reload }: { data: WBData; reload: () => void })
 
   return (
     <div className="dashboard-canvas">
-      <div className="inner" style={{ overflow: 'hidden', height: '100%' }}>
-        <Topbar data={data} />
+      <div className="inner concept-e-home">
+        <Topbar
+          data={data}
+          tag={`> ${openTodos} open todos · ${board.inbox.length} inbox · ${board.today.length} today`}
+          right={<ConceptETopbarStats board={board} todos={todos} />}
+        />
 
         {/* HERO — big capture */}
         <div className="capture-hero">
@@ -108,15 +136,14 @@ export function ConceptE({ data, reload }: { data: WBData; reload: () => void })
             {feedback.message}
           </div>
         )}
-        <ConnectedFlow data={data} />
 
         {/* Main split: 4-column board + right rail */}
-        <div id="inbox-board" style={{ display: 'grid', gridTemplateColumns: '1fr 290px', gap: '1.25rem', flex: 1, minHeight: 0 }}>
+        <div id="inbox-board" data-testid="concept-e-board-shell" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 270px', gap: '1rem', flex: '1 1 520px', minHeight: 0 }}>
           <div style={{ minWidth: 0, display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.85rem', minHeight: 0 }}>
-            <BoardCol icon="📥" name="inbox"  tone="orange" hint="ideas & quick captures"     items={board.inbox}  projects={projects} onFeedback={showFeedback} />
-            <BoardCol icon="🌅" name="today"  tone="cyan"   hint="planned for today"          items={board.today}  projects={projects} onFeedback={showFeedback} />
-            <BoardCol icon="🚧" name="doing"  tone="green"  hint="active or live-agent work"  items={board.doing}  projects={projects} live onFeedback={showFeedback} />
-            <BoardCol icon="📅" name="later"  tone="purple" hint="planned · waiting · someday" items={board.later}  projects={projects} onFeedback={showFeedback} />
+            <BoardCol icon="📥" name="inbox"  tone="inbox"   hint="ideas & quick captures"      items={board.inbox}  projects={projects} onFeedback={showFeedback} />
+            <BoardCol icon="🌅" name="today"  tone="due"     hint="planned for today"           items={board.today}  projects={projects} onFeedback={showFeedback} />
+            <BoardCol icon="🚧" name="doing"  tone="active"  hint="active or live-agent work"   items={board.doing}  projects={projects} live onFeedback={showFeedback} />
+            <BoardCol icon="📅" name="later"  tone="someday" hint="planned · waiting · someday" items={board.later}  projects={projects} onFeedback={showFeedback} />
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', minHeight: 0 }}>
@@ -168,10 +195,68 @@ export function ConceptE({ data, reload }: { data: WBData; reload: () => void })
             <DoneDropZone items={board.done} projects={projects} onFeedback={showFeedback} />
           </div>
         </div>
+        <ConceptEInsights
+          data={data}
+          open={insightsOpen}
+          onToggle={(open) => {
+            setInsightsOpen(open);
+            persistInsightsOpen(open);
+          }}
+        />
       </div>
 
       <style>{conceptEStyles}</style>
     </div>
+  );
+}
+
+function ConceptETopbarStats({ board, todos }: { board: ConceptEBoard; todos: WBTodo[] }) {
+  const openTodos = todos.filter((t) => !t.done);
+  const urgent = openTodos.filter((t) => t.priority === 'p0' || t.priority === 'p1').length;
+  return (
+    <div className="ce-topbar-stats topbar-stats" data-testid="topbar-stats">
+      <div className="tb-stat">
+        <span className="tb-stat-val">{board.inbox.length}</span>
+        <span className="tb-stat-label">inbox</span>
+      </div>
+      <div className="tb-stat">
+        <span className="tb-stat-val">{board.today.length}</span>
+        <span className="tb-stat-label">today</span>
+      </div>
+      <div className="tb-stat">
+        <span className="tb-stat-val">{urgent}</span>
+        <span className="tb-stat-label">p0/p1</span>
+      </div>
+      <div className="tb-stat">
+        <span className="tb-stat-val">{openTodos.length}</span>
+        <span className="tb-stat-label">open todos</span>
+      </div>
+    </div>
+  );
+}
+
+function ConceptEInsights({
+  data,
+  open,
+  onToggle,
+}: {
+  data: WBData;
+  open: boolean;
+  onToggle: (open: boolean) => void;
+}) {
+  return (
+    <section className={`ce-insights ${open ? 'open' : ''}`} data-testid="ce-insights">
+      <button
+        type="button"
+        className="ce-insights-summary"
+        aria-expanded={open}
+        onClick={() => onToggle(!open)}
+      >
+        <span>work context</span>
+        <span>projects · sessions · review · burn</span>
+      </button>
+      {open && <ConnectedFlow data={data} />}
+    </section>
   );
 }
 
@@ -208,7 +293,7 @@ function BoardCol({
 }: {
   icon: string;
   name: TodoBoardColumn;
-  tone: 'orange' | 'cyan' | 'green' | 'purple';
+  tone: 'inbox' | 'due' | 'active' | 'someday';
   hint: string;
   items: WBTodo[];
   count?: number;
@@ -487,244 +572,3 @@ function ProjectChipRow({ p }: { p: WBProject }) {
     </button>
   );
 }
-
-const conceptEStyles = `
-.capture-hero {
-  position: relative;
-  background: linear-gradient(135deg, rgba(191,90,242,0.08), rgba(0,255,242,0.05));
-  border: 1px solid rgba(191,90,242,0.25);
-  border-radius: var(--radius-xl, 16px);
-  padding: 1.25rem 1.5rem;
-  margin-bottom: 1.25rem;
-  overflow: hidden;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), 0 0 30px rgba(191,90,242,0.06);
-}
-.capture-hero::before {
-  content: '';
-  position: absolute; inset: -2px;
-  background: linear-gradient(90deg, var(--neon-purple), var(--neon-cyan), var(--neon-magenta), var(--neon-purple));
-  background-size: 300% 100%;
-  border-radius: var(--radius-xl, 16px);
-  z-index: -1;
-  opacity: 0.5;
-  animation: borderFlow 5s linear infinite;
-  filter: blur(6px);
-}
-@keyframes borderFlow {
-  0% { background-position: 0% 0; }
-  100% { background-position: 300% 0; }
-}
-.capture-hero-inner { position: relative; z-index: 1; }
-.capture-row {
-  display: flex; align-items: center; gap: 0.75rem;
-  padding: 0.85rem 1rem;
-  background: var(--bg-void);
-  border: 1px solid var(--border-glow);
-  border-radius: var(--radius-md);
-  box-shadow: inset 0 0 30px rgba(0,255,242,0.04);
-}
-.capture-prompt {
-  font-family: var(--font-mono);
-  color: var(--neon-cyan);
-  font-weight: 700;
-  font-size: 1.1rem;
-  text-shadow: 0 0 10px rgba(0,255,242,0.6);
-}
-.capture-input { flex: 1; min-width: 0; position: relative; }
-.capture-real-input {
-  width: 100%;
-  background: transparent;
-  border: 0;
-  outline: 0;
-  font-family: var(--font-mono);
-  font-size: 1.1rem;
-  color: var(--text-primary);
-  caret-color: var(--neon-cyan);
-}
-.capture-placeholder {
-  position: absolute; inset: 0;
-  pointer-events: none;
-  display: flex; align-items: center;
-  font-family: var(--font-mono);
-  font-size: 1.1rem;
-  color: var(--text-muted);
-}
-.capture-kbd-btn {
-  font-family: var(--font-mono);
-  font-size: 0.8rem;
-  color: var(--text-primary);
-  padding: 4px 10px;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-glow);
-  border-radius: 4px;
-  cursor: pointer;
-  transition: all .15s;
-}
-.capture-kbd-btn:hover:not(:disabled) {
-  background: var(--neon-cyan);
-  color: var(--bg-void);
-  box-shadow: 0 0 16px rgba(0,255,242,0.4);
-}
-.capture-kbd-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-.capture-hints {
-  display: flex; gap: 1rem; align-items: center;
-  margin-top: 0.7rem;
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
-  color: var(--text-secondary);
-  flex-wrap: wrap;
-}
-.capture-hints kbd {
-  font-family: var(--font-mono);
-  color: var(--neon-purple);
-  background: rgba(191,90,242,0.08);
-  border: 1px solid rgba(191,90,242,0.2);
-  padding: 1px 5px;
-  border-radius: 3px;
-  font-size: 0.7rem;
-  margin-right: 4px;
-}
-
-.ce-feedback {
-  margin: -0.55rem 0 0.75rem;
-  border: 1px solid rgba(48,209,88,0.32);
-  background: rgba(48,209,88,0.08);
-  color: var(--neon-green);
-  border-radius: var(--radius-md);
-  padding: 0.45rem 0.7rem;
-  font-family: var(--font-mono);
-  font-size: 0.74rem;
-}
-.ce-feedback.error {
-  border-color: rgba(255,55,95,0.35);
-  background: rgba(255,55,95,0.08);
-  color: var(--neon-pink);
-}
-
-.board-col {
-  background: var(--bg-glass);
-  backdrop-filter: blur(20px);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-lg);
-  padding: 0.85rem;
-  display: flex; flex-direction: column;
-  min-height: 0;
-  position: relative;
-  overflow: hidden;
-}
-.board-col::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; }
-.board-col.tone-orange::before { background: linear-gradient(90deg, var(--neon-orange), var(--neon-pink)); }
-.board-col.tone-cyan::before   { background: linear-gradient(90deg, var(--neon-cyan), var(--neon-blue)); }
-.board-col.tone-green::before  { background: var(--gradient-success); }
-.board-col.tone-purple::before { background: linear-gradient(90deg, var(--neon-purple), var(--neon-magenta)); }
-.board-col.drag-over {
-  outline: 2px dashed var(--neon-cyan);
-  outline-offset: -2px;
-  background: rgba(0,255,242,0.05);
-}
-.board-col-head { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 4px; }
-.board-col-name {
-  font-family: var(--font-mono); font-size: 0.85rem; font-weight: 600;
-  color: var(--text-primary); text-transform: uppercase; letter-spacing: 0.05em;
-}
-.board-col.tone-orange .board-col-name { color: var(--neon-orange); }
-.board-col.tone-cyan   .board-col-name { color: var(--neon-cyan); }
-.board-col.tone-green  .board-col-name { color: var(--neon-green); }
-.board-col.tone-purple .board-col-name { color: var(--neon-purple); }
-.board-col-count {
-  margin-left: auto;
-  font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-muted);
-  background: var(--bg-elevated); padding: 1px 7px; border-radius: var(--radius-pill);
-  font-variant-numeric: tabular-nums;
-}
-.board-col-hint {
-  font-family: var(--font-body); font-size: 0.72rem; color: var(--text-muted);
-  margin-bottom: 0.7rem;
-}
-.board-col-body { display: flex; flex-direction: column; gap: 0.4rem; overflow-y: auto; flex: 1; padding-right: 2px; }
-.board-col-empty {
-  text-align: center;
-  font-family: var(--font-mono); font-size: 0.72rem;
-  color: var(--text-muted); padding: 1rem 0; opacity: 0.5;
-}
-.todo-add {
-  background: transparent; border: 1px dashed var(--border-subtle);
-  color: var(--text-muted); padding: 0.45rem 0.6rem; border-radius: var(--radius-md);
-  font-family: var(--font-mono); font-size: 0.72rem; cursor: pointer;
-  transition: all 0.2s; text-align: left;
-}
-.todo-add:hover { border-color: var(--neon-cyan); color: var(--neon-cyan); background: rgba(0,255,242,0.04); }
-
-.done-drop-zone {
-  border: 1px solid rgba(48,209,88,0.28);
-  background: rgba(48,209,88,0.06);
-  border-radius: var(--radius-lg);
-  padding: 0.85rem;
-  transition: border-color 0.16s, background 0.16s, box-shadow 0.16s;
-}
-.done-drop-zone.drag-over {
-  border-color: var(--neon-green);
-  background: rgba(48,209,88,0.12);
-  box-shadow: 0 0 0 1px rgba(48,209,88,0.12), 0 14px 32px rgba(48,209,88,0.1);
-}
-.done-drop-head {
-  display: flex;
-  justify-content: space-between;
-  gap: 0.75rem;
-  font-family: var(--font-mono);
-  color: var(--neon-green);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  font-size: 0.78rem;
-  font-weight: 700;
-}
-.done-drop-copy {
-  margin-top: 0.35rem;
-  color: var(--text-muted);
-  font-size: 0.74rem;
-  line-height: 1.45;
-}
-.done-drop-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-  margin-top: 0.7rem;
-  max-height: 170px;
-  overflow-y: auto;
-}
-
-.new-proj-btn {
-  background: var(--gradient-primary);
-  color: var(--bg-void); border: none;
-  padding: 0.4rem 0.9rem; border-radius: var(--radius-pill);
-  font-family: var(--font-mono); font-size: 0.72rem; font-weight: 700;
-  cursor: pointer; transition: all 0.2s; box-shadow: 0 0 15px rgba(0,255,242,0.3);
-}
-.new-proj-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,255,242,0.4); }
-
-.live-session-link {
-  display: block;
-  width: 100%;
-  margin-top: 6px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-.live-session-link:hover { color: var(--text-secondary); }
-
-.proj-chip {
-  display: flex; align-items: flex-start; gap: 0.6rem;
-  width: 100%;
-  text-align: left;
-  padding: 0.55rem 0.7rem;
-  background: var(--bg-glass);
-  border: 1px solid var(--border-hair);
-  border-radius: var(--radius-md);
-  cursor: pointer; transition: all 0.2s;
-}
-.proj-chip:hover { border-color: var(--border-glow); transform: translateX(2px); }
-`;

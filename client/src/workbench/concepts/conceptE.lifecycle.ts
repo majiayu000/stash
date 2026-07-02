@@ -99,7 +99,5 @@ function sortByCreated(items: WBTodo[]): WBTodo[] {
 }
 
 function priorityRank(todo: WBTodo): number {
-  if (todo.priority === 'high') return 0;
-  if (todo.priority === 'med') return 1;
-  return 2;
+  return { p0: 0, p1: 1, p2: 2, p3: 3 }[todo.priority];
 }

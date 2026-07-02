@@ -2,7 +2,7 @@
 // Concept components consume `{ projects, todos, sessions, stats }` exactly like
 // the original workbench (window.AppData), but the values come from real hooks.
 
-import type { AgentSession, Area, WorkItem, WorkItemKind } from '@stash/shared';
+import type { AgentSession, Area, Priority, WorkItem, WorkItemKind } from '@stash/shared';
 import type { SourceHealthError } from '../api/agent-sessions';
 
 export interface WBProject {
@@ -46,7 +46,7 @@ export interface WBTodo {
   done: boolean;
   /** Raw work-item status — needed by InboxTriage to match what the API filters on. */
   status: 'inbox' | 'planned' | 'active' | 'waiting' | 'blocked' | 'someday' | 'done' | 'dropped';
-  priority: 'high' | 'med' | 'low';
+  priority: Priority;
   kind: WorkItemKind;
   due?: 'today' | 'this-week' | 'someday';
   scheduledFor?: string;
@@ -105,13 +105,6 @@ function emojiFor(seed: string, idx: number): string {
 function basename(path: string): string {
   return path.split(/[\\/]/).filter(Boolean).pop() ?? path;
 }
-
-const PRIORITY_MAP: Record<string, WBTodo['priority']> = {
-  p0: 'high',
-  p1: 'high',
-  p2: 'med',
-  p3: 'low',
-};
 
 function todoDue(item: WorkItem, todayIso: string): WBTodo['due'] | undefined {
   if (item.status === 'someday') return 'someday';
@@ -206,7 +199,7 @@ export function adaptToWorkbenchData(input: AdaptInput): WBData {
       tags: i.labels.map((l) => '#' + l),
       done: i.status === 'done',
       status: i.status as WBTodo['status'],
-      priority: PRIORITY_MAP[i.priority] ?? 'med',
+      priority: i.priority,
       kind: i.kind,
       due: todoDue(i, today),
       scheduledFor: i.scheduledFor,

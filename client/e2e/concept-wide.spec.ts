@@ -102,6 +102,14 @@ async function expectRoute(page: Page, route: string, markerId: ConceptMarker) {
   await expect(CONCEPT_MARKERS[markerId](page)).toBeVisible({ timeout: 10_000 });
 }
 
+async function openWorkContext(page: Page) {
+  const connectedFlow = page.getByTestId('connected-flow');
+  if (!(await connectedFlow.isVisible())) {
+    await page.getByTestId('ce-insights').locator('.ce-insights-summary').click();
+  }
+  await expect(connectedFlow).toBeVisible({ timeout: 10_000 });
+}
+
 test('A/B/C/D/F/I/N/PRD golden routes render concept-specific UI', async ({ page, request }) => {
   await seedState(request);
 
@@ -123,7 +131,7 @@ test('connected object view links the main product pages', async ({ page, reques
   await seedState(request);
   await page.goto('/');
 
-  await expect(page.getByTestId('connected-flow')).toBeVisible();
+  await openWorkContext(page);
   await expect(page.getByRole('navigation', { name: 'Primary workflow' })).toHaveCount(0);
   await expect(page.getByTestId('concept-switcher')).toContainText(/Concepts · E/i);
 
@@ -140,14 +148,14 @@ test('connected object view links the main product pages', async ({ page, reques
   await expect(CONCEPT_MARKERS.k(page)).toBeVisible({ timeout: 10_000 });
   await page.getByRole('button', { name: 'Back to workbench' }).click();
   await expect.poll(() => new URL(page.url()).pathname).toBe('/');
-  await expect(page.getByTestId('connected-flow')).toBeVisible({ timeout: 10_000 });
+  await openWorkContext(page);
 
   await page.getByTestId('flow-project').click();
   await expect.poll(() => new URL(page.url()).pathname).toMatch(/^\/c\/k\//);
   await expect(CONCEPT_MARKERS.k(page)).toBeVisible({ timeout: 10_000 });
   await page.getByTestId('kw-back-home').click();
   await expect.poll(() => new URL(page.url()).pathname).toBe('/');
-  await expect(page.getByTestId('connected-flow')).toBeVisible({ timeout: 10_000 });
+  await openWorkContext(page);
 
   await page.getByTestId('flow-project').click();
   await expect.poll(() => new URL(page.url()).pathname).toMatch(/^\/c\/k\//);

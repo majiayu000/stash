@@ -61,7 +61,7 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
       tags: [],
       done: false,
       status: 'planned',
-      priority: 'med',
+      priority: 'p2',
       kind: 'task',
       todayPinned: false,
       updatedAt: '',
