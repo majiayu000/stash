@@ -80,6 +80,13 @@ Reminders:      ConceptN → enable browser notifications; reminderAt fires auto
 Systems:        create with :system, open the 🔁 systems chip, Run system, complete the Run
 ```
 
+## Mobile capture boundary
+
+MVP is desktop-first: there is no mobile or compact workbench UI. Off-computer
+capture should use the same capture API instead of a separate mobile surface:
+`stash add "..."` when a shell is available, or `POST /api/work-items/capture`
+from a trusted local shortcut/automation pointed at the running server.
+
 ## The 16 concept pages
 
 stash renders the same data through 16 different lenses. Pick the one that

@@ -25,6 +25,9 @@ Standalone implementation in this directory. Existing Claude-Code-Monitor code i
 - No replacement for Jira/Linear.
 - No automatic code mutation from todos.
 - No mobile/compact view in MVP (1440px desktop first; degrade gracefully to 1280px).
+  Mobile/off-computer capture uses the existing capture API (`stash add` or
+  `POST /api/work-items/capture` via trusted local automation) rather than a
+  separate mobile UI.
 - No Obsidian/Notion two-way sync.
 
 ## 3. Tech Stack

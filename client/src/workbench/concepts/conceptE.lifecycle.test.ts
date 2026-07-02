@@ -44,7 +44,7 @@ function todo(input: Partial<WBTodo> & { id: string }): WBTodo {
     tags: [],
     done: false,
     status: 'planned',
-    priority: 'med',
+    priority: 'p2',
     kind: 'task',
     todayPinned: false,
     updatedAt: '2026-05-14T08:00:00.000Z',
