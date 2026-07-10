@@ -8,6 +8,12 @@ import {
   updateWorkItem,
 } from '../api/work-items';
 import { useWorkbenchDialog } from '../components/ui/workbench-dialogs';
+import {
+  claimPendingUndo,
+  clearPendingUndo,
+  registerPendingUndo,
+  type PendingUndoToken,
+} from './undoCoordinator';
 
 /**
  * SPEC v0.3 §3e — global inbox triage keyboard layer.
@@ -78,12 +84,20 @@ interface UndoAction {
   apply: () => Promise<void>;
 }
 
+interface UndoToast {
+  msg: string;
+  undo?: UndoAction;
+  undoToken?: PendingUndoToken;
+}
+
 export function InboxTriage() {
   const [items, setItems] = useState<WorkItem[]>([]);
   const [cursorId, setCursorId] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [help, setHelp] = useState(false);
-  const [toast, setToast] = useState<{ msg: string; undo?: UndoAction } | null>(null);
+  const [toast, setToast] = useState<UndoToast | null>(null);
+  const toastRef = useRef<UndoToast | null>(null);
+  const undoTokenRef = useRef<PendingUndoToken | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dialog = useWorkbenchDialog();
   const navigate = useNavigate();
@@ -106,6 +120,13 @@ export function InboxTriage() {
     function onChange() { reload(); }
     window.addEventListener('stash:captured', onChange);
     return () => { cancelled = true; window.removeEventListener('stash:captured', onChange); };
+  }, []);
+
+  useEffect(() => () => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    if (undoTokenRef.current) clearPendingUndo(undoTokenRef.current);
+    undoTokenRef.current = null;
+    toastRef.current = null;
   }, []);
 
   useEffect(() => {
@@ -162,10 +183,16 @@ export function InboxTriage() {
 
       // Cmd+Z / Ctrl+Z → invoke pending undo before filtering modifiers.
       if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'z') {
-        if (toast?.undo) {
+        if (
+          toast?.undo
+          && toast.undoToken
+          && toastRef.current === toast
+          && claimPendingUndo(toast.undoToken)
+        ) {
+          if (undoTokenRef.current === toast.undoToken) undoTokenRef.current = null;
           e.preventDefault();
           e.stopImmediatePropagation();
-          void invokeUndo();
+          void applyUndo(toast);
         }
         return;
       }
@@ -278,18 +305,6 @@ export function InboxTriage() {
       }
     }
 
-    async function invokeUndo() {
-      if (!toast?.undo) return;
-      const u = toast.undo;
-      try {
-        await u.apply();
-        flash(`↶ undone (${u.label})`);
-        window.dispatchEvent(new CustomEvent('stash:captured'));
-      } catch (e) {
-        flash(`✕ undo failed: ${e instanceof Error ? e.message : String(e)}`);
-      }
-    }
-
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [dialog, items, cursorId, help, navigate, toast, selected]);
@@ -307,21 +322,43 @@ export function InboxTriage() {
   });
 
   function flash(msg: string, undo?: UndoAction) {
-    setToast({ msg, undo });
     if (toastTimer.current) clearTimeout(toastTimer.current);
-    toastTimer.current = setTimeout(() => setToast(null), undo ? 8000 : 1800);
+    if (undoTokenRef.current) clearPendingUndo(undoTokenRef.current);
+
+    const undoToken = undo ? registerPendingUndo('inbox') : undefined;
+    const nextToast: UndoToast = { msg, undo, undoToken };
+    undoTokenRef.current = undoToken ?? null;
+    toastRef.current = nextToast;
+    setToast(nextToast);
+    toastTimer.current = setTimeout(() => {
+      if (toastRef.current !== nextToast) return;
+      if (undoToken) clearPendingUndo(undoToken);
+      if (undoTokenRef.current === undoToken) undoTokenRef.current = null;
+      toastRef.current = null;
+      setToast((current) => current === nextToast ? null : current);
+      toastTimer.current = null;
+    }, undo ? 8000 : 1800);
+  }
+
+  async function applyUndo(sourceToast: UndoToast) {
+    if (!sourceToast.undo) return;
+    const u = sourceToast.undo;
+    try {
+      await u.apply();
+      if (toastRef.current === sourceToast) flash(`↶ undone (${u.label})`);
+      window.dispatchEvent(new CustomEvent('stash:captured'));
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      if (toastRef.current === sourceToast) flash(`✕ undo failed: ${message}`);
+      else console.error(`Inbox undo failed: ${message}`);
+    }
   }
 
   async function clickUndo() {
-    if (!toast?.undo) return;
-    const u = toast.undo;
-    try {
-      await u.apply();
-      flash(`↶ undone (${u.label})`);
-      window.dispatchEvent(new CustomEvent('stash:captured'));
-    } catch (e) {
-      flash(`✕ undo failed: ${e instanceof Error ? e.message : String(e)}`);
-    }
+    if (!toast?.undo || !toast.undoToken || toastRef.current !== toast) return;
+    if (!clearPendingUndo(toast.undoToken)) return;
+    if (undoTokenRef.current === toast.undoToken) undoTokenRef.current = null;
+    await applyUndo(toast);
   }
 
   return (

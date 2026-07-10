@@ -58,6 +58,8 @@ function renderTriage({ modal }: { modal?: ModalFixture } = {}) {
       <WorkbenchDialogProvider>
         <InboxTriage />
         <button type="button">settings paths</button>
+        <input aria-label="settings path" />
+        <textarea aria-label="settings notes" />
         <select aria-label="settings theme"><option>dark</option></select>
         <div role="button" tabIndex={0}>custom action</div>
         <div contentEditable data-testid="editable-control" suppressContentEditableWarning>editable</div>
@@ -90,6 +92,8 @@ describe('InboxTriage keyboard safety', () => {
 
     const controls = [
       screen.getByRole('button', { name: 'settings paths' }),
+      screen.getByRole('textbox', { name: 'settings path' }),
+      screen.getByRole('textbox', { name: 'settings notes' }),
       screen.getByRole('combobox', { name: 'settings theme' }),
       screen.getByRole('button', { name: 'custom action' }),
       screen.getByTestId('editable-control'),
