@@ -89,7 +89,7 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
   const item = itemState?.id === todo.id ? itemState : null;
   const [savedFlash, setSavedFlash] = useState<string | null>(null);
   const [isCreatingRun, setIsCreatingRun] = useState(false);
-  const runInFlightRef = useRef(false);
+  const runInFlightRef = useRef(false), closeInFlightRef = useRef(false);
   const shownKind = kindChrome(item?.kind ?? todo.kind);
   useEffect(() => {
     let cancelled = false;
@@ -97,7 +97,6 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
     getWorkItem(todo.id)
       .then((w) => { if (!cancelled) setItem(w); })
       .catch((error) => { if (!cancelled) reportAsyncError('load todo detail', error); });
-
     apiGet<{ data: WorkItem[] }>(`/work-items/${todo.id}/subtasks`)
       .then((res) => { if (!cancelled) setRealSubs(res.data); })
       .catch((error) => {
@@ -106,7 +105,6 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
           reportAsyncError('load subtasks', error);
         }
       });
-
     const params = new URLSearchParams();
     if (todo.project) params.set('projectId', todo.project);
     todo.tags.forEach((t) => params.append('label', t.replace(/^#/, '')));
@@ -119,10 +117,17 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
           reportAsyncError('load relevant lessons', error);
         }
       });
-
     return () => { cancelled = true; };
   }, [todo.id]);
-  const closeDetail = () => navigate(item?.parentId ? `/c/l/${item.parentId}` : '/', { replace: true });
+  async function closeDetail() {
+    if (closeInFlightRef.current) return;
+    closeInFlightRef.current = true;
+    try {
+      const current = item ?? await getWorkItem(todo!.id);
+      navigate(current.parentId ? `/c/l/${current.parentId}` : '/', { replace: true });
+    } catch (error) { reportAsyncError('resolve detail close target', error); flashSaved(`✕ could not close: ${error instanceof Error ? error.message : String(error)}`); }
+    finally { closeInFlightRef.current = false; }
+  }
   useEscToClose(closeDetail);
   async function runThisSystem() {
     if (!item || item.kind !== 'system' || runInFlightRef.current) return;
