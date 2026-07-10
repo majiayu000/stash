@@ -33,7 +33,7 @@ const CONCEPT_MARKERS: Record<ConceptMarker, (page: Page) => Locator> = {
   c: (page) => page.locator('.sec-head', { hasText: 'live stream' }),
   d: (page) => page.locator('.const-stage'),
   f: (page) => page.getByTestId('cf-name'),
-  g: (page) => page.locator('.sec-head', { hasText: 'tokens' }),
+  g: (page) => page.getByTestId('estimated-session-metrics'),
   h: (page) => page.getByText(/no usage data yet|this month/i).first(),
   i: (page) => page.getByTestId('palette-input'),
   j: (page) => page.getByText(/\b\d{4}-W\d{2}\b/).first(),

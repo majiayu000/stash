@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import type { CoachApplySummaryResponse, JournalEntry, Lesson, Priority, WorkItem, WorkItemStatus } from '@stash/shared';
 import { apiGet } from '../../api/client';
@@ -48,7 +48,6 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
   const { workItemId } = useParams<{ workItemId?: string }>();
   const navigate = useNavigate();
   const dialog = useWorkbenchDialog();
-
   // Pick the todo from URL, or default to first idea/inbox, else first todo.
   const selectedTodo = workItemId
     ? todos.find((t) => t.id === workItemId)
@@ -69,7 +68,6 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
       reminding: false,
     } satisfies WBTodo)
     : undefined);
-
   if (!todo) {
     return (
       <div className="dashboard-canvas">
@@ -81,25 +79,24 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
       </div>
     );
   }
-
   const proj = projects.find((p) => p.id === todo.project);
-
   // SPEC v0.3 §3e — real sub-tasks from /api/work-items/:id/subtasks.
   const [realSubs, setRealSubs] = useState<WorkItem[] | null>(null);
   // SPEC v0.3 §3h — relevant lessons surfaced by tag/project overlap.
   const [lessons, setLessons] = useState<Lesson[]>([]);
   // v0.4 — full work item loaded for editing.
-  const [item, setItem] = useState<WorkItem | null>(null);
+  const [itemState, setItem] = useState<WorkItem | null>(null);
+  const item = itemState?.id === todo.id ? itemState : null;
   const [savedFlash, setSavedFlash] = useState<string | null>(null);
+  const [isCreatingRun, setIsCreatingRun] = useState(false);
+  const runInFlightRef = useRef(false), closeInFlightRef = useRef(false);
   const shownKind = kindChrome(item?.kind ?? todo.kind);
-
   useEffect(() => {
     let cancelled = false;
-
+    setRealSubs(null); setLessons([]);
     getWorkItem(todo.id)
       .then((w) => { if (!cancelled) setItem(w); })
       .catch((error) => { if (!cancelled) reportAsyncError('load todo detail', error); });
-
     apiGet<{ data: WorkItem[] }>(`/work-items/${todo.id}/subtasks`)
       .then((res) => { if (!cancelled) setRealSubs(res.data); })
       .catch((error) => {
@@ -108,7 +105,6 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
           reportAsyncError('load subtasks', error);
         }
       });
-
     const params = new URLSearchParams();
     if (todo.project) params.set('projectId', todo.project);
     todo.tags.forEach((t) => params.append('label', t.replace(/^#/, '')));
@@ -121,25 +117,30 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
           reportAsyncError('load relevant lessons', error);
         }
       });
-
     return () => { cancelled = true; };
   }, [todo.id]);
-
-  useEscToClose(() => navigate(-1));
-
+  async function closeDetail() {
+    if (closeInFlightRef.current) return;
+    closeInFlightRef.current = true;
+    try {
+      const current = item ?? await getWorkItem(todo!.id);
+      navigate(current.parentId ? `/c/l/${current.parentId}` : '/', { replace: true });
+    } catch (error) { reportAsyncError('resolve detail close target', error); flashSaved(`✕ could not close: ${error instanceof Error ? error.message : String(error)}`); }
+    finally { closeInFlightRef.current = false; }
+  }
+  useEscToClose(closeDetail);
   async function runThisSystem() {
-    if (!item || item.kind !== 'system') return;
+    if (!item || item.kind !== 'system' || runInFlightRef.current) return;
+    runInFlightRef.current = true; setIsCreatingRun(true);
     try {
       const run = await runSystem(item.id);
       flashSaved('run created');
       reload();
-      window.dispatchEvent(new CustomEvent('stash:captured'));
       navigate(`/c/l/${run.id}`, { replace: false });
     } catch (e) {
       flashSaved(`✕ ${e instanceof Error ? e.message : String(e)}`);
-    }
+    } finally { runInFlightRef.current = false; setIsCreatingRun(false); }
   }
-
   async function save<K extends 'title' | 'description' | 'priority' | 'status' | 'dueAt' | 'projectId' | 'areaId' | 'labels' | 'recurrence' | 'reminderAt'>(field: K, value: WorkItem[K]) {
     if (!item) return;
     if (item[field] === value) return;
@@ -155,12 +156,10 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
       flashSaved(`✕ ${e instanceof Error ? e.message : String(e)}`);
     }
   }
-
   function flashSaved(msg: string) {
     setSavedFlash(msg);
     setTimeout(() => setSavedFlash(null), 1400);
   }
-
   async function reloadSubs() {
     if (!todo) return;
     try {
@@ -168,7 +167,6 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
       setRealSubs(res.data);
     } catch { /* ignore */ }
   }
-
   async function addSubtask() {
     if (!todo) return;
     const title = await dialog.prompt({
@@ -238,6 +236,7 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
   const [journalEntries, setJournalEntries] = useState<JournalEntry[]>([]);
   useEffect(() => {
     let cancelled = false;
+    setJournalEntries([]);
     listJournal(journalTodoId).then((rows) => { if (!cancelled) setJournalEntries(rows); }).catch(() => {});
     return () => { cancelled = true; };
   }, [journalTodoId]);
@@ -318,6 +317,7 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
   const [linkedEdges, setLinkedEdges] = useState<LinkedSessionEdge[]>([]);
   useEffect(() => {
     let cancelled = false;
+    setLinkedEdges([]);
     listLinkedSessions(todoId)
       .then((e) => { if (!cancelled) setLinkedEdges(e); })
       .catch(() => { if (!cancelled) setLinkedEdges([]); });
@@ -419,7 +419,7 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
       </div>
 
       {/* Modal */}
-      <div className="td-overlay" onClick={(e) => { if (e.target === e.currentTarget) navigate(-1); }}>
+      <div className="td-overlay" onClick={(e) => { if (e.target === e.currentTarget) closeDetail(); }}>
         <div className="td-modal" onClick={(e) => e.stopPropagation()}>
           {/* Header */}
           <div className="td-modal-head">
@@ -449,14 +449,15 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
                 <button
                   type="button"
                   onClick={runThisSystem}
+                  disabled={isCreatingRun}
                   data-testid="system-run-button"
-                  style={{ marginLeft: 'auto', marginRight: 8, fontFamily: 'var(--font-mono)', fontSize: '0.7rem', padding: '2px 8px', border: '1px solid var(--neon-cyan)', color: 'var(--neon-cyan)', background: 'transparent', borderRadius: 4, cursor: 'pointer' }}
+                  style={{ marginLeft: 'auto', marginRight: 8, fontFamily: 'var(--font-mono)', fontSize: '0.7rem', padding: '2px 8px', border: '1px solid var(--neon-cyan)', color: 'var(--neon-cyan)', background: 'transparent', borderRadius: 4, cursor: isCreatingRun ? 'default' : 'pointer', opacity: isCreatingRun ? 0.6 : 1 }}
                   title="Create a fresh run instance with current checklist"
                 >
-                  ▶ Run system
+                  {isCreatingRun ? 'creating run…' : '▶ Run system'}
                 </button>
               )}
-              <button className="td-close" style={{ marginLeft: item?.kind === 'system' ? 0 : 'auto' }} type="button" onClick={() => navigate(-1)}>✕</button>
+              <button className="td-close" style={{ marginLeft: item?.kind === 'system' ? 0 : 'auto' }} type="button" onClick={closeDetail} aria-label={item?.parentId ? 'Back to system' : 'Close detail'} title={item?.parentId ? 'Back to system' : 'Close detail'}>✕</button>
             </div>
             <EditableTitle
               key={`title-${todo.id}`}
@@ -623,7 +624,7 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
                 </div>
               </div>
 
-              <EvidencePanel state={evidence} />
+              {item && <EvidencePanel state={evidence} />}
 
               <TaskCoachPanel item={item} onApplied={onCoachApplied} onFlash={flashSaved} />
 
