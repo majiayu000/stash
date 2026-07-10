@@ -29,8 +29,8 @@ export function ConceptB({ data }: { data: WBData; reload: () => void }) {
 
   const projectTodos = todos.filter((t) => t.project === active.id);
   const projectSessions = sessions.filter((s) => s.project === active.id);
-  const totalTokens = projects.reduce((a, p) => a + p.tokens24h, 0);
-  const totalCost = projects.reduce((a, p) => a + p.cost24h, 0);
+  const totalEstimatedTokens = projects.reduce((a, p) => a + p.estimatedTokens, 0);
+  const totalEstimatedCost = projects.reduce((a, p) => a + p.estimatedCost, 0);
   const totalLive = sessions.filter((s) => s.state === 'live').length;
 
   return (
@@ -48,8 +48,8 @@ export function ConceptB({ data }: { data: WBData; reload: () => void }) {
               {projects.map((p) => <ProjectRail key={p.id} p={p} active={p.id === active.id} onSelect={setActiveId} />)}
             </div>
             <div style={{ marginTop: 'auto', paddingTop: '0.75rem', borderTop: '1px solid var(--border-hair)', fontFamily: 'var(--font-mono)', fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-              <RailFoot label="tokens · 24h" value={fmt.k(totalTokens)} color="var(--neon-cyan)" />
-              <RailFoot label="cost · 24h" value={fmt.cost(totalCost)} color="var(--neon-green)" />
+              <RailFoot label="estimated tokens" value={fmt.k(totalEstimatedTokens)} color="var(--neon-cyan)" />
+              <RailFoot label="estimated cost" value={fmt.cost(totalEstimatedCost)} color="var(--neon-green)" />
               <RailFoot label="active sessions" value={String(totalLive)} color="var(--neon-orange)" />
             </div>
           </div>
@@ -131,11 +131,11 @@ export function ConceptB({ data }: { data: WBData; reload: () => void }) {
               </div>
               {/* Token meter */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginBottom: '0.75rem' }}>
-                <MeterTile label="tokens" color="var(--neon-cyan)" tint="rgba(0,255,242,0.04)" border="rgba(0,255,242,0.15)">
-                  <CountUp to={active.tokens24h} format={(n: number) => fmt.k(Math.round(n))} />
+                <MeterTile label="estimated tokens" color="var(--neon-cyan)" tint="rgba(0,255,242,0.04)" border="rgba(0,255,242,0.15)">
+                  <CountUp to={active.estimatedTokens} format={(n: number) => fmt.k(Math.round(n))} />
                 </MeterTile>
-                <MeterTile label="cost" color="var(--neon-green)" tint="rgba(48,209,88,0.04)" border="rgba(48,209,88,0.15)">
-                  <CountUp to={active.cost24h} format={(n: number) => '$' + n.toFixed(2)} />
+                <MeterTile label="estimated cost" color="var(--neon-green)" tint="rgba(48,209,88,0.04)" border="rgba(48,209,88,0.15)">
+                  <CountUp to={active.estimatedCost} format={(n: number) => '$' + n.toFixed(2)} />
                 </MeterTile>
               </div>
               {/* Terminal feed */}
@@ -175,7 +175,7 @@ function ProjectRail({ p, active, onSelect }: { p: WBProject; active: boolean; o
         </div>
         <ProgressBar value={p.progress} thin />
       </div>
-      {p.status === 'active' && p.tokens24h > 0 && <LiveDot color="var(--neon-green)" />}
+      {p.status === 'active' && p.estimatedTokens > 0 && <LiveDot color="var(--neon-green)" />}
     </button>
   );
 }

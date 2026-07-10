@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, test } from 'vitest';
 import type { AgentSessionEvent } from '@stash/shared';
-import { formatToolCallDetails, RealTranscript } from './ConceptG';
+import { EmptyTranscript, EstimatedSessionMetrics, formatToolCallDetails, RealTranscript } from './ConceptG';
 import type { WBSession } from '../data';
 
 function session(overrides: Partial<WBSession> = {}): WBSession {
@@ -15,15 +15,36 @@ function session(overrides: Partial<WBSession> = {}): WBSession {
     state: 'done',
     title: 'codex session',
     preview: '',
-    tokens: 0,
-    cost: 0,
-    duration: 1,
+    estimatedTokens: 0,
+    estimatedCost: 0,
+    estimatedDuration: 60,
     at: Date.now(),
     ...overrides,
   };
 }
 
 describe('ConceptG real transcript', () => {
+  test('renders a truthful empty state without demo evidence', () => {
+    render(<EmptyTranscript />);
+
+    expect(screen.getByTestId('empty-session-events')).toHaveTextContent('no real events available');
+    expect(screen.queryByText(/src\/auth\/oauth\.ts/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/edit_file/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/FAIL/)).not.toBeInTheDocument();
+  });
+
+  test('labels all activity-derived session metrics as estimates', () => {
+    render(<EstimatedSessionMetrics session={session({ estimatedTokens: 640, estimatedCost: 0.008, estimatedDuration: 90 })} />);
+
+    const metrics = screen.getByTestId('estimated-session-metrics');
+    expect(metrics).toHaveTextContent('estimated from activity counts');
+    expect(metrics).toHaveTextContent('estimated tokens');
+    expect(metrics).toHaveTextContent('estimated cost');
+    expect(metrics).toHaveTextContent('estimated duration');
+    expect(metrics).not.toHaveTextContent('24h');
+    expect(metrics).not.toHaveTextContent('composition');
+  });
+
   test('formats tool-call arguments and paired output', () => {
     const call: AgentSessionEvent = {
       kind: 'tool_call',

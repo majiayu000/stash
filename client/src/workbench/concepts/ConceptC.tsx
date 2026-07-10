@@ -80,8 +80,8 @@ export function ConceptC({ data }: { data: WBData; reload: () => void }) {
                   </div>
 
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '0.75rem', marginBottom: '1.25rem' }}>
-                    <HeroStat label="tokens · 24h" value={fmt.k(hero.tokens24h)} color="var(--neon-cyan)" />
-                    <HeroStat label="cost · 24h"   value={'$' + hero.cost24h.toFixed(2)} color="var(--neon-green)" />
+                    <HeroStat label="estimated tokens" value={fmt.k(hero.estimatedTokens)} color="var(--neon-cyan)" />
+                    <HeroStat label="estimated cost"   value={'$' + hero.estimatedCost.toFixed(2)} color="var(--neon-green)" />
                     <HeroStat label="sessions"     value={String(hero.sessions)} color="var(--neon-purple)" />
                     <HeroStat label="open todos"   value={String(hero.todoCount)} color="var(--neon-orange)" />
                     <HeroStat label="last"         value={fmt.ago(hero.lastTouched)} color="var(--text-secondary)" />
