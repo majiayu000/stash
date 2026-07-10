@@ -1,6 +1,23 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type APIRequestContext } from '@playwright/test';
 
 const API = process.env.STASH_E2E_API_URL ?? 'http://localhost:4174/api';
+
+async function createSystem(request: APIRequestContext, title: string) {
+  const stamp = Date.now();
+  const create = await request.post(`${API}/work-items`, {
+    data: {
+      title,
+      kind: 'system',
+      status: 'planned',
+      checklist: [
+        { id: `prep-${stamp}`, text: 'prep', completed: false },
+        { id: `pack-${stamp}`, text: 'pack', completed: false },
+      ],
+    },
+  });
+  expect(create.ok()).toBeTruthy();
+  return ((await create.json()) as { data: { id: string; title: string } }).data;
+}
 
 test('Systems: run template, complete run, and return to history', async ({ page, request }) => {
   const stamp = Date.now();
@@ -76,4 +93,114 @@ test('Quick Capture can create a System template with :system token', async ({ p
   expect(found).toBeTruthy();
   expect(found?.kind).toBe('system');
   expect(found?.labels).toContain('routine');
+});
+
+test('Systems: disables Run while creating and ignores a rapid second click', async ({ page, request }) => {
+  const system = await createSystem(request, `e2e-system-guard-${Date.now()}`);
+  let runRequests = 0;
+  let workboardRequests = 0;
+  let releaseRequest!: () => void;
+  const requestGate = new Promise<void>((resolve) => { releaseRequest = resolve; });
+
+  await page.route('**/api/workboard', async (route) => {
+    workboardRequests += 1;
+    await route.continue();
+  });
+  await page.route(`**/api/work-items/${system.id}/run`, async (route) => {
+    runRequests += 1;
+    await requestGate;
+    await route.continue();
+  });
+
+  await page.goto(`/c/l/${system.id}`);
+  const runButton = page.getByTestId('system-run-button');
+  await expect(runButton).toBeVisible({ timeout: 10_000 });
+  await page.waitForLoadState('networkidle');
+  workboardRequests = 0;
+
+  await runButton.evaluate((button) => {
+    (button as HTMLButtonElement).click();
+    (button as HTMLButtonElement).click();
+  });
+
+  await expect.poll(() => runRequests).toBe(1);
+  await expect(runButton).toBeDisabled();
+  releaseRequest();
+
+  await expect(page).toHaveURL(/\/c\/l\/.+/, { timeout: 10_000 });
+  await expect.poll(async () => {
+    const res = await request.get(`${API}/work-items?parentId=${system.id}&includeDropped=true`);
+    const json = (await res.json()) as { data: Array<{ parentId?: string }> };
+    return json.data.filter((item) => item.parentId === system.id).length;
+  }).toBe(1);
+  await expect.poll(() => workboardRequests).toBe(1);
+});
+
+test('Systems: clears template actions while a newly routed Run is loading', async ({ page, request }) => {
+  const system = await createSystem(request, `e2e-system-loading-${Date.now()}`);
+  let runId = '';
+  let releaseDetail!: () => void;
+  const detailGate = new Promise<void>((resolve) => { releaseDetail = resolve; });
+
+  await page.route('**/api/work-items/**', async (route) => {
+    const url = route.request().url();
+    const method = route.request().method();
+    if (method === 'POST' && url.endsWith(`/work-items/${system.id}/run`)) {
+      const response = await route.fetch();
+      const json = (await response.json()) as { data: { id: string } };
+      runId = json.data.id;
+      await route.fulfill({ response });
+      return;
+    }
+    if (method === 'GET' && runId && url.endsWith(`/work-items/${runId}`)) {
+      await detailGate;
+    }
+    await route.continue();
+  });
+
+  await page.goto(`/c/l/${system.id}`);
+  await expect(page.getByTestId('system-run-button')).toBeVisible({ timeout: 10_000 });
+  await page.getByTestId('system-run-button').click();
+
+  await expect.poll(() => runId).not.toBe('');
+  await expect(page).toHaveURL(new RegExp(`/c/l/${runId}`));
+  await expect(page.getByTestId('system-run-button')).toHaveCount(0);
+  await expect(page.getByTestId('system-history')).toHaveCount(0);
+  await expect(page.getByTestId('td-done')).toBeDisabled();
+
+  releaseDetail();
+  await expect(page.getByTestId('td-title')).toHaveValue(system.title, { timeout: 10_000 });
+  await expect(page.getByTestId('td-done')).toBeEnabled();
+});
+
+test('Systems: Escape during Run loading resolves its parent, then closes to workbench', async ({ page, request }) => {
+  const system = await createSystem(request, `e2e-system-deep-link-${Date.now()}`);
+  const createRun = await request.post(`${API}/work-items/${system.id}/run`, { data: {} });
+  expect(createRun.ok()).toBeTruthy();
+  const run = ((await createRun.json()) as { data: { id: string } }).data;
+  let detailRequests = 0;
+  let releaseDetail!: () => void;
+  const detailGate = new Promise<void>((resolve) => { releaseDetail = resolve; });
+
+  await page.route(`**/api/work-items/${run.id}`, async (route) => {
+    if (route.request().method() === 'GET') {
+      detailRequests += 1;
+      await detailGate;
+    }
+    await route.continue();
+  });
+
+  await page.goto(`/c/l/${run.id}`);
+  await expect.poll(() => detailRequests).toBeGreaterThan(0);
+  await expect(page.getByRole('button', { name: 'Close detail' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  const urlBeforeDetailRelease = page.url();
+  releaseDetail();
+
+  expect(urlBeforeDetailRelease).toMatch(new RegExp(`/c/l/${run.id}$`));
+  await expect(page).toHaveURL(new RegExp(`/c/l/${system.id}$`));
+  await expect(page.getByTestId('td-title')).toHaveValue(system.title, { timeout: 10_000 });
+  await page.getByRole('button', { name: 'Close detail' }).click();
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.getByTestId('board-col-inbox')).toBeVisible({ timeout: 10_000 });
 });
