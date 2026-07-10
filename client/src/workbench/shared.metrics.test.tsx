@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, test } from 'vitest';
+import { ConnectedFlow } from './ConnectedFlow';
 import type { WBData, WBSession } from './data';
 import { SessionRow, Topbar } from './shared';
 
@@ -40,6 +41,7 @@ describe('workbench estimated metric labels', () => {
       <MemoryRouter>
         <Topbar data={data} />
         <SessionRow s={session} projects={[]} />
+        <ConnectedFlow data={data} />
       </MemoryRouter>,
     );
 
@@ -48,5 +50,7 @@ describe('workbench estimated metric labels', () => {
     expect(screen.getByText('400 est. tokens')).toBeInTheDocument();
     expect(screen.getByText('$0.01 est. · 1m est.')).toBeInTheDocument();
     expect(screen.getByTestId('topbar-stats')).not.toHaveTextContent('24h');
+    expect(screen.getByTestId('flow-burn')).toHaveTextContent('derived from session activity counts');
+    expect(screen.getByTestId('flow-burn')).not.toHaveTextContent('0 active sessions');
   });
 });

@@ -49,7 +49,11 @@ describe('workbench activity estimates', () => {
     });
     expect(data.stats).toMatchObject({ totalEstimatedTokens: 400, totalEstimatedCost: 0.005 });
     expect(data.projects[0]).not.toHaveProperty('tokens24h');
+    expect(data.projects[0]).not.toHaveProperty('cost24h');
     expect(data.sessions[0]).not.toHaveProperty('tokens');
+    expect(data.sessions[0]).not.toHaveProperty('cost');
+    expect(data.sessions[0]).not.toHaveProperty('duration');
     expect(data.stats).not.toHaveProperty('totalTokens24h');
+    expect(data.stats).not.toHaveProperty('totalCost24h');
   });
 });

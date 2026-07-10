@@ -70,7 +70,7 @@ export function ConnectedFlow({ data }: { data: WBData }) {
         eyebrow="burn"
         title={`${fmt.cost(data.stats.totalEstimatedCost)} estimated`}
         meta={`${fmt.k(data.stats.totalEstimatedTokens)} estimated tokens`}
-        detail={`derived from ${data.stats.activeSessions} active sessions`}
+        detail="derived from session activity counts"
         testId="flow-burn"
         onClick={() => navigate('/c/h')}
       />
