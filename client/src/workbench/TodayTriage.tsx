@@ -6,6 +6,12 @@ import {
   togglePin,
   updateWorkItem,
 } from '../api/work-items';
+import {
+  claimPendingUndo,
+  clearPendingUndo,
+  registerPendingUndo,
+  type PendingUndoToken,
+} from './undoCoordinator';
 
 /**
  * v0.9 — multi-select + bulk ops for the Today list, mirroring InboxTriage.
@@ -25,11 +31,19 @@ import {
 
 interface UndoAction { label: string; apply: () => Promise<void> }
 
+interface UndoToast {
+  msg: string;
+  undo?: UndoAction;
+  undoToken?: PendingUndoToken;
+}
+
 export function TodayTriage() {
   const [items, setItems] = useState<WorkItem[]>([]);
   const [cursorId, setCursorId] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [toast, setToast] = useState<{ msg: string; undo?: UndoAction } | null>(null);
+  const [toast, setToast] = useState<UndoToast | null>(null);
+  const toastRef = useRef<UndoToast | null>(null);
+  const undoTokenRef = useRef<PendingUndoToken | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -49,6 +63,13 @@ export function TodayTriage() {
     function onChange() { reload(); }
     window.addEventListener('stash:captured', onChange);
     return () => { cancelled = true; window.removeEventListener('stash:captured', onChange); };
+  }, []);
+
+  useEffect(() => () => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    if (undoTokenRef.current) clearPendingUndo(undoTokenRef.current);
+    undoTokenRef.current = null;
+    toastRef.current = null;
   }, []);
 
   useEffect(() => {
@@ -74,15 +95,28 @@ export function TodayTriage() {
     }
 
     async function onKey(e: KeyboardEvent) {
+      if (e.defaultPrevented || e.isComposing) return;
       const tag = (e.target as HTMLElement | null)?.tagName?.toLowerCase();
       const editing = tag === 'input' || tag === 'textarea' || (e.target as HTMLElement | null)?.isContentEditable;
       if (editing) return;
+
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'z') {
+        if (
+          toast?.undo
+          && toast.undoToken
+          && toastRef.current === toast
+          && claimPendingUndo(toast.undoToken)
+        ) {
+          if (undoTokenRef.current === toast.undoToken) undoTokenRef.current = null;
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          void applyUndo(toast);
+        }
+        return;
+      }
+
       // Shift-namespaced to avoid collision with InboxTriage (j/k/v/V/t/d/0..3).
       if (!e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) {
-        // Cmd/Ctrl+Z still triggers undo when one is pending.
-        if ((e.metaKey || e.ctrlKey) && e.key === 'z' && toast?.undo) {
-          e.preventDefault(); void invokeUndo();
-        }
         return;
       }
 
@@ -163,16 +197,6 @@ export function TodayTriage() {
       }
     }
 
-    async function invokeUndo() {
-      if (!toast?.undo) return;
-      const u = toast.undo;
-      try {
-        await u.apply();
-        flash(`↶ undone (${u.label})`);
-        window.dispatchEvent(new CustomEvent('stash:captured'));
-      } catch (e) { flash(`✕ undo failed: ${e instanceof Error ? e.message : String(e)}`); }
-    }
-
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [items, cursorId, selected, toast]);
@@ -190,19 +214,43 @@ export function TodayTriage() {
   });
 
   function flash(msg: string, undo?: UndoAction) {
-    setToast({ msg, undo });
     if (toastTimer.current) clearTimeout(toastTimer.current);
-    toastTimer.current = setTimeout(() => setToast(null), undo ? 8000 : 1800);
+    if (undoTokenRef.current) clearPendingUndo(undoTokenRef.current);
+
+    const undoToken = undo ? registerPendingUndo('today') : undefined;
+    const nextToast: UndoToast = { msg, undo, undoToken };
+    undoTokenRef.current = undoToken ?? null;
+    toastRef.current = nextToast;
+    setToast(nextToast);
+    toastTimer.current = setTimeout(() => {
+      if (toastRef.current !== nextToast) return;
+      if (undoToken) clearPendingUndo(undoToken);
+      if (undoTokenRef.current === undoToken) undoTokenRef.current = null;
+      toastRef.current = null;
+      setToast((current) => current === nextToast ? null : current);
+      toastTimer.current = null;
+    }, undo ? 8000 : 1800);
+  }
+
+  async function applyUndo(sourceToast: UndoToast) {
+    if (!sourceToast.undo) return;
+    const u = sourceToast.undo;
+    try {
+      await u.apply();
+      if (toastRef.current === sourceToast) flash(`↶ undone (${u.label})`);
+      window.dispatchEvent(new CustomEvent('stash:captured'));
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      if (toastRef.current === sourceToast) flash(`✕ undo failed: ${message}`);
+      else console.error(`Today undo failed: ${message}`);
+    }
   }
 
   async function clickUndo() {
-    if (!toast?.undo) return;
-    const u = toast.undo;
-    try {
-      await u.apply();
-      flash(`↶ undone (${u.label})`);
-      window.dispatchEvent(new CustomEvent('stash:captured'));
-    } catch (e) { flash(`✕ undo failed: ${e instanceof Error ? e.message : String(e)}`); }
+    if (!toast?.undo || !toast.undoToken || toastRef.current !== toast) return;
+    if (!clearPendingUndo(toast.undoToken)) return;
+    if (undoTokenRef.current === toast.undoToken) undoTokenRef.current = null;
+    await applyUndo(toast);
   }
 
   return (
@@ -216,7 +264,7 @@ export function TodayTriage() {
         <div className="tt-toast" data-testid="tt-toast">
           <span>{toast.msg}</span>
           {toast.undo && (
-            <button className="tt-undo" type="button" onClick={clickUndo}>undo</button>
+            <button className="tt-undo" type="button" onClick={clickUndo} data-testid="tt-undo">undo</button>
           )}
         </div>
       )}

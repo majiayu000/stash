@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import type { Priority, WorkItem, WorkItemStatus } from '@stash/shared';
 import {
   listWorkItems,
@@ -7,6 +8,12 @@ import {
   updateWorkItem,
 } from '../api/work-items';
 import { useWorkbenchDialog } from '../components/ui/workbench-dialogs';
+import {
+  claimPendingUndo,
+  clearPendingUndo,
+  registerPendingUndo,
+  type PendingUndoToken,
+} from './undoCoordinator';
 
 /**
  * SPEC v0.3 §3e — global inbox triage keyboard layer.
@@ -23,13 +30,64 @@ import { useWorkbenchDialog } from '../components/ui/workbench-dialogs';
  *   d              → status dropped (Undo via toast button)
  *   0..3           priority p0/p1/p2/p3
  *   e              rename row
- *   Enter          emit stash:open-detail with the focused id
+ *   Enter          open the focused item's detail route
  *   ?              toggle help overlay
  */
+
+const INTERACTIVE_TARGET_SELECTOR = [
+  'a[href]',
+  'button',
+  'input',
+  'select',
+  'textarea',
+  'summary',
+  '[contenteditable]:not([contenteditable="false"])',
+  '[tabindex]:not([tabindex="-1"])',
+  '[role="button"]',
+  '[role="checkbox"]',
+  '[role="combobox"]',
+  '[role="link"]',
+  '[role="menuitem"]',
+  '[role="option"]',
+  '[role="radio"]',
+  '[role="searchbox"]',
+  '[role="slider"]',
+  '[role="spinbutton"]',
+  '[role="switch"]',
+  '[role="tab"]',
+  '[role="textbox"]',
+].join(',');
+
+const OPEN_MODAL_SELECTOR = [
+  'dialog[open]',
+  '[role="dialog"]',
+  '[role="alertdialog"]',
+  '[aria-modal="true"]',
+  '.td-overlay',
+  '.cp-overlay',
+  '.qc-overlay',
+  '.sp-overlay',
+  '.decision-inbox-overlay',
+  '.ui-dialog-overlay',
+].join(',');
+
+function isInteractiveTarget(target: EventTarget | null): boolean {
+  return target instanceof Element && target.closest(INTERACTIVE_TARGET_SELECTOR) !== null;
+}
+
+function hasOpenModal(): boolean {
+  return document.querySelector(OPEN_MODAL_SELECTOR) !== null;
+}
 
 interface UndoAction {
   label: string;
   apply: () => Promise<void>;
+}
+
+interface UndoToast {
+  msg: string;
+  undo?: UndoAction;
+  undoToken?: PendingUndoToken;
 }
 
 export function InboxTriage() {
@@ -37,9 +95,12 @@ export function InboxTriage() {
   const [cursorId, setCursorId] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [help, setHelp] = useState(false);
-  const [toast, setToast] = useState<{ msg: string; undo?: UndoAction } | null>(null);
+  const [toast, setToast] = useState<UndoToast | null>(null);
+  const toastRef = useRef<UndoToast | null>(null);
+  const undoTokenRef = useRef<PendingUndoToken | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dialog = useWorkbenchDialog();
+  const navigate = useNavigate();
 
   // Load + reload inbox; preserves cursor when possible.
   useEffect(() => {
@@ -61,6 +122,13 @@ export function InboxTriage() {
     return () => { cancelled = true; window.removeEventListener('stash:captured', onChange); };
   }, []);
 
+  useEffect(() => () => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    if (undoTokenRef.current) clearPendingUndo(undoTokenRef.current);
+    undoTokenRef.current = null;
+    toastRef.current = null;
+  }, []);
+
   useEffect(() => {
     /**
      * Apply `handler` to the cursor's item OR every item in `selected` when
@@ -72,6 +140,7 @@ export function InboxTriage() {
         ? items.filter((it) => selected.has(it.id))
         : items.filter((it) => it.id === cursorId);
       if (targets.length === 0) return;
+      const selectedTargetIds = selected.size > 0 ? targets.map((it) => it.id) : [];
 
       try {
         const undos: UndoAction[] = [];
@@ -80,7 +149,13 @@ export function InboxTriage() {
           if (undo) undos.push(undo);
         }
         const composedUndo: UndoAction | undefined = undos.length > 0
-          ? { label: undos[0]!.label, apply: async () => { for (const u of undos) await u.apply(); } }
+          ? {
+              label: undos[0]!.label,
+              apply: async () => {
+                for (const u of undos) await u.apply();
+                if (selectedTargetIds.length > 0) setSelected(new Set(selectedTargetIds));
+              },
+            }
           : undefined;
         const labelTxt = targets.length === 1 ? `✓ ${label}` : `✓ ${label} · ${targets.length} items`;
         flash(labelTxt, composedUndo);
@@ -92,15 +167,40 @@ export function InboxTriage() {
     }
 
     async function onKey(e: KeyboardEvent) {
-      const tag = (e.target as HTMLElement | null)?.tagName?.toLowerCase();
-      const editing = tag === 'input' || tag === 'textarea' || (e.target as HTMLElement | null)?.isContentEditable;
-      if (editing) return;
-      if (e.metaKey || e.altKey) return;
+      if (e.defaultPrevented || e.isComposing) return;
+
+      // Help is modal: only its own close shortcuts remain active.
+      if (help) {
+        if (!e.metaKey && !e.altKey && !e.ctrlKey && (e.key === '?' || e.key === 'Escape')) {
+          e.preventDefault();
+          setHelp(false);
+        }
+        return;
+      }
+
+      // Never let a global triage key leak out of another control or modal.
+      if (isInteractiveTarget(e.target) || hasOpenModal()) return;
+
+      // Cmd+Z / Ctrl+Z → invoke pending undo before filtering modifiers.
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'z') {
+        if (
+          toast?.undo
+          && toast.undoToken
+          && toastRef.current === toast
+          && claimPendingUndo(toast.undoToken)
+        ) {
+          if (undoTokenRef.current === toast.undoToken) undoTokenRef.current = null;
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          void applyUndo(toast);
+        }
+        return;
+      }
+      if (e.metaKey || e.altKey || e.ctrlKey) return;
 
       // Help overlay
       if (e.key === '?') { e.preventDefault(); setHelp((v) => !v); return; }
       if (e.key === 'Escape') {
-        if (help) { e.preventDefault(); setHelp(false); return; }
         if (selected.size > 0) { e.preventDefault(); setSelected(new Set()); return; }
       }
 
@@ -123,13 +223,6 @@ export function InboxTriage() {
         return;
       }
 
-      // Cmd+Z / Ctrl+Z → invoke pending undo
-      if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
-        if (toast?.undo) { e.preventDefault(); void invokeUndo(); }
-        return;
-      }
-      if (e.ctrlKey) return;
-
       // Navigation
       if (e.key === 'j') {
         e.preventDefault();
@@ -146,11 +239,11 @@ export function InboxTriage() {
         return;
       }
 
-      // Enter → emit detail event (consumer wires this up).
+      // Enter → open the detail route for the current cursor.
       if (e.key === 'Enter') {
         if (!cursorId) return;
         e.preventDefault();
-        window.dispatchEvent(new CustomEvent('stash:open-detail', { detail: { id: cursorId } }));
+        navigate(`/c/l/${encodeURIComponent(cursorId)}`);
         return;
       }
 
@@ -212,21 +305,9 @@ export function InboxTriage() {
       }
     }
 
-    async function invokeUndo() {
-      if (!toast?.undo) return;
-      const u = toast.undo;
-      try {
-        await u.apply();
-        flash(`↶ undone (${u.label})`);
-        window.dispatchEvent(new CustomEvent('stash:captured'));
-      } catch (e) {
-        flash(`✕ undo failed: ${e instanceof Error ? e.message : String(e)}`);
-      }
-    }
-
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [dialog, items, cursorId, help, toast, selected]);
+  }, [dialog, items, cursorId, help, navigate, toast, selected]);
 
   // Paint cursor + selection highlight on the matching DOM rows.
   useEffect(() => {
@@ -241,21 +322,43 @@ export function InboxTriage() {
   });
 
   function flash(msg: string, undo?: UndoAction) {
-    setToast({ msg, undo });
     if (toastTimer.current) clearTimeout(toastTimer.current);
-    toastTimer.current = setTimeout(() => setToast(null), undo ? 8000 : 1800);
+    if (undoTokenRef.current) clearPendingUndo(undoTokenRef.current);
+
+    const undoToken = undo ? registerPendingUndo('inbox') : undefined;
+    const nextToast: UndoToast = { msg, undo, undoToken };
+    undoTokenRef.current = undoToken ?? null;
+    toastRef.current = nextToast;
+    setToast(nextToast);
+    toastTimer.current = setTimeout(() => {
+      if (toastRef.current !== nextToast) return;
+      if (undoToken) clearPendingUndo(undoToken);
+      if (undoTokenRef.current === undoToken) undoTokenRef.current = null;
+      toastRef.current = null;
+      setToast((current) => current === nextToast ? null : current);
+      toastTimer.current = null;
+    }, undo ? 8000 : 1800);
+  }
+
+  async function applyUndo(sourceToast: UndoToast) {
+    if (!sourceToast.undo) return;
+    const u = sourceToast.undo;
+    try {
+      await u.apply();
+      if (toastRef.current === sourceToast) flash(`↶ undone (${u.label})`);
+      window.dispatchEvent(new CustomEvent('stash:captured'));
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      if (toastRef.current === sourceToast) flash(`✕ undo failed: ${message}`);
+      else console.error(`Inbox undo failed: ${message}`);
+    }
   }
 
   async function clickUndo() {
-    if (!toast?.undo) return;
-    const u = toast.undo;
-    try {
-      await u.apply();
-      flash(`↶ undone (${u.label})`);
-      window.dispatchEvent(new CustomEvent('stash:captured'));
-    } catch (e) {
-      flash(`✕ undo failed: ${e instanceof Error ? e.message : String(e)}`);
-    }
+    if (!toast?.undo || !toast.undoToken || toastRef.current !== toast) return;
+    if (!clearPendingUndo(toast.undoToken)) return;
+    if (undoTokenRef.current === toast.undoToken) undoTokenRef.current = null;
+    await applyUndo(toast);
   }
 
   return (
