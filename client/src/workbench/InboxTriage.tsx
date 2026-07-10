@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import type { Priority, WorkItem, WorkItemStatus } from '@stash/shared';
 import {
   listWorkItems,
@@ -23,9 +24,43 @@ import { useWorkbenchDialog } from '../components/ui/workbench-dialogs';
  *   d              → status dropped (Undo via toast button)
  *   0..3           priority p0/p1/p2/p3
  *   e              rename row
- *   Enter          emit stash:open-detail with the focused id
+ *   Enter          open the focused item's detail route
  *   ?              toggle help overlay
  */
+
+const INTERACTIVE_TARGET_SELECTOR = [
+  'a[href]',
+  'button',
+  'input',
+  'select',
+  'textarea',
+  'summary',
+  '[contenteditable]:not([contenteditable="false"])',
+  '[tabindex]:not([tabindex="-1"])',
+  '[role="button"]',
+  '[role="checkbox"]',
+  '[role="combobox"]',
+  '[role="link"]',
+  '[role="menuitem"]',
+  '[role="option"]',
+  '[role="radio"]',
+  '[role="searchbox"]',
+  '[role="slider"]',
+  '[role="spinbutton"]',
+  '[role="switch"]',
+  '[role="tab"]',
+  '[role="textbox"]',
+].join(',');
+
+const OPEN_MODAL_SELECTOR = '[role="dialog"], [role="alertdialog"], [aria-modal="true"]';
+
+function isInteractiveTarget(target: EventTarget | null): boolean {
+  return target instanceof Element && target.closest(INTERACTIVE_TARGET_SELECTOR) !== null;
+}
+
+function hasOpenModal(): boolean {
+  return document.querySelector(OPEN_MODAL_SELECTOR) !== null;
+}
 
 interface UndoAction {
   label: string;
@@ -40,6 +75,7 @@ export function InboxTriage() {
   const [toast, setToast] = useState<{ msg: string; undo?: UndoAction } | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dialog = useWorkbenchDialog();
+  const navigate = useNavigate();
 
   // Load + reload inbox; preserves cursor when possible.
   useEffect(() => {
@@ -92,15 +128,30 @@ export function InboxTriage() {
     }
 
     async function onKey(e: KeyboardEvent) {
-      const tag = (e.target as HTMLElement | null)?.tagName?.toLowerCase();
-      const editing = tag === 'input' || tag === 'textarea' || (e.target as HTMLElement | null)?.isContentEditable;
-      if (editing) return;
-      if (e.metaKey || e.altKey) return;
+      if (e.defaultPrevented || e.isComposing) return;
+
+      // Help is modal: only its own close shortcuts remain active.
+      if (help) {
+        if (!e.metaKey && !e.altKey && !e.ctrlKey && (e.key === '?' || e.key === 'Escape')) {
+          e.preventDefault();
+          setHelp(false);
+        }
+        return;
+      }
+
+      // Never let a global triage key leak out of another control or modal.
+      if (isInteractiveTarget(e.target) || hasOpenModal()) return;
+
+      // Cmd+Z / Ctrl+Z → invoke pending undo before filtering modifiers.
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === 'z') {
+        if (toast?.undo) { e.preventDefault(); void invokeUndo(); }
+        return;
+      }
+      if (e.metaKey || e.altKey || e.ctrlKey) return;
 
       // Help overlay
       if (e.key === '?') { e.preventDefault(); setHelp((v) => !v); return; }
       if (e.key === 'Escape') {
-        if (help) { e.preventDefault(); setHelp(false); return; }
         if (selected.size > 0) { e.preventDefault(); setSelected(new Set()); return; }
       }
 
@@ -123,13 +174,6 @@ export function InboxTriage() {
         return;
       }
 
-      // Cmd+Z / Ctrl+Z → invoke pending undo
-      if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
-        if (toast?.undo) { e.preventDefault(); void invokeUndo(); }
-        return;
-      }
-      if (e.ctrlKey) return;
-
       // Navigation
       if (e.key === 'j') {
         e.preventDefault();
@@ -146,11 +190,11 @@ export function InboxTriage() {
         return;
       }
 
-      // Enter → emit detail event (consumer wires this up).
+      // Enter → open the detail route for the current cursor.
       if (e.key === 'Enter') {
         if (!cursorId) return;
         e.preventDefault();
-        window.dispatchEvent(new CustomEvent('stash:open-detail', { detail: { id: cursorId } }));
+        navigate(`/c/l/${encodeURIComponent(cursorId)}`);
         return;
       }
 
@@ -226,7 +270,7 @@ export function InboxTriage() {
 
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [dialog, items, cursorId, help, toast, selected]);
+  }, [dialog, items, cursorId, help, navigate, toast, selected]);
 
   // Paint cursor + selection highlight on the matching DOM rows.
   useEffect(() => {
