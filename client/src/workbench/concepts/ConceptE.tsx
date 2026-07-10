@@ -566,7 +566,7 @@ function ProjectChipRow({ p }: { p: WBProject }) {
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 3, fontFamily: 'var(--font-mono)', fontSize: '0.62rem', color: 'var(--text-muted)' }}>
           <span>{p.todoCount} todo · {p.sessions} sess</span>
-          {p.status === 'active' && p.tokens24h > 0 && <LiveDot color="var(--neon-green)" />}
+          {p.status === 'active' && p.estimatedTokens > 0 && <LiveDot color="var(--neon-green)" />}
         </div>
       </div>
     </button>

@@ -66,8 +66,8 @@ export function ConceptA({ data, reload }: { data: WBData; reload: () => void })
           {/* Top strip: stats + sparkline */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr) 1.6fr', gap: '1rem', marginBottom: '1.25rem' }}>
             <StatTile label="active sessions" value={stats.activeSessions} foot={<span><span className="up">●</span> {liveSessions.length} streaming</span>} />
-            <StatTile label="tokens · 24h" tone="purple" value={stats.totalTokens24h} format={(n: number) => fmt.k(Math.round(n))} foot={<span><span className="up">↑ 23%</span> vs yesterday</span>} />
-            <StatTile label="cost · 24h" tone="green" value={stats.totalCost24h} format={(n: number) => '$' + n.toFixed(2)} foot={<span>~ ${(stats.totalCost24h / 24).toFixed(2)}/hr burn</span>} />
+            <StatTile label="estimated tokens" tone="purple" value={stats.totalEstimatedTokens} format={(n: number) => fmt.k(Math.round(n))} foot={<span>derived from activity counts</span>} />
+            <StatTile label="estimated cost" tone="green" value={stats.totalEstimatedCost} format={(n: number) => '$' + n.toFixed(2)} foot={<span>derived from activity counts</span>} />
             <StatTile label="projects" tone="orange" value={stats.projects} foot={<span>{projects.filter((p) => p.status === 'active').length} active · {projects.filter((p) => p.status === 'paused').length} paused</span>} />
             <div className="stat-tile" style={{ paddingBottom: '0.8rem' }}>
               <div className="stat-tile-label">model mix · 24h</div>

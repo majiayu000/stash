@@ -90,7 +90,7 @@ export function ConceptI({ data }: { data: WBData; reload: () => void }) {
                     title={p.name}
                     selected={i === 0}
                     hint={<><span style={{ color: 'var(--neon-cyan)' }}>{p.progress}%</span> · {p.todoCount} todo</>}
-                    badge={p.status === 'active' && p.tokens24h > 0 ? <LiveDot color="var(--neon-green)" /> : null}
+                    badge={p.status === 'active' && p.estimatedTokens > 0 ? <LiveDot color="var(--neon-green)" /> : null}
                     onClick={() => navigate(`/c/k/${p.id}`)}
                   />
                 ))}
@@ -125,7 +125,7 @@ export function ConceptI({ data }: { data: WBData; reload: () => void }) {
                       icon={s.tool === 'codex' ? '$' : '>'}
                       iconColor={s.tool === 'codex' ? 'var(--neon-purple)' : 'var(--neon-cyan)'}
                       title={s.title}
-                      hint={<>{proj?.emoji} {proj?.name ?? s.project} · {s.model} · {fmt.k(s.tokens)} tok · {fmt.ago(s.at)}</>}
+                      hint={<>{proj?.emoji} {proj?.name ?? s.project} · {s.model} · {fmt.k(s.estimatedTokens)} est. tokens · {fmt.ago(s.at)}</>}
                       badge={s.state === 'live' ? <span className="sess-state live" style={{ margin: 0 }}><LiveDot color="var(--neon-green)" /> live</span> : null}
                       onClick={() => navigate(`/c/g/${s.id}`)}
                     />

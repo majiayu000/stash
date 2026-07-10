@@ -232,8 +232,8 @@ export function ConceptK({ data }: { data: WBData; reload: () => void }) {
               </div>
               <ProgressBar value={p.progress} fat />
             </div>
-            <Tile k="tokens · 24h" v={fmt.k(p.tokens24h)} c="var(--neon-cyan)" />
-            <Tile k="cost · 24h" v={'$' + p.cost24h.toFixed(2)} c="var(--neon-green)" />
+            <Tile k="estimated tokens" v={fmt.k(p.estimatedTokens)} c="var(--neon-cyan)" />
+            <Tile k="estimated cost" v={'$' + p.estimatedCost.toFixed(2)} c="var(--neon-green)" />
           </div>
 
           <div className="pcard-doing" style={{ marginTop: '1rem', marginBottom: 0 }}>

@@ -16,8 +16,8 @@ export interface WBProject {
   todoCount: number;
   todoDone: number;
   sessions: number;
-  tokens24h: number;
-  cost24h: number;
+  estimatedTokens: number;
+  estimatedCost: number;
   lastModel: string;
   lastTouched: number;
 }
@@ -32,9 +32,9 @@ export interface WBSession {
   state: 'live' | 'idle' | 'done' | 'error';
   title: string;
   preview: string;
-  tokens: number;
-  cost: number;
-  duration: number;
+  estimatedTokens: number;
+  estimatedCost: number;
+  estimatedDuration: number;
   at: number;
 }
 
@@ -63,8 +63,8 @@ export interface WBTodo {
 
 export interface WBStats {
   activeSessions: number;
-  totalTokens24h: number;
-  totalCost24h: number;
+  totalEstimatedTokens: number;
+  totalEstimatedCost: number;
   projects: number;
   todosOpen: number;
   todosDone: number;
@@ -126,6 +126,20 @@ function todayIso(): string {
 }
 
 /**
+ * Activity-only fallback for surfaces that do not receive usage telemetry.
+ * These values are estimates, not measured token/cost/duration values, and no
+ * time-window filter (including 24h) is applied here.
+ */
+export function estimateSessionActivity(toolCount: number, messageCount: number) {
+  const activityCount = toolCount + messageCount;
+  return {
+    estimatedTokens: activityCount * 80,
+    estimatedCost: activityCount * 0.001,
+    estimatedDuration: Math.max(60, toolCount * 30),
+  };
+}
+
+/**
  * Adapt real backend payloads into workbench-shape data. Concept components
  * read from this consistent shape; reshape lives in one place.
  */
@@ -151,6 +165,10 @@ export function adaptToWorkbenchData(input: AdaptInput): WBData {
       wb.activeCount > 0 ? 'active' :
       wb.items.every((i) => i.status === 'done') ? 'shipping' :
       wb.items.some((i) => i.status === 'inbox') ? 'fresh' : 'paused';
+    const estimatedTokens = wb.sessions.reduce(
+      (total, session) => total + estimateSessionActivity(session.toolCount, session.messageCount).estimatedTokens,
+      0,
+    );
     return {
       id: wb.projectId,
       name: areasById.get(wb.projectId)?.name ?? basename(wb.projectId),
@@ -166,28 +184,29 @@ export function adaptToWorkbenchData(input: AdaptInput): WBData {
       todoCount: wb.items.filter((i) => i.status !== 'done' && i.status !== 'dropped').length,
       todoDone: done,
       sessions: wb.sessions.length,
-      tokens24h: wb.sessions.reduce((acc, s) => acc + (s.toolCount + s.messageCount) * 80, 0),
-      cost24h: wb.sessions.length * 0.05,
+      estimatedTokens,
+      estimatedCost: wb.sessions.length * 0.05,
       lastModel: wb.sessions[0]?.model ?? (wb.sessions[0]?.provider === 'codex' ? 'codex' : wb.sessions[0]?.provider === 'claude' ? 'claude' : '—'),
       lastTouched: wb.sessions[0] ? new Date(wb.sessions[0].lastActiveAt).getTime() : Date.now() - 3600_000,
     };
   });
 
   // Sessions, ordered by most recent.
-  const sessions: WBSession[] = input.sessions.slice(0, 30).map((s) => ({
-    id: s.id,
-    provider: s.provider,
-    project: s.projectId ?? s.cwd,
-    model: s.model ?? (s.provider === 'codex' ? 'codex' : 'claude'),
-    tool: s.provider === 'codex' ? 'codex' : 'claude-code',
-    state: sessionState(s),
-    title: s.title,
-    preview: s.lastMessage ?? s.initialPrompt ?? '',
-    tokens: (s.toolCount + s.messageCount) * 80,
-    cost: (s.toolCount + s.messageCount) * 0.001,
-    duration: Math.max(60, s.toolCount * 30),
-    at: new Date(s.lastActiveAt).getTime(),
-  }));
+  const sessions: WBSession[] = input.sessions.slice(0, 30).map((s) => {
+    const estimate = estimateSessionActivity(s.toolCount, s.messageCount);
+    return {
+      id: s.id,
+      provider: s.provider,
+      project: s.projectId ?? s.cwd,
+      model: s.model ?? (s.provider === 'codex' ? 'codex' : 'claude'),
+      tool: s.provider === 'codex' ? 'codex' : 'claude-code',
+      state: sessionState(s),
+      title: s.title,
+      preview: s.lastMessage ?? s.initialPrompt ?? '',
+      ...estimate,
+      at: new Date(s.lastActiveAt).getTime(),
+    };
+  });
 
   // Todos.
   const todos: WBTodo[] = input.items
@@ -216,8 +235,8 @@ export function adaptToWorkbenchData(input: AdaptInput): WBData {
   // Stats.
   const stats: WBStats = {
     activeSessions: sessions.filter((s) => s.state === 'live').length,
-    totalTokens24h: sessions.reduce((a, s) => a + s.tokens, 0),
-    totalCost24h: sessions.reduce((a, s) => a + s.cost, 0),
+    totalEstimatedTokens: sessions.reduce((a, s) => a + s.estimatedTokens, 0),
+    totalEstimatedCost: sessions.reduce((a, s) => a + s.estimatedCost, 0),
     projects: projects.length,
     todosOpen: todos.filter((t) => !t.done).length,
     todosDone: todos.filter((t) => t.done).length,

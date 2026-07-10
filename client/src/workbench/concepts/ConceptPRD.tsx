@@ -66,8 +66,8 @@ export function ConceptPRD(_: { data: unknown; reload: () => void }) {
               <tr><td>Project (Area)</td><td>id, name, emoji, branch, status, progress%, doing, lastTouched, source, tags, budget</td><td>auto-discovered from git roots OR user-created via "new project" flow (Concept F)</td></tr>
               <tr><td>Feature</td><td>name, progress%, status, order</td><td>seeded at project creation; user-edited; auto-suggested from session summaries</td></tr>
               <tr><td>Todo (WorkItem)</td><td>text, project (nullable), kind, priority, due, #tags, done</td><td>quick-capture; orphans → inbox</td></tr>
-              <tr><td>Session</td><td>id, project, model, tool, state, title, preview, tokens, cost, duration, at</td><td>tail Claude Code &amp; Codex session logs (already wired)</td></tr>
-              <tr><td>Stats</td><td>active, tokens24h, cost24h, modelMix</td><td>aggregated from sessions over rolling 24h</td></tr>
+              <tr><td>Session</td><td>id, project, model, tool, state, title, preview, estimated tokens/cost/duration, at</td><td>session identity from logs; activity estimates are explicitly labeled</td></tr>
+              <tr><td>Stats</td><td>active, estimatedTokens, estimatedCost, modelMix</td><td>activity estimates in Workbench; measured usage in Analytics</td></tr>
               <tr><td>Milestone</td><td>name, status, date, progress%</td><td>user-created, lives on project (Phase 3b)</td></tr>
               <tr><td>Decision</td><td>date, title, body, tags, session?</td><td>AI-proposed from session outcomes (Phase 3b)</td></tr>
               <tr><td>Lesson</td><td>title, body, tags, cross-project?</td><td>atomic knowledge cards (Phase 3b)</td></tr>
@@ -97,7 +97,7 @@ export function ConceptPRD(_: { data: unknown; reload: () => void }) {
             <li><strong>C · Hero + Stream</strong> — single project featured, mini-grid below, live feed.</li>
             <li><strong>D · Constellation</strong> — projects as graph nodes, ring=progress, size=sessions, timeline strip.</li>
             <li><strong>F · Project Lifecycle</strong> — new-project modal + edit-project panel side by side.</li>
-            <li><strong>G · Session detail</strong> — transcript with collapsible tool calls, diffs, token composition, related todos.</li>
+            <li><strong>G · Session detail</strong> — real event transcript with collapsible tool calls, explicit empty state, estimated activity metrics, related todos.</li>
             <li><strong>H · Cost &amp; burn analytics</strong> — daily spend, donut, hourly heatmap, leaderboard, budgets, alerts.</li>
             <li><strong>I · ⌘K command palette</strong> — fuzzy search projects / todos / sessions / actions; live keyboard nav.</li>
             <li><strong>J · Weekly review</strong> — narrative summary, KPIs, done-celebration, features advanced, next-week plan.</li>

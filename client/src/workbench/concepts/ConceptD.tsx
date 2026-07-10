@@ -100,7 +100,7 @@ export function ConceptD({ data }: { data: WBData; reload: () => void }) {
                       />
                     </svg>
                     <span className="const-node-emoji" style={{ fontSize: Math.max(18, size * 0.42) }}>{p.emoji}</span>
-                    {p.status === 'active' && p.tokens24h > 0 && (
+                    {p.status === 'active' && p.estimatedTokens > 0 && (
                       <span className="const-node-live"><LiveDot color="var(--neon-green)" /></span>
                     )}
                     <span className="const-node-label">
@@ -158,8 +158,8 @@ export function ConceptD({ data }: { data: WBData; reload: () => void }) {
               </div>
               <ProgressBar value={selected.progress} />
               <div style={{ marginTop: '1rem', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.5rem' }}>
-                <Tile k="tokens"   v={fmt.k(selected.tokens24h)}              c="var(--neon-cyan)" />
-                <Tile k="cost"     v={'$' + selected.cost24h.toFixed(2)}      c="var(--neon-green)" />
+                <Tile k="estimated tokens" v={fmt.k(selected.estimatedTokens)} c="var(--neon-cyan)" />
+                <Tile k="estimated cost" v={'$' + selected.estimatedCost.toFixed(2)} c="var(--neon-green)" />
                 <Tile k="sessions" v={String(selected.sessions)}              c="var(--neon-purple)" />
               </div>
             </div>
@@ -277,7 +277,7 @@ function Timeline({ projects, sessions }: { projects: WBProject[]; sessions: WBD
                 {laneSessions.map((s) => {
                   const pos = ((s.at - start) / window4h) * 100;
                   if (pos < 0 || pos > 100) return null;
-                  const width = Math.min(15, Math.max(2, (s.duration / (window4h / 100)) * 100 / 60));
+                  const width = Math.min(15, Math.max(2, (s.estimatedDuration / (window4h / 100)) * 100 / 60));
                   const stateColor =
                     s.state === 'live' ? 'var(--neon-green)' :
                     s.state === 'error' ? 'var(--neon-pink)' :
@@ -292,7 +292,7 @@ function Timeline({ projects, sessions }: { projects: WBProject[]; sessions: WBD
                         background: `linear-gradient(90deg, ${stateColor}, color-mix(in srgb, ${stateColor} 50%, transparent))`,
                         borderColor: stateColor,
                       }}
-                      title={s.title}
+                      title={`${s.title} · ${fmt.dur(s.estimatedDuration)} estimated duration`}
                     >
                       <span className="tl-block-label">{s.title}</span>
                     </div>
