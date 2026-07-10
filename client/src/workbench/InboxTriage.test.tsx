@@ -43,7 +43,16 @@ function LocationProbe() {
   return <output data-testid="location">{useLocation().pathname}</output>;
 }
 
-function renderTriage({ modal = false }: { modal?: boolean } = {}) {
+type ModalFixture = 'semantic' | 'td-overlay' | 'native-dialog';
+
+function modalFixture(kind?: ModalFixture) {
+  if (kind === 'semantic') return <div role="dialog" aria-modal="true">semantic modal</div>;
+  if (kind === 'td-overlay') return <div className="td-overlay">todo detail modal</div>;
+  if (kind === 'native-dialog') return <dialog open>native dialog</dialog>;
+  return null;
+}
+
+function renderTriage({ modal }: { modal?: ModalFixture } = {}) {
   return render(
     <MemoryRouter initialEntries={['/c/n']}>
       <WorkbenchDialogProvider>
@@ -52,7 +61,7 @@ function renderTriage({ modal = false }: { modal?: boolean } = {}) {
         <select aria-label="settings theme"><option>dark</option></select>
         <div role="button" tabIndex={0}>custom action</div>
         <div contentEditable data-testid="editable-control" suppressContentEditableWarning>editable</div>
-        {modal && <div role="dialog" aria-modal="true">open modal</div>}
+        {modalFixture(modal)}
         {inboxItems.map((item) => <div key={item.id} data-inbox-item={item.id} />)}
         <LocationProbe />
       </WorkbenchDialogProvider>
@@ -94,8 +103,12 @@ describe('InboxTriage keyboard safety', () => {
     expect(updateWorkItem).not.toHaveBeenCalled();
   });
 
-  test('pauses inbox writes while another modal is open', async () => {
-    renderTriage({ modal: true });
+  test.each([
+    ['semantic modal', 'semantic'],
+    ['Concept L todo-detail overlay', 'td-overlay'],
+    ['native open dialog', 'native-dialog'],
+  ] as const)('pauses inbox writes while %s is open', async (_label, modal) => {
+    renderTriage({ modal });
     await waitForInboxCursor();
 
     fireEvent.keyDown(document.body, { key: 'd' });
@@ -129,19 +142,65 @@ describe('InboxTriage keyboard safety', () => {
     await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('/c/l/inbox-2'));
   });
 
-  test('keeps single-item destructive action and keyboard undo working', async () => {
+  test.each([
+    ['Cmd', { metaKey: true }],
+    ['Ctrl', { ctrlKey: true }],
+  ] as const)('claims %s+Z only when it executes the pending Inbox undo', async (_label, modifier) => {
     renderTriage();
     await waitForInboxCursor();
 
     fireEvent.keyDown(document.body, { key: 'd' });
     await waitFor(() => expect(updateWorkItem).toHaveBeenCalledWith('inbox-1', { status: 'dropped' }));
     await screen.findByTestId('tri-toast');
-    fireEvent.keyDown(document.body, { key: 'z', metaKey: true });
+
+    const subsequentListener = vi.fn();
+    window.addEventListener('keydown', subsequentListener);
+    fireEvent.keyDown(document.body, { key: 'z', ...modifier });
 
     await waitFor(() => expect(updateWorkItem).toHaveBeenLastCalledWith('inbox-1', { status: 'inbox' }));
+    expect(subsequentListener).not.toHaveBeenCalled();
+    window.removeEventListener('keydown', subsequentListener);
   });
 
-  test('keeps multi-select actions working', async () => {
+  test('does not swallow an undo key when Inbox has no pending undo', async () => {
+    renderTriage();
+    await waitForInboxCursor();
+
+    const subsequentListener = vi.fn();
+    window.addEventListener('keydown', subsequentListener);
+    const event = new KeyboardEvent('keydown', {
+      key: 'z',
+      metaKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    document.body.dispatchEvent(event);
+
+    expect(subsequentListener).toHaveBeenCalledTimes(1);
+    expect(event.defaultPrevented).toBe(false);
+    window.removeEventListener('keydown', subsequentListener);
+  });
+
+  test.each([
+    ['Cmd', { metaKey: true }],
+    ['Ctrl', { ctrlKey: true }],
+  ] as const)('leaves %s+Shift+Z redo untouched even with a pending undo', async (_label, modifier) => {
+    renderTriage();
+    await waitForInboxCursor();
+
+    fireEvent.keyDown(document.body, { key: 'd' });
+    await screen.findByTestId('tri-toast');
+
+    const subsequentListener = vi.fn();
+    window.addEventListener('keydown', subsequentListener);
+    fireEvent.keyDown(document.body, { key: 'Z', shiftKey: true, ...modifier });
+
+    expect(updateWorkItem).toHaveBeenCalledTimes(1);
+    expect(subsequentListener).toHaveBeenCalledTimes(1);
+    window.removeEventListener('keydown', subsequentListener);
+  });
+
+  test('bulk undo restores every changed item and the prior selection', async () => {
     renderTriage();
     await waitForInboxCursor();
 
@@ -154,6 +213,15 @@ describe('InboxTriage keyboard safety', () => {
     await waitFor(() => {
       expect(updateWorkItem).toHaveBeenCalledWith('inbox-1', { status: 'planned' });
       expect(updateWorkItem).toHaveBeenCalledWith('inbox-2', { status: 'planned' });
+    });
+    expect(screen.queryByTestId('tri-sel-count')).not.toBeInTheDocument();
+
+    fireEvent.keyDown(document.body, { key: 'z', metaKey: true });
+
+    await waitFor(() => {
+      expect(updateWorkItem).toHaveBeenCalledWith('inbox-1', { status: 'inbox' });
+      expect(updateWorkItem).toHaveBeenCalledWith('inbox-2', { status: 'inbox' });
+      expect(screen.getByTestId('tri-sel-count')).toHaveTextContent('2 selected');
     });
   });
 });

@@ -52,7 +52,18 @@ const INTERACTIVE_TARGET_SELECTOR = [
   '[role="textbox"]',
 ].join(',');
 
-const OPEN_MODAL_SELECTOR = '[role="dialog"], [role="alertdialog"], [aria-modal="true"]';
+const OPEN_MODAL_SELECTOR = [
+  'dialog[open]',
+  '[role="dialog"]',
+  '[role="alertdialog"]',
+  '[aria-modal="true"]',
+  '.td-overlay',
+  '.cp-overlay',
+  '.qc-overlay',
+  '.sp-overlay',
+  '.decision-inbox-overlay',
+  '.ui-dialog-overlay',
+].join(',');
 
 function isInteractiveTarget(target: EventTarget | null): boolean {
   return target instanceof Element && target.closest(INTERACTIVE_TARGET_SELECTOR) !== null;
@@ -108,6 +119,7 @@ export function InboxTriage() {
         ? items.filter((it) => selected.has(it.id))
         : items.filter((it) => it.id === cursorId);
       if (targets.length === 0) return;
+      const selectedTargetIds = selected.size > 0 ? targets.map((it) => it.id) : [];
 
       try {
         const undos: UndoAction[] = [];
@@ -116,7 +128,13 @@ export function InboxTriage() {
           if (undo) undos.push(undo);
         }
         const composedUndo: UndoAction | undefined = undos.length > 0
-          ? { label: undos[0]!.label, apply: async () => { for (const u of undos) await u.apply(); } }
+          ? {
+              label: undos[0]!.label,
+              apply: async () => {
+                for (const u of undos) await u.apply();
+                if (selectedTargetIds.length > 0) setSelected(new Set(selectedTargetIds));
+              },
+            }
           : undefined;
         const labelTxt = targets.length === 1 ? `✓ ${label}` : `✓ ${label} · ${targets.length} items`;
         flash(labelTxt, composedUndo);
@@ -143,8 +161,12 @@ export function InboxTriage() {
       if (isInteractiveTarget(e.target) || hasOpenModal()) return;
 
       // Cmd+Z / Ctrl+Z → invoke pending undo before filtering modifiers.
-      if ((e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === 'z') {
-        if (toast?.undo) { e.preventDefault(); void invokeUndo(); }
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'z') {
+        if (toast?.undo) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          void invokeUndo();
+        }
         return;
       }
       if (e.metaKey || e.altKey || e.ctrlKey) return;
