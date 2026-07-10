@@ -1,9 +1,15 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, test } from 'vitest';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { beforeEach, describe, expect, test, vi } from 'vitest';
 import type { AgentSessionEvent } from '@stash/shared';
-import { formatToolCallDetails, RealTranscript } from './ConceptG';
-import type { WBSession } from '../data';
+import { getAgentSessionEvents } from '../../api/agent-sessions';
+import { ConceptG, EmptyTranscript, EstimatedSessionMetrics, formatToolCallDetails, RealTranscript } from './ConceptG';
+import type { WBData, WBSession } from '../data';
+
+vi.mock('../../api/agent-sessions', () => ({
+  getAgentSessionEvents: vi.fn(),
+}));
 
 function session(overrides: Partial<WBSession> = {}): WBSession {
   return {
@@ -15,15 +21,81 @@ function session(overrides: Partial<WBSession> = {}): WBSession {
     state: 'done',
     title: 'codex session',
     preview: '',
-    tokens: 0,
-    cost: 0,
-    duration: 1,
+    estimatedTokens: 0,
+    estimatedCost: 0,
+    estimatedDuration: 60,
     at: Date.now(),
     ...overrides,
   };
 }
 
+function renderConceptG(sessionValue = session()) {
+  const data: WBData = {
+    projects: [],
+    sessions: [sessionValue],
+    todos: [],
+    sourceErrors: [],
+    stats: {
+      activeSessions: 0,
+      totalEstimatedTokens: sessionValue.estimatedTokens,
+      totalEstimatedCost: sessionValue.estimatedCost,
+      projects: 0,
+      todosOpen: 0,
+      todosDone: 0,
+    },
+  };
+  return render(
+    <MemoryRouter initialEntries={[`/c/g/${sessionValue.id}`]}>
+      <Routes>
+        <Route path="/c/g/:sessionId" element={<ConceptG data={data} reload={vi.fn()} />} />
+      </Routes>
+    </MemoryRouter>,
+  );
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
+
 describe('ConceptG real transcript', () => {
+  test('renders a truthful empty state without demo evidence', () => {
+    render(<EmptyTranscript />);
+
+    expect(screen.getByTestId('empty-session-events')).toHaveTextContent('no real events available');
+    expect(screen.queryByText(/src\/auth\/oauth\.ts/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/edit_file/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/FAIL/)).not.toBeInTheDocument();
+  });
+
+  test('routes an empty events response through the truthful empty state', async () => {
+    vi.mocked(getAgentSessionEvents).mockResolvedValue([]);
+    renderConceptG();
+
+    expect(await screen.findByTestId('empty-session-events')).toBeInTheDocument();
+    expect(screen.queryByText(/src\/auth\/oauth\.ts/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/edit_file/)).not.toBeInTheDocument();
+  });
+
+  test('keeps event load failures distinct from an empty session', async () => {
+    vi.mocked(getAgentSessionEvents).mockRejectedValue(new Error('events unavailable'));
+    renderConceptG();
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('events unavailable');
+    expect(screen.queryByTestId('empty-session-events')).not.toBeInTheDocument();
+  });
+
+  test('labels all activity-derived session metrics as estimates', () => {
+    render(<EstimatedSessionMetrics session={session({ estimatedTokens: 640, estimatedCost: 0.008, estimatedDuration: 90 })} />);
+
+    const metrics = screen.getByTestId('estimated-session-metrics');
+    expect(metrics).toHaveTextContent('estimated from activity counts');
+    expect(metrics).toHaveTextContent('estimated tokens');
+    expect(metrics).toHaveTextContent('estimated cost');
+    expect(metrics).toHaveTextContent('estimated duration');
+    expect(metrics).not.toHaveTextContent('24h');
+    expect(metrics).not.toHaveTextContent('composition');
+  });
+
   test('formats tool-call arguments and paired output', () => {
     const call: AgentSessionEvent = {
       kind: 'tool_call',

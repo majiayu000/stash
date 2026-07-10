@@ -270,8 +270,8 @@ function EditProjectPanel({ p, area, allProjects, onPick, onSaved, onDeleted, on
     cadence !== area.reviewCadence;
 
   const featPct = p.features.length === 0 ? [{ name: '(no features)', status: 'todo' as const, progress: 0 }] : p.features;
-  const tokenCap = Math.max(500_000, p.tokens24h * 5);
-  const costCap = Math.max(10, p.cost24h * 5);
+  const tokenCap = Math.max(500_000, p.estimatedTokens * 5);
+  const costCap = Math.max(10, p.estimatedCost * 5);
 
   async function save() {
     if (!dirty) return;
@@ -420,7 +420,7 @@ function EditProjectPanel({ p, area, allProjects, onPick, onSaved, onDeleted, on
         </div>
 
         <div className="ep-section" style={{ opacity: 0.55 }}>
-          <label>budget · 24h <span className="np-hint inline">— set in ConceptH</span></label>
+          <label>suggested budget cap <span className="np-hint inline">— derived from estimated activity; configure in analytics</span></label>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
             <div className="ep-budget">
               <span className="ep-budget-label">token cap</span>

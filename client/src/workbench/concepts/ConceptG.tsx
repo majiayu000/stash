@@ -10,7 +10,7 @@ import { LoadErrorPanel, ModelBadge, Tile, TodoItem, ToolBadge, Topbar, toError 
  * Concept G — Session Detail.
  * Header: project crumb + actions.
  * Left:   transcript (turns + tool calls + diffs).
- * Right:  tokens/cost composition · tool-call summary · files touched · related todos · actions.
+ * Right:  estimated activity metrics · tool-call summary · files touched · related todos · actions.
  *
  * Backend coverage:
  *   - session metadata: real (WBSession from workbench data adapter)
@@ -63,12 +63,6 @@ export function ConceptG({ data }: { data: WBData; reload: () => void }) {
   const project = projects.find((p) => p.id === session.project);
   const relatedTodos = todos.filter((t) => t.project === session.project).slice(0, 3);
 
-  // Estimated split: 50% input, 11% output, 39% cached.
-  const totalTokens = session.tokens || 1;
-  const tokensIn = Math.round(totalTokens * 0.5);
-  const tokensOut = Math.round(totalTokens * 0.11);
-  const tokensCached = totalTokens - tokensIn - tokensOut;
-
   return (
     <div className="dashboard-canvas">
       <div className="inner" style={{ overflow: 'hidden', height: '100%' }}>
@@ -94,7 +88,7 @@ export function ConceptG({ data }: { data: WBData; reload: () => void }) {
                 <ToolBadge tool={session.tool} />
                 <ModelBadge model={session.model} />
                 <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                  {fmt.ago(session.at)} · {fmt.dur(session.duration)}
+                  {fmt.ago(session.at)} · {fmt.dur(session.estimatedDuration)} estimated duration
                 </span>
               </div>
             </div>
@@ -122,7 +116,7 @@ export function ConceptG({ data }: { data: WBData; reload: () => void }) {
             ) : events === null ? (
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.74rem', color: 'var(--text-muted)', padding: '1rem' }}>loading events…</div>
             ) : events.length === 0 ? (
-              <TranscriptSkeleton session={session} />
+              <EmptyTranscript />
             ) : (
               <RealTranscript events={events} session={session} />
             )}
@@ -130,25 +124,7 @@ export function ConceptG({ data }: { data: WBData; reload: () => void }) {
 
           {/* SIDE */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', minWidth: 0, overflowY: 'auto' }}>
-            <div className="surface" style={{ padding: '1rem' }}>
-              <div className="sec-head" style={{ marginBottom: '0.6rem' }}>
-                <span className="prompt">&gt;</span> tokens · cost
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
-                <Tile k="in" v={fmt.k(tokensIn)} c="var(--neon-cyan)" />
-                <Tile k="out" v={fmt.k(tokensOut)} c="var(--neon-purple)" />
-                <Tile k="cached" v={fmt.k(tokensCached)} c="var(--neon-green)" />
-                <Tile k="cost" v={'$' + session.cost.toFixed(2)} c="var(--neon-orange)" />
-              </div>
-              <div style={{ marginTop: '0.7rem' }}>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.65rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>composition</div>
-                <div style={{ height: 8, display: 'flex', borderRadius: 4, overflow: 'hidden', background: 'var(--bg-elevated)' }}>
-                  <div style={{ width: '50%', background: 'var(--neon-cyan)', boxShadow: '0 0 10px var(--neon-cyan)' }} />
-                  <div style={{ width: '11%', background: 'var(--neon-purple)', boxShadow: '0 0 10px var(--neon-purple)' }} />
-                  <div style={{ width: '39%', background: 'var(--neon-green)', boxShadow: '0 0 10px var(--neon-green)' }} />
-                </div>
-              </div>
-            </div>
+            <EstimatedSessionMetrics session={session} />
 
             <ToolCallSummary events={events} />
             <FilesTouched events={events} />
@@ -184,47 +160,33 @@ export function ConceptG({ data }: { data: WBData; reload: () => void }) {
   );
 }
 
-/**
- * Stub transcript. Renders the real session.preview as the first user turn,
- * then a deterministic demo trace that matches the design template shape so
- * Phase 4 (real events from /events) drops in without layout reflow.
- */
-function TranscriptSkeleton({ session }: { session: WBSession }) {
+export function EmptyTranscript() {
   return (
-    <>
-      <Turn kind="user" who="you" at={fmt.ago(session.at)}>
-        {session.preview || '(no preview text captured)'}
-      </Turn>
-      <Turn kind="thinking" at="just now">
-        Reading the call sites involved before proposing a change. Phase 4 will stream the live trace from <code>/agent-sessions/{session.tool}/{session.id}/events</code>.
-      </Turn>
-      <Turn kind="assistant" at="just now">
-        <p>Inspecting the surrounding interface and identifying the smallest safe wiring.</p>
-      </Turn>
-      <ToolCall name="read_file" args="src/auth/oauth.ts" status="ok" lines={84} collapsed />
-      <ToolCall name="read_file" args="src/auth/jwt.ts" status="ok" lines={62} collapsed />
-      <ToolCall name="edit_file" args="src/auth/session.ts" status="ok" plus={24} minus={3}>
-        <Diff lines={[
-          { t: 'rem', n: 22, txt: '  const id = crypto.randomUUID();' },
-          { t: 'add', n: 22, txt: '  const id = await this.generateId(tenant);' },
-          { t: 'add', n: 23, txt: '  const session = new Session(id, jwt, tenant, ttl);' },
-          { t: 'ctx', n: 24, txt: '  this.store.set(id, session);' },
-          { t: 'add', n: 25, txt: "  this.metrics.inc('session.created', { tenant });" },
-          { t: 'ctx', n: 26, txt: '  return session;' },
-        ]} />
-      </ToolCall>
-      <ToolCall name="run_tests" args="--testPathPattern auth" status="warn">
-        <pre className="td-code">{`PASS  src/auth/jwt.test.ts (14 tests)
-PASS  src/auth/oauth.test.ts (8 tests)
-FAIL  src/auth/session.test.ts
-  ● rejects expired sessions — Expected 401, got 200`}</pre>
-      </ToolCall>
-      {session.state === 'live' && (
-        <Turn kind="assistant" at="now" pending>
-          <p>Investigating the failing assertion…<span className="td-cursor">▎</span></p>
-        </Turn>
-      )}
-    </>
+    <div
+      className="surface"
+      data-testid="empty-session-events"
+      style={{ padding: '1.25rem', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}
+    >
+      <div style={{ color: 'var(--text-primary)', fontWeight: 600 }}>no recorded session events</div>
+      <div style={{ marginTop: 6, fontSize: '0.74rem', lineHeight: 1.5 }}>
+        This session has no real events available to display.
+      </div>
+    </div>
+  );
+}
+
+export function EstimatedSessionMetrics({ session }: { session: WBSession }) {
+  return (
+    <div className="surface" data-testid="estimated-session-metrics" style={{ padding: '1rem' }}>
+      <div className="sec-head" style={{ marginBottom: '0.6rem' }}>
+        <span className="prompt">&gt;</span> estimated from activity counts
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+        <Tile k="estimated tokens" v={fmt.k(session.estimatedTokens)} c="var(--neon-cyan)" />
+        <Tile k="estimated cost" v={'$' + session.estimatedCost.toFixed(2)} c="var(--neon-orange)" />
+        <Tile k="estimated duration" v={fmt.dur(session.estimatedDuration)} c="var(--neon-purple)" />
+      </div>
+    </div>
   );
 }
 
@@ -244,8 +206,6 @@ function Turn({ kind, who, at, children, pending }: { kind: 'user' | 'assistant'
     </div>
   );
 }
-
-type DiffLine = { t: 'add' | 'rem' | 'ctx'; n: number; txt: string };
 
 function ToolCall({ name, args, status, lines, plus, minus, collapsed, children }: {
   name: string; args: string; status: 'ok' | 'warn' | 'error';
@@ -267,20 +227,6 @@ function ToolCall({ name, args, status, lines, plus, minus, collapsed, children 
         {lines != null && <span style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: '0.72rem' }}>{lines} lines</span>}
       </button>
       {open && children && <div className="td-tool-body">{children}</div>}
-    </div>
-  );
-}
-
-function Diff({ lines }: { lines: DiffLine[] }) {
-  return (
-    <div className="td-diff">
-      {lines.map((l, i) => (
-        <div key={i} className={`td-diff-line ${l.t}`}>
-          <span className="td-diff-gutter">{l.t === 'add' ? '+' : l.t === 'rem' ? '−' : ' '}</span>
-          <span className="td-diff-n">{l.n}</span>
-          <span className="td-diff-txt">{l.txt}</span>
-        </div>
-      ))}
     </div>
   );
 }
