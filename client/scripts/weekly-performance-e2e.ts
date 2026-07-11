@@ -54,6 +54,7 @@ try {
         STASH_E2E_CLAUDE_ROOT: claudeRoot,
         STASH_E2E_CODEX_ROOT: codexRoot,
         STASH_E2E_WEEKLY_PERF_PROJECT_DIR: projectDir,
+        STASH_E2E_CLIENT_MODE: 'preview',
       },
       stdout: 'inherit',
       stderr: 'inherit',
