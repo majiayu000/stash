@@ -1,9 +1,14 @@
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import type { CoachApplySummaryResponse, JournalEntry, Lesson, Priority, WorkItem, WorkItemStatus } from '@stash/shared';
+import type { CoachApplySummaryResponse, JournalEntry, Priority, WorkItem, WorkItemStatus } from '@stash/shared';
 import { apiGet } from '../../api/client';
 import { ChecklistPanel, useChecklist } from './conceptL.checklist';
-import { useEscToClose } from './conceptL.hooks';
+import {
+  useEscToClose,
+  useJournalEntries,
+  useLinkedSessionEdges,
+  useTodoDetailResources,
+} from './conceptL.hooks';
 import { EvidencePanel, usePendingEvidence } from './conceptL.evidence';
 import { IdeaDecomposeAction } from './conceptL.ai';
 import { TaskCoachPanel } from './conceptL.coach';
@@ -26,7 +31,6 @@ import {
   createWorkItem,
   deleteJournalEntry,
   getWorkItem,
-  listJournal,
   runSystem,
   updateWorkItem,
 } from '../../api/work-items';
@@ -80,45 +84,12 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
     );
   }
   const proj = projects.find((p) => p.id === todo.project);
-  // SPEC v0.3 §3e — real sub-tasks from /api/work-items/:id/subtasks.
-  const [realSubs, setRealSubs] = useState<WorkItem[] | null>(null);
-  // SPEC v0.3 §3h — relevant lessons surfaced by tag/project overlap.
-  const [lessons, setLessons] = useState<Lesson[]>([]);
-  // v0.4 — full work item loaded for editing.
-  const [itemState, setItem] = useState<WorkItem | null>(null);
+  const { itemState, setItem, realSubs, setRealSubs, lessons } = useTodoDetailResources(todo);
   const item = itemState?.id === todo.id ? itemState : null;
   const [savedFlash, setSavedFlash] = useState<string | null>(null);
   const [isCreatingRun, setIsCreatingRun] = useState(false);
   const runInFlightRef = useRef(false), closeInFlightRef = useRef(false);
   const shownKind = kindChrome(item?.kind ?? todo.kind);
-  useEffect(() => {
-    let cancelled = false;
-    setRealSubs(null); setLessons([]);
-    getWorkItem(todo.id)
-      .then((w) => { if (!cancelled) setItem(w); })
-      .catch((error) => { if (!cancelled) reportAsyncError('load todo detail', error); });
-    apiGet<{ data: WorkItem[] }>(`/work-items/${todo.id}/subtasks`)
-      .then((res) => { if (!cancelled) setRealSubs(res.data); })
-      .catch((error) => {
-        if (!cancelled) {
-          setRealSubs([]);
-          reportAsyncError('load subtasks', error);
-        }
-      });
-    const params = new URLSearchParams();
-    if (todo.project) params.set('projectId', todo.project);
-    todo.tags.forEach((t) => params.append('label', t.replace(/^#/, '')));
-    params.set('limit', '3');
-    apiGet<{ data: Lesson[] }>(`/lessons/relevant?${params.toString()}`)
-      .then((res) => { if (!cancelled) setLessons(res.data); })
-      .catch((error) => {
-        if (!cancelled) {
-          setLessons([]);
-          reportAsyncError('load relevant lessons', error);
-        }
-      });
-    return () => { cancelled = true; };
-  }, [todo.id]);
   async function closeDetail() {
     if (closeInFlightRef.current) return;
     closeInFlightRef.current = true;
@@ -165,7 +136,9 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
     try {
       const res = await apiGet<{ data: WorkItem[] }>(`/work-items/${todo.id}/subtasks`);
       setRealSubs(res.data);
-    } catch { /* ignore */ }
+    } catch (error) {
+      reportAsyncError('reload subtasks', error, reloadSubs);
+    }
   }
   async function addSubtask() {
     if (!todo) return;
@@ -197,14 +170,18 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
     try {
       await updateWorkItem(sub.id, { status: sub.status === 'done' ? 'planned' : 'done' });
       await reloadSubs();
-    } catch { /* ignore */ }
+    } catch (error) {
+      reportAsyncError('toggle subtask', error, () => toggleSubtask(sub));
+    }
   }
 
   async function dropSubtask(sub: WorkItem) {
     try {
       await updateWorkItem(sub.id, { status: 'dropped' });
       await reloadSubs();
-    } catch { /* ignore */ }
+    } catch (error) {
+      reportAsyncError('drop subtask', error, () => dropSubtask(sub));
+    }
   }
 
   async function addLabel() {
@@ -233,13 +210,7 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
   // v0.8 — real journal: append + delete with reload.
   // (todoId is captured further below for use in async closures.)
   const journalTodoId = todo.id;
-  const [journalEntries, setJournalEntries] = useState<JournalEntry[]>([]);
-  useEffect(() => {
-    let cancelled = false;
-    setJournalEntries([]);
-    listJournal(journalTodoId).then((rows) => { if (!cancelled) setJournalEntries(rows); }).catch(() => {});
-    return () => { cancelled = true; };
-  }, [journalTodoId]);
+  const { journalEntries, setJournalEntries, refreshJournal } = useJournalEntries(journalTodoId);
 
   async function addJournal() {
     const body = await dialog.prompt({
@@ -268,7 +239,9 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
     try {
       await deleteJournalEntry(journalTodoId, entry.id);
       setJournalEntries((cur) => cur.filter((e) => e.id !== entry.id));
-    } catch { /* swallow */ }
+    } catch (error) {
+      reportAsyncError('delete journal entry', error, refreshJournal);
+    }
   }
 
   function onCoachApplied(result: CoachApplySummaryResponse) {
@@ -314,15 +287,7 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
 
   // SPEC v0.3 — real linked sessions via /api/work-items/:id/sessions (proxied by listLinkedSessions).
   const todoId = todo.id;
-  const [linkedEdges, setLinkedEdges] = useState<LinkedSessionEdge[]>([]);
-  useEffect(() => {
-    let cancelled = false;
-    setLinkedEdges([]);
-    listLinkedSessions(todoId)
-      .then((e) => { if (!cancelled) setLinkedEdges(e); })
-      .catch(() => { if (!cancelled) setLinkedEdges([]); });
-    return () => { cancelled = true; };
-  }, [todoId]);
+  const { linkedEdges, setLinkedEdges, refreshLinkedSessions } = useLinkedSessionEdges(todoId);
 
   async function linkPick() {
     const candidates = data.sessions.slice(0, 12);
@@ -351,7 +316,9 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
     try {
       await unlinkSession(todoId, edge.provider, edge.sessionId);
       setLinkedEdges((cur) => cur.filter((e) => !(e.provider === edge.provider && e.sessionId === edge.sessionId)));
-    } catch { /* swallow */ }
+    } catch (error) {
+      reportAsyncError('unlink session', error, refreshLinkedSessions);
+    }
   }
 
   // ─── Promote handlers ─────────────────────────────────────────────────────

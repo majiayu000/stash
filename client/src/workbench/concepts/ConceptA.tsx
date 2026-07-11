@@ -25,9 +25,15 @@ export function ConceptA({ data, reload }: { data: WBData; reload: () => void })
   const [burn, setBurn] = useState<BurnSnapshot | null>(null);
   useEffect(() => {
     let cancelled = false;
-    getBurnSnapshot(12)
-      .then((s) => { if (!cancelled) setBurn(s); })
-      .catch((error) => { if (!cancelled) reportAsyncError('load card wall analytics', error); });
+    async function loadBurn() {
+      try {
+        const snapshot = await getBurnSnapshot(12);
+        if (!cancelled) setBurn(snapshot);
+      } catch (error) {
+        if (!cancelled) reportAsyncError('load card wall analytics', error, loadBurn);
+      }
+    }
+    void loadBurn();
     return () => { cancelled = true; };
   }, []);
 
@@ -42,18 +48,24 @@ export function ConceptA({ data, reload }: { data: WBData; reload: () => void })
   const [captureText, setCaptureText] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  async function submitCapture(e: React.FormEvent) {
-    e.preventDefault();
-    const trimmed = captureText.trim();
-    if (!trimmed || submitting) return;
+  async function capture(title: string) {
     setSubmitting(true);
     try {
-      await createWorkItem({ title: trimmed, kind: 'idea', status: 'inbox' });
+      await createWorkItem({ title, kind: 'idea', status: 'inbox' });
       setCaptureText('');
       reload();
+    } catch (error) {
+      reportAsyncError('capture work item', error, () => capture(title));
     } finally {
       setSubmitting(false);
     }
+  }
+
+  function submitCapture(e: React.FormEvent) {
+    e.preventDefault();
+    const trimmed = captureText.trim();
+    if (!trimmed || submitting) return;
+    void capture(trimmed);
   }
 
   return (
