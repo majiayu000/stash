@@ -47,6 +47,8 @@ Host 使用现有 Workbench CSS variables，固定在左下角，避免覆盖右
 - Retry 重新执行对应 list API；CRUD 已有 Dialog 错误保持不变；
 - `requestReminderPermission` 不把浏览器 rejection 改写成 `false`；`NotificationsPanel.enable` 捕获后通过共享 Host 展示，并由用户点击 Retry 重新发起权限请求；
 - 权限状态统一通过 `getReminderPermission()` 读取，unsupported 浏览器不直接访问不存在的 `Notification.permission`；
+- `NotificationsPanel` 使用 mounted ref 保护权限请求的 resolve/reject 分支；卸载后的迟到结果不得 set state、打开 Dialog 或派发 async error；
+- Host 中已存在的 permission Retry 也检查同一 mounted ref，面板卸载后回调变为 inert，不得跨路由重新请求；
 - 不修改 settings rail、toggle、theme preview 或 integration 控件。
 
 ### Concept O
@@ -87,6 +89,7 @@ Host 使用现有 Workbench CSS variables，固定在左下角，避免覆盖右
   - Concept O compose forced failure 显示错误且 Retry 后恢复 Prompt。
 - `async-error-secondary-surfaces.test.tsx`：Inbox/Today reload、Reminder polling 与 Concept K 幂等 update/non-idempotent create 的 forced failure 行为。
 - notification permission 测试同时锁定 helper rejection 合同，以及 Concept N caller 的可见错误与成功 reattempt。
+- notification permission 生命周期测试保留 Host、只卸载 Concept N，分别验证迟到 resolve、迟到 reject 与卸载后 Retry 不产生跨路由副作用。
 - Concept A 延迟 capture rejection 测试：保留 Host、卸载 Concept A 后 reject，断言不派发跨路由错误且不 reload。
 - Host 长消息测试：三条 alert 保留，样式包含限高、纵向滚动与 overscroll containment。
 - 定向静态检查 `client/src` 不再存在用户可见 `silent|noop|swallow|surface elsewhere` 路径；只保留并记录不影响应用数据的 localStorage/telemetry 例外。

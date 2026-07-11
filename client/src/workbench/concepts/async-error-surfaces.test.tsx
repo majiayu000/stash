@@ -141,6 +141,17 @@ function renderSurface(node: ReactNode, route = '/') {
   );
 }
 
+function notificationSurface(showConcept: boolean) {
+  return (
+    <MemoryRouter>
+      <WorkbenchDialogProvider>
+        <AsyncErrorHost />
+        {showConcept && <ConceptN data={data} reload={vi.fn()} />}
+      </WorkbenchDialogProvider>
+    </MemoryRouter>
+  );
+}
+
 describe('high-value optional surface failures', () => {
   test('Concept A burn failure is visible and retry reloads analytics', async () => {
     vi.mocked(getBurnSnapshot)
@@ -248,6 +259,69 @@ describe('high-value optional surface failures', () => {
     await waitFor(() => expect(requestReminderPermission).toHaveBeenCalledTimes(2));
     expect(await screen.findByRole('button', { name: 'notifications enabled' })).toBeDisabled();
     await waitFor(() => expect(screen.queryByText('notification permission unavailable')).not.toBeInTheDocument());
+  });
+
+  test('Concept N ignores a delayed notification permission resolve after unmount', async () => {
+    let resolvePermission: ((granted: boolean) => void) | undefined;
+    vi.mocked(requestReminderPermission).mockImplementationOnce(() => new Promise<boolean>((resolve) => {
+      resolvePermission = resolve;
+    }));
+
+    const view = render(notificationSurface(true));
+    fireEvent.click(screen.getByRole('button', { name: 'enable browser notifications' }));
+    await waitFor(() => expect(requestReminderPermission).toHaveBeenCalledTimes(1));
+    expect(getReminderPermission).toHaveBeenCalledTimes(1);
+
+    view.rerender(notificationSurface(false));
+    await act(async () => {
+      resolvePermission?.(true);
+      await Promise.resolve();
+    });
+
+    expect(getReminderPermission).toHaveBeenCalledTimes(1);
+    expect(console.error).not.toHaveBeenCalled();
+  });
+
+  test('Concept N ignores a delayed notification permission rejection after unmount', async () => {
+    let rejectPermission: ((reason?: unknown) => void) | undefined;
+    const onAsyncError = vi.fn();
+    vi.mocked(requestReminderPermission).mockImplementationOnce(() => new Promise<boolean>((_resolve, reject) => {
+      rejectPermission = reject;
+    }));
+    window.addEventListener('stash:async-error', onAsyncError);
+
+    try {
+      const view = render(notificationSurface(true));
+      fireEvent.click(screen.getByRole('button', { name: 'enable browser notifications' }));
+      await waitFor(() => expect(requestReminderPermission).toHaveBeenCalledTimes(1));
+
+      view.rerender(notificationSurface(false));
+      await act(async () => {
+        rejectPermission?.(new Error('late notification permission failure'));
+        await Promise.resolve();
+      });
+
+      expect(getReminderPermission).toHaveBeenCalledTimes(1);
+      expect(onAsyncError).not.toHaveBeenCalled();
+      expect(screen.queryByText('late notification permission failure')).not.toBeInTheDocument();
+      expect(console.error).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener('stash:async-error', onAsyncError);
+    }
+  });
+
+  test('Concept N permission retry becomes inert after the panel unmounts', async () => {
+    vi.mocked(requestReminderPermission).mockRejectedValueOnce(new Error('permission retry should expire'));
+
+    const view = render(notificationSurface(true));
+    fireEvent.click(screen.getByRole('button', { name: 'enable browser notifications' }));
+    expect(await screen.findByText('permission retry should expire')).toBeInTheDocument();
+
+    view.rerender(notificationSurface(false));
+    fireEvent.click(screen.getByRole('button', { name: 'retry request notification permission' }));
+
+    await waitFor(() => expect(screen.queryByText('permission retry should expire')).not.toBeInTheDocument());
+    expect(requestReminderPermission).toHaveBeenCalledTimes(1);
   });
 
   test('Concept O compose failure is visible and retry restores the prompt', async () => {

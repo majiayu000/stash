@@ -372,15 +372,21 @@ const projectHint: React.CSSProperties = { fontFamily: 'var(--font-mono)', fontS
 
 function NotificationsPanel() {
   const [perm, setPerm] = useState<NotificationPermission | 'unsupported'>('default');
+  const mounted = useRef(false);
   const dialog = useWorkbenchDialog();
-  useEffect(() => { setPerm(getReminderPermission()); }, []);
+  useEffect(() => {
+    mounted.current = true;
+    setPerm(getReminderPermission());
+    return () => { mounted.current = false; };
+  }, []);
 
   async function enable() {
     try {
       const ok = await requestReminderPermission();
+      if (!mounted.current) return;
       const nextPermission = getReminderPermission();
       setPerm(nextPermission);
-      if (!ok && nextPermission === 'denied') {
+      if (!ok && nextPermission === 'denied' && mounted.current) {
         await dialog.alert({
           title: 'notifications are blocked',
           description: 'Re-enable notifications in this browser site settings.',
@@ -388,8 +394,12 @@ function NotificationsPanel() {
         });
       }
     } catch (error) {
+      if (!mounted.current) return;
       setPerm(getReminderPermission());
-      reportAsyncError('request notification permission', error, enable);
+      reportAsyncError('request notification permission', error, () => {
+        if (!mounted.current) return;
+        return enable();
+      });
     }
   }
 

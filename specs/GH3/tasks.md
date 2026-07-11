@@ -26,6 +26,7 @@
   - N effects 不泄漏 rejected Promise；
   - Notification permission rejection 保留至 Concept N 调用层，由 Host 显示并支持用户触发的安全 Retry；
   - permission 状态只通过 `getReminderPermission()` 读取，unsupported 环境不直接访问 `Notification.permission`；
+  - permission resolve/reject、Dialog、state update 与错误派发均受 mounted guard 保护；卸载后旧 Retry 不重新发请求；
   - 所有安全读取或幂等操作提供 Retry；
   - 不修改任何 dead control 或 Dispatcher 上下文语义。
 - Verify：`bun run test -- async-error-surfaces.test.tsx`
@@ -52,6 +53,7 @@
   - A burn/capture、N budgets、O compose forced failure 均有可见错误断言；
   - Inbox/Today reload、Reminder polling 与 Concept K 代表性 mutation 均有 forced-failure 断言；
   - notification permission helper 保留 rejection，Concept N caller 测试证明错误可见且 reattempt 成功；
+  - notification permission 的 delayed resolve/reject 与卸载后 Retry 均有生命周期回归测试；
   - A delayed capture rejection 在卸载后不泄漏到保留的 Host；
   - 三条长 alert 的错误栈具备限高滚动样式；
   - Retry 至少证明一次真实重请求与成功恢复；
