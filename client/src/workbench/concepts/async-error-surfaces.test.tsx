@@ -153,7 +153,7 @@ describe('high-value optional surface failures', () => {
     await waitFor(() => expect(screen.queryByText('burn unavailable')).not.toBeInTheDocument());
   });
 
-  test('Concept A capture failure preserves input and retry completes the capture', async () => {
+  test('Concept A capture failure preserves a usable input without unsafe automatic retry', async () => {
     const reload = vi.fn();
     vi.mocked(createWorkItem)
       .mockRejectedValueOnce(new Error('capture unavailable'))
@@ -167,8 +167,9 @@ describe('high-value optional surface failures', () => {
     expect(await screen.findByText('capture unavailable')).toBeInTheDocument();
     expect(input).toHaveValue('keep this text');
     expect(input).not.toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'retry capture work item' })).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'retry capture work item' }));
+    fireEvent.submit(screen.getByTestId('ca-capture-form'));
     await waitFor(() => expect(createWorkItem).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(input).toHaveValue(''));
     expect(reload).toHaveBeenCalledTimes(1);

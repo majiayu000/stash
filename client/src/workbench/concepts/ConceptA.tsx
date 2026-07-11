@@ -55,7 +55,7 @@ export function ConceptA({ data, reload }: { data: WBData; reload: () => void })
       setCaptureText('');
       reload();
     } catch (error) {
-      reportAsyncError('capture work item', error, () => capture(title));
+      reportAsyncError('capture work item', error);
     } finally {
       setSubmitting(false);
     }

@@ -25,7 +25,7 @@
 3. 每条共享错误都可由用户 Dismiss；Dismiss 只关闭当前错误，不影响其他范围的错误。
 4. 调用方提供安全 Retry 时显示 Retry；读取请求重新读取数据，幂等更新可重试目标状态，结果不确定的删除或解绑只重新拉取服务端真相。
 5. Retry 运行期间按钮必须防重复触发；Retry 成功后移除原错误，Retry 再次失败时保留最新错误。
-6. Concept A 的 capture 失败时保留输入内容并恢复可提交状态，同时显示错误；成功前不得清空输入。
+6. Concept A 的 capture 失败时保留输入内容并恢复可提交状态，同时显示错误；成功前不得清空输入。创建请求是非幂等 POST，不提供自动 Retry，用户检查文本后可手动重新提交。
 7. Concept N 的 projects 或 budgets 加载失败时必须显示错误，且不得产生未处理 rejection；空列表文案可以继续存在，但不能成为唯一反馈。
 8. Concept O 的 Todo、Prompt、Runs、Skills、Bindings、Close 与 Copy 失败都必须可见；本 issue 不改变 Dispatcher 的项目选择或 Skill 上下文语义。
 9. Concept L 中用户可见的 Journal、Subtasks 与 Linked Sessions 失败不得静默吞掉；安全读取提供 Retry，状态不确定的 mutation 提供真相刷新。
@@ -38,6 +38,7 @@
 - 派发 `stash:async-error` 后，共享 Host 显示 scope、message、Dismiss，并在存在安全回调时显示 Retry。
 - Concept A burn 与 capture、Concept N budgets、Concept O compose 的 forced failure 测试均出现可见错误。
 - Concept A capture、Concept N 初始加载和 Concept O effects 的 forced failure 不产生未处理 rejection。
+- Concept A capture 错误不显示 Retry，输入仍可编辑并可由用户手动重新提交。
 - Retry 测试证明实际请求被再次调用，成功后错误消失并显示恢复后的数据。
 - `client/src` 中本 issue 覆盖的用户可见路径不再存在 silent catch。
 - client focused tests、全量 tests、typecheck 与 build 全部通过。

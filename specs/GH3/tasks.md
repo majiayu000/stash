@@ -20,6 +20,7 @@
 - Done when：
   - A burn/capture、N projects/budgets、O Todo/Prompt/Runs/Skills/Bindings/Close/Copy 失败均可见；
   - A capture 失败保留文本并恢复可提交状态；
+  - A capture 的非幂等创建失败不提供自动 Retry，只允许用户手动重新提交；
   - N effects 不泄漏 rejected Promise；
   - 所有安全读取或幂等操作提供 Retry；
   - 不修改任何 dead control 或 Dispatcher 上下文语义。

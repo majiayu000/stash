@@ -35,8 +35,8 @@ Host 使用现有 Workbench CSS variables，固定在左下角，避免覆盖右
 
 ### Concept A
 
-- burn effect 增加 retry tick，失败时通过共享 Host 提供重新读取；
-- capture 抽成捕获全部异常的异步函数；失败时保留原文本、恢复 submitting，并提供对原标题的安全 Retry；
+- burn effect 抽出可等待的安全读取函数，失败时通过共享 Host 重新执行真实请求；
+- capture 抽成捕获全部异常的异步函数；失败时保留原文本并恢复 submitting。由于 `createWorkItem` 是非幂等 POST，不向 Host 注册 Retry，用户只能检查内容后手动重新提交；
 - 不修改 `+ new project` 或 `+ new` 控件。
 
 ### Concept N
@@ -65,7 +65,7 @@ Host 使用现有 Workbench CSS variables，固定在左下角，避免覆盖右
 - `AsyncErrorHost.test.tsx`：scope/message、按 scope 去重、最多三条、Dismiss、Retry success、Retry rejection、新错误不被旧 Retry 删除。
 - `async-error-surfaces.test.tsx`：
   - Concept A burn forced failure 可见且 Retry 重新请求；
-  - Concept A capture forced failure 保留输入、恢复按钮并显示错误；
+  - Concept A capture forced failure 保留输入、恢复按钮并显示错误，同时断言没有自动 Retry；
   - Concept N budgets forced failure 显示错误且可 Retry；
   - Concept O compose forced failure 显示错误且 Retry 后恢复 Prompt。
 - 定向静态检查 Concept L 不再存在 `catch(() => {})`、`catch { /* ignore */ }` 或 `catch { /* swallow */ }`。
