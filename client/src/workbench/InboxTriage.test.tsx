@@ -166,7 +166,7 @@ describe('InboxTriage keyboard safety', () => {
     window.removeEventListener('keydown', subsequentListener);
   });
 
-  test('does not swallow an undo key when Inbox has no pending undo', async () => {
+  test('does not consume an undo key when Inbox has no pending undo', async () => {
     renderTriage();
     await waitForInboxCursor();
 

@@ -31,14 +31,18 @@ export function ConceptO({ data }: { data: WBData; reload: () => void }) {
   useEffect(() => {
     if (!todoId) { setTodo(null); return; }
     let cancelled = false;
-    getWorkItem(todoId)
-      .then((it) => { if (!cancelled) setTodo(it); })
-      .catch((error) => {
+    async function loadTodo() {
+      try {
+        const item = await getWorkItem(todoId!);
+        if (!cancelled) setTodo(item);
+      } catch (error) {
         if (!cancelled) {
           setTodo(null);
-          reportAsyncError('load dispatch todo', error);
+          reportAsyncError('load dispatch todo', error, loadTodo);
         }
-      });
+      }
+    }
+    void loadTodo();
     return () => { cancelled = true; };
   }, [todoId]);
 
@@ -57,25 +61,36 @@ export function ConceptO({ data }: { data: WBData; reload: () => void }) {
   useEffect(() => {
     if (!todo) { setComposedPrompt(''); return; }
     let cancelled = false;
-    setComposing(true);
-    composeSession({ workItemId: todo.id, tool })
-      .then((res) => { if (!cancelled) setComposedPrompt(res.prompt); })
-      .catch((error) => {
+    async function loadPrompt() {
+      if (!cancelled) setComposing(true);
+      try {
+        const response = await composeSession({ workItemId: todo!.id, tool });
+        if (!cancelled) setComposedPrompt(response.prompt);
+      } catch (error) {
         if (!cancelled) {
           setComposedPrompt('');
-          reportAsyncError('compose dispatch prompt', error);
+          reportAsyncError('compose dispatch prompt', error, loadPrompt);
         }
-      })
-      .finally(() => { if (!cancelled) setComposing(false); });
+      } finally {
+        if (!cancelled) setComposing(false);
+      }
+    }
+    void loadPrompt();
     return () => { cancelled = true; };
   }, [todo?.id, tool]);
 
   useEffect(() => {
     if (!todo) { setRuns([]); return; }
     let cancelled = false;
-    listDispatchRuns(todo.id)
-      .then((next) => { if (!cancelled) setRuns(next); })
-      .catch((error) => { if (!cancelled) reportAsyncError('load dispatch runs', error); });
+    async function loadRuns() {
+      try {
+        const next = await listDispatchRuns(todo!.id);
+        if (!cancelled) setRuns(next);
+      } catch (error) {
+        if (!cancelled) reportAsyncError('load dispatch runs', error, loadRuns);
+      }
+    }
+    void loadRuns();
     return () => { cancelled = true; };
   }, [todo?.id]);
 
@@ -108,25 +123,39 @@ export function ConceptO({ data }: { data: WBData; reload: () => void }) {
 
   async function copySuggestedCommand() {
     if (!result) return;
-    try { await navigator.clipboard.writeText(result.suggestedCommand); } catch { /* fallback below */ }
+    try {
+      await navigator.clipboard.writeText(result.suggestedCommand);
+    } catch (error) {
+      reportAsyncError('copy suggested command', error, copySuggestedCommand);
+    }
   }
 
   useEffect(() => {
     let cancelled = false;
-    listSkills().then((all) => { if (!cancelled) setAllSkills(all); }).catch((error) => {
-      if (!cancelled) reportAsyncError('load skills', error);
-    });
-    if (!selectedProject) return;
-    listProjectSkills(selectedProject.id)
-      .then((bindings) => {
+    async function loadAllSkills() {
+      try {
+        const all = await listSkills();
+        if (!cancelled) setAllSkills(all);
+      } catch (error) {
+        if (!cancelled) reportAsyncError('load skills', error, loadAllSkills);
+      }
+    }
+
+    async function loadBoundSkills() {
+      if (!selectedProject) return;
+      try {
+        const bindings = await listProjectSkills(selectedProject.id);
+        const all = await listSkills();
         if (cancelled) return;
-        const enabledIds = new Set(bindings.filter((b) => b.enabled).map((b) => b.skillId));
-        listSkills().then((all) => {
-          if (cancelled) return;
-          setBoundSkills(all.filter((s) => enabledIds.has(s.id)));
-        }).catch((error) => { if (!cancelled) reportAsyncError('load bound skills', error); });
-      })
-      .catch((error) => { if (!cancelled) reportAsyncError('load project skill bindings', error); });
+        const enabledIds = new Set(bindings.filter((binding) => binding.enabled).map((binding) => binding.skillId));
+        setBoundSkills(all.filter((skill) => enabledIds.has(skill.id)));
+      } catch (error) {
+        if (!cancelled) reportAsyncError('load project skill bindings', error, loadBoundSkills);
+      }
+    }
+
+    void loadAllSkills();
+    void loadBoundSkills();
     return () => { cancelled = true; };
   }, [selectedProject?.id]);
 
@@ -135,7 +164,7 @@ export function ConceptO({ data }: { data: WBData; reload: () => void }) {
       const closed = await closeDispatchRun(run.id);
       setRuns((cur) => cur.map((r) => (r.id === closed.id ? closed : r)));
     } catch (error) {
-      reportAsyncError('close dispatch run', error);
+      reportAsyncError('close dispatch run', error, () => closeRun(run));
     }
   }
 

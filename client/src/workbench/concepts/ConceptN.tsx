@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Area } from '@stash/shared';
 import type { Budget } from '@stash/shared';
 import { createArea, deleteArea, listAreas, updateArea } from '../../api/areas';
@@ -8,6 +8,7 @@ import { ShinyText } from '../../components/effects';
 import { useWorkbenchDialog } from '../../components/ui/workbench-dialogs';
 import { THEMES, getTheme, onThemeChange, setTheme, type ThemeId } from '../../lib/theme';
 import type { WBData } from '../data';
+import { reportAsyncError } from '../reportAsyncError';
 import { Topbar } from '../shared';
 
 interface ThemeDescriptor { id: ThemeId; name: string; desc: string; hex: [string, string, string, string] }
@@ -134,12 +135,25 @@ export function ConceptN({ data, reload }: { data: WBData; reload: () => void })
 function ProjectsPanel({ reload }: { reload: () => void }) {
   const [areas, setAreas] = useState<Area[]>([]);
   const [loading, setLoading] = useState(true);
+  const mounted = useRef(true);
   const dialog = useWorkbenchDialog();
 
   async function refresh() {
-    try { setAreas(await listAreas()); } finally { setLoading(false); }
+    if (mounted.current) setLoading(true);
+    try {
+      const next = await listAreas();
+      if (mounted.current) setAreas(next);
+    } catch (error) {
+      if (mounted.current) reportAsyncError('load settings projects', error, refresh);
+    } finally {
+      if (mounted.current) setLoading(false);
+    }
   }
-  useEffect(() => { refresh(); }, []);
+  useEffect(() => {
+    mounted.current = true;
+    void refresh();
+    return () => { mounted.current = false; };
+  }, []);
 
   async function add() {
     const name = await dialog.prompt({
@@ -219,12 +233,25 @@ const projectBtnStyle: React.CSSProperties = {
 function BudgetsPanel() {
   const [budgets, setBudgets] = useState<Budget[]>([]);
   const [loading, setLoading] = useState(true);
+  const mounted = useRef(true);
   const dialog = useWorkbenchDialog();
 
   async function refresh() {
-    try { setBudgets(await listBudgets()); } finally { setLoading(false); }
+    if (mounted.current) setLoading(true);
+    try {
+      const next = await listBudgets();
+      if (mounted.current) setBudgets(next);
+    } catch (error) {
+      if (mounted.current) reportAsyncError('load settings budgets', error, refresh);
+    } finally {
+      if (mounted.current) setLoading(false);
+    }
   }
-  useEffect(() => { refresh(); }, []);
+  useEffect(() => {
+    mounted.current = true;
+    void refresh();
+    return () => { mounted.current = false; };
+  }, []);
 
   async function add() {
     const scope = await dialog.prompt({
@@ -345,17 +372,33 @@ const projectHint: React.CSSProperties = { fontFamily: 'var(--font-mono)', fontS
 
 function NotificationsPanel() {
   const [perm, setPerm] = useState<NotificationPermission | 'unsupported'>('default');
+  const mounted = useRef(false);
   const dialog = useWorkbenchDialog();
-  useEffect(() => { setPerm(getReminderPermission()); }, []);
+  useEffect(() => {
+    mounted.current = true;
+    setPerm(getReminderPermission());
+    return () => { mounted.current = false; };
+  }, []);
 
   async function enable() {
-    const ok = await requestReminderPermission();
-    setPerm(getReminderPermission());
-    if (!ok && Notification.permission === 'denied') {
-      await dialog.alert({
-        title: 'notifications are blocked',
-        description: 'Re-enable notifications in this browser site settings.',
-        tone: 'danger',
+    try {
+      const ok = await requestReminderPermission();
+      if (!mounted.current) return;
+      const nextPermission = getReminderPermission();
+      setPerm(nextPermission);
+      if (!ok && nextPermission === 'denied' && mounted.current) {
+        await dialog.alert({
+          title: 'notifications are blocked',
+          description: 'Re-enable notifications in this browser site settings.',
+          tone: 'danger',
+        });
+      }
+    } catch (error) {
+      if (!mounted.current) return;
+      setPerm(getReminderPermission());
+      reportAsyncError('request notification permission', error, () => {
+        if (!mounted.current) return;
+        return enable();
       });
     }
   }

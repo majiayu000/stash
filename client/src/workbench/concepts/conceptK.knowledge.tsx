@@ -14,6 +14,7 @@ import {
   updateMilestone,
 } from '../../api/project-knowledge';
 import { useWorkbenchDialog } from '../../components/ui/workbench-dialogs';
+import { reportAsyncError } from '../reportAsyncError';
 
 /**
  * Editable Knowledge sub-sections for Concept K. Extracted into its own file
@@ -30,6 +31,25 @@ export interface KnowledgeProps<T = unknown> {
   onChange: () => void;
 }
 
+async function applyKnowledgeMutation(
+  scope: string,
+  mutation: () => Promise<unknown>,
+  onChange: () => void,
+  retryable = false,
+): Promise<boolean> {
+  try {
+    await mutation();
+    onChange();
+    return true;
+  } catch (error) {
+    const retry = retryable
+      ? async () => { await applyKnowledgeMutation(scope, mutation, onChange, true); }
+      : undefined;
+    reportAsyncError(scope, error, retry);
+    return false;
+  }
+}
+
 // ─── Intent ────────────────────────────────────────────────────────────────
 
 export function KnowledgeIntentEditor({ projectId, value: intent, onChange }: KnowledgeProps<string>) {
@@ -38,10 +58,14 @@ export function KnowledgeIntentEditor({ projectId, value: intent, onChange }: Kn
 
   async function commit() {
     if (text.trim() === intent.trim()) return;
-    try {
-      await setProjectIntent(projectId, text.trim());
-      onChange();
-    } catch { setText(intent); }
+    const nextIntent = text.trim();
+    const saved = await applyKnowledgeMutation(
+      'save project intent',
+      () => setProjectIntent(projectId, nextIntent),
+      onChange,
+      true,
+    );
+    if (!saved) setText(intent);
   }
 
   return (
@@ -75,10 +99,14 @@ export function KnowledgeNotesEditor({ projectId, value: notes, onChange }: Know
 
   async function commit() {
     if (text === notes) return;
-    try {
-      await setProjectNotes(projectId, text);
-      onChange();
-    } catch { setText(notes); }
+    const nextNotes = text;
+    const saved = await applyKnowledgeMutation(
+      'save project notes',
+      () => setProjectNotes(projectId, nextNotes),
+      onChange,
+      true,
+    );
+    if (!saved) setText(notes);
   }
 
   return (
@@ -124,12 +152,21 @@ export function KnowledgeMilestonesEditor({ projectId, value: milestones, onChan
       confirmLabel: 'add milestone',
     });
     if (!name?.trim()) return;
-    try { await createMilestone(projectId, { name: name.trim() }); onChange(); } catch { /* noop */ }
+    await applyKnowledgeMutation(
+      'create project milestone',
+      () => createMilestone(projectId, { name: name.trim() }),
+      onChange,
+    );
   }
   async function cycle(m: Milestone) {
     const idx = MS_STATUS_CYCLE.indexOf(m.status);
     const next = MS_STATUS_CYCLE[(idx + 1) % MS_STATUS_CYCLE.length]!;
-    try { await updateMilestone(projectId, m.id, { status: next, progress: next === 'done' ? 100 : m.progress }); onChange(); } catch { /* noop */ }
+    await applyKnowledgeMutation(
+      'update project milestone',
+      () => updateMilestone(projectId, m.id, { status: next, progress: next === 'done' ? 100 : m.progress }),
+      onChange,
+      true,
+    );
   }
   async function remove(m: Milestone) {
     const ok = await dialog.confirm({
@@ -139,7 +176,11 @@ export function KnowledgeMilestonesEditor({ projectId, value: milestones, onChan
       tone: 'danger',
     });
     if (!ok) return;
-    try { await deleteMilestone(projectId, m.id); onChange(); } catch { /* noop */ }
+    await applyKnowledgeMutation(
+      'delete project milestone',
+      () => deleteMilestone(projectId, m.id),
+      onChange,
+    );
   }
 
   return (
@@ -208,7 +249,11 @@ export function KnowledgeDecisionsEditor({ projectId, value: decisions, onChange
       placeholder: 'short rationale, optional',
       confirmLabel: 'add decision',
     }) ?? '';
-    try { await createDecision(projectId, { title: title.trim(), body }); onChange(); } catch { /* noop */ }
+    await applyKnowledgeMutation(
+      'create project decision',
+      () => createDecision(projectId, { title: title.trim(), body }),
+      onChange,
+    );
   }
   async function edit(d: Decision) {
     const title = await dialog.prompt({
@@ -224,7 +269,12 @@ export function KnowledgeDecisionsEditor({ projectId, value: decisions, onChange
       defaultValue: d.body ?? '',
       confirmLabel: 'save decision',
     }) ?? '';
-    try { await updateDecision(projectId, d.id, { title: title.trim(), body }); onChange(); } catch { /* noop */ }
+    await applyKnowledgeMutation(
+      'update project decision',
+      () => updateDecision(projectId, d.id, { title: title.trim(), body }),
+      onChange,
+      true,
+    );
   }
   async function remove(d: Decision) {
     const ok = await dialog.confirm({
@@ -234,7 +284,11 @@ export function KnowledgeDecisionsEditor({ projectId, value: decisions, onChange
       tone: 'danger',
     });
     if (!ok) return;
-    try { await deleteDecision(projectId, d.id); onChange(); } catch { /* noop */ }
+    await applyKnowledgeMutation(
+      'delete project decision',
+      () => deleteDecision(projectId, d.id),
+      onChange,
+    );
   }
 
   return (
@@ -300,7 +354,11 @@ export function KnowledgeLessonsEditor({ projectId, value: lessons, onChange }: 
       placeholder: 'context, implication, prevention, or reusable note',
       confirmLabel: 'add lesson',
     }) ?? '';
-    try { await createLesson({ title: title.trim(), body, projectId }); onChange(); } catch { /* noop */ }
+    await applyKnowledgeMutation(
+      'create project lesson',
+      () => createLesson({ title: title.trim(), body, projectId }),
+      onChange,
+    );
   }
   async function edit(l: Lesson) {
     const title = await dialog.prompt({
@@ -317,10 +375,20 @@ export function KnowledgeLessonsEditor({ projectId, value: lessons, onChange }: 
       defaultValue: l.body ?? '',
       confirmLabel: 'save lesson',
     }) ?? '';
-    try { await updateLesson(l.id, { title: title.trim(), body }); onChange(); } catch { /* noop */ }
+    await applyKnowledgeMutation(
+      'update project lesson',
+      () => updateLesson(l.id, { title: title.trim(), body }),
+      onChange,
+      true,
+    );
   }
   async function toggleCross(l: Lesson) {
-    try { await updateLesson(l.id, { cross: !l.cross }); onChange(); } catch { /* noop */ }
+    await applyKnowledgeMutation(
+      'update project lesson sharing',
+      () => updateLesson(l.id, { cross: !l.cross }),
+      onChange,
+      true,
+    );
   }
   async function remove(l: Lesson) {
     const ok = await dialog.confirm({
@@ -330,7 +398,11 @@ export function KnowledgeLessonsEditor({ projectId, value: lessons, onChange }: 
       tone: 'danger',
     });
     if (!ok) return;
-    try { await deleteLesson(l.id); onChange(); } catch { /* noop */ }
+    await applyKnowledgeMutation(
+      'delete project lesson',
+      () => deleteLesson(l.id),
+      onChange,
+    );
   }
 
   return (
