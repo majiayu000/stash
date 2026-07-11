@@ -1,5 +1,6 @@
 import { readFileSync } from 'fs';
 import type { AgentSession, AgentSessionEvent, AgentSessionStatus, UsageEvent } from '@stash/shared';
+import { isClearlyIncompleteJsonlTail, readJsonlLinesReverse } from '../jsonl-tail.js';
 
 interface RawRecord {
   timestamp?: string;
@@ -213,61 +214,191 @@ export function parseCodexEvents(sourcePath: string, limit = 200): AgentSessionE
   return out;
 }
 
-/**
- * Scan a Codex rollout JSONL for `token_count` events and emit a single
- * UsageEvent at the session's most recent count.
- *
- * Codex emits `event_msg.token_count` events whose payload carries the
- * **cumulative** `total_token_usage` for the session so far. Each subsequent
- * event replaces the previous. We want a single representative event for
- * BurnService to bucket, so we take the LAST count we see and emit it at
- * that event's timestamp.
- *
- * The `model` is pulled from the most recent `turn_context` (which arrives
- * before the message that consumes those tokens). If we never see a
- * turn_context, we fall back to 'codex-1' so the rate table still has
- * something to match (DEFAULT_MODEL_RATES doesn't yet ship Codex rates by
- * model name — falling back yields cost = 0 which is correct until rates
- * land).
- */
 export function parseCodexUsage(sourcePath: string): UsageEvent[] {
   const raw = readFileSync(sourcePath, 'utf8');
-  const lines = raw.split(/\n+/).filter(Boolean);
-
-  let model: string | undefined;
-  let lastTs: string | undefined;
-  let lastInput = 0;
-  let lastOutput = 0;
-  let lastCached = 0;
-
-  for (const line of lines) {
+  const records: RawRecord[] = [];
+  for (const line of raw.split(/\n+/).filter(Boolean)) {
     let rec: RawRecord;
     try { rec = JSON.parse(line); } catch { continue; }
+    records.push(rec);
+  }
+  return codexFinalUsageFromRecords(records, sourcePath);
+}
 
+export interface CodexAnalyticsData {
+  lastActiveAt: string;
+  usage: UsageEvent[];
+}
+
+/**
+ * Reads a Codex rollout backwards until it has all cumulative token counters
+ * needed to derive exact deltas at and after `activeSinceMs`, plus one prior
+ * counter and model context as the baseline. Large tool output earlier in the
+ * session stays off the weekly request path.
+ */
+export function parseCodexAnalytics(
+  sourcePath: string,
+  activeSinceMs: number,
+  sourceSizeBytes?: number,
+): CodexAnalyticsData {
+  const reverseRecords: RawRecord[] = [];
+  let lastActiveAt: string | undefined;
+  let foundAfterBoundaryToken = false;
+  let foundBaselineToken = false;
+  let foundModelBeforeOldestAfterBoundaryToken = false;
+  let trailingPartial = false;
+  let newerTimestampMs = Number.POSITIVE_INFINITY;
+
+  for (const line of readJsonlLinesReverse(sourcePath, undefined, sourceSizeBytes)) {
+    if (!line.text.trim()) continue;
+
+    let rec: RawRecord;
+    try {
+      rec = JSON.parse(line.text);
+    } catch {
+      if (!line.terminated && isClearlyIncompleteJsonlTail(line.text)) {
+        trailingPartial = true;
+        continue;
+      }
+      throw new Error(`Codex session contains malformed complete JSONL: ${sourcePath}`);
+    }
+
+    if (rec.timestamp) {
+      const timestampMs = Date.parse(rec.timestamp);
+      if (Number.isNaN(timestampMs)) {
+        throw new Error(`Codex analytics record has an invalid timestamp: ${sourcePath}`);
+      }
+      if (timestampMs > newerTimestampMs) {
+        throw new Error(`Codex analytics timestamps are not append-ordered: ${sourcePath}`);
+      }
+      newerTimestampMs = timestampMs;
+      const isLastAppendedTimestamp = lastActiveAt === undefined;
+      if (isLastAppendedTimestamp) {
+        lastActiveAt = rec.timestamp;
+      }
+      if (isLastAppendedTimestamp && !trailingPartial && timestampMs < activeSinceMs) {
+        return { lastActiveAt: rec.timestamp, usage: [] };
+      }
+    }
+
+    const isToken = rec.type === 'event_msg' && rec.payload?.type === 'token_count';
+    const isModel = rec.type === 'turn_context' && typeof rec.payload?.model === 'string';
+    if (isToken && !rec.timestamp) {
+      throw new Error(`Codex token_count record has no timestamp: ${sourcePath}`);
+    }
+    if (!isToken && !isModel) continue;
+    reverseRecords.push(rec);
+
+    if (isToken && rec.timestamp) {
+      const timestampMs = Date.parse(rec.timestamp);
+      if (!Number.isNaN(timestampMs)) {
+        if (timestampMs >= activeSinceMs) {
+          foundAfterBoundaryToken = true;
+          // A model already seen while walking backwards is newer than this
+          // token, so it cannot provide the initial context for this now-oldest
+          // in-window sample.
+          foundModelBeforeOldestAfterBoundaryToken = false;
+        } else {
+          foundBaselineToken = true;
+        }
+      }
+    } else if (isModel && foundAfterBoundaryToken) {
+      foundModelBeforeOldestAfterBoundaryToken = true;
+    }
+
+    if (
+      foundBaselineToken
+      && (!foundAfterBoundaryToken || foundModelBeforeOldestAfterBoundaryToken)
+    ) break;
+  }
+
+  if (lastActiveAt === undefined) {
+    throw new Error(`Codex session has no valid timestamped records: ${sourcePath}`);
+  }
+  reverseRecords.reverse();
+  return { lastActiveAt, usage: codexDeltaUsageFromRecords(reverseRecords, sourcePath) };
+}
+
+interface CumulativeTokens {
+  input: number;
+  output: number;
+  cached: number;
+}
+
+function codexFinalUsageFromRecords(records: RawRecord[], sourcePath: string): UsageEvent[] {
+  let model: string | undefined;
+  let lastTimestamp: string | undefined;
+  let current: CumulativeTokens = { input: 0, output: 0, cached: 0 };
+
+  for (const rec of records) {
+    if (rec.type === 'turn_context' && rec.payload?.model && typeof rec.payload.model === 'string') {
+      model = rec.payload.model;
+    }
+    if (rec.type !== 'event_msg' || rec.payload?.type !== 'token_count') continue;
+    const info = (rec.payload as { info?: Record<string, unknown> }).info;
+    const total = info?.total_token_usage as Record<string, unknown> | undefined;
+    if (!total) continue;
+    current = {
+      input: numericTotal(total.input_tokens, current.input),
+      output: numericTotal(total.output_tokens, current.output),
+      cached: numericTotal(total.cached_input_tokens, current.cached),
+    };
+    if (rec.timestamp) lastTimestamp = rec.timestamp;
+  }
+
+  if (!lastTimestamp || (current.input === 0 && current.output === 0)) return [];
+  return [{
+    ts: lastTimestamp,
+    model: model ?? 'codex-1',
+    inputTokens: current.input,
+    outputTokens: current.output,
+    cacheReadTokens: current.cached || undefined,
+    sourcePath,
+  }];
+}
+
+function codexDeltaUsageFromRecords(records: RawRecord[], sourcePath: string): UsageEvent[] {
+  const usage: UsageEvent[] = [];
+  let model: string | undefined;
+  let previous: CumulativeTokens = { input: 0, output: 0, cached: 0 };
+
+  for (const rec of records) {
     if (rec.type === 'turn_context' && rec.payload?.model && typeof rec.payload.model === 'string') {
       model = rec.payload.model;
     }
 
-    if (rec.type === 'event_msg' && rec.payload?.type === 'token_count') {
-      const info = (rec.payload as { info?: Record<string, unknown> }).info;
-      const total = info?.total_token_usage as Record<string, unknown> | undefined;
-      if (!total) continue;
-      lastInput  = typeof total.input_tokens         === 'number' ? total.input_tokens         : lastInput;
-      lastOutput = typeof total.output_tokens        === 'number' ? total.output_tokens        : lastOutput;
-      lastCached = typeof total.cached_input_tokens  === 'number' ? total.cached_input_tokens  : lastCached;
-      if (rec.timestamp) lastTs = rec.timestamp;
-    }
-  }
+    if (rec.type !== 'event_msg' || rec.payload?.type !== 'token_count') continue;
+    const info = (rec.payload as { info?: Record<string, unknown> }).info;
+    const total = info?.total_token_usage as Record<string, unknown> | undefined;
+    if (!total) continue;
+    const current: CumulativeTokens = {
+      input: numericTotal(total.input_tokens, previous.input),
+      output: numericTotal(total.output_tokens, previous.output),
+      cached: numericTotal(total.cached_input_tokens, previous.cached),
+    };
+    const reset = current.input < previous.input
+      || current.output < previous.output
+      || current.cached < previous.cached;
+    const inputTokens = reset ? current.input : current.input - previous.input;
+    const outputTokens = reset ? current.output : current.output - previous.output;
+    const cacheReadTokens = reset ? current.cached : current.cached - previous.cached;
+    previous = current;
 
-  if (!lastTs || (lastInput === 0 && lastOutput === 0)) return [];
-  return [{
-    ts: lastTs,
-    model: model ?? 'codex-1',
-    inputTokens: lastInput,
-    outputTokens: lastOutput,
-    cacheReadTokens: lastCached || undefined,
-    sourcePath,
-  }];
+    if (!rec.timestamp || (inputTokens === 0 && outputTokens === 0)) continue;
+    usage.push({
+      ts: rec.timestamp,
+      model: model ?? 'codex-1',
+      inputTokens,
+      outputTokens,
+      cacheReadTokens: cacheReadTokens || undefined,
+      sourcePath,
+    });
+  }
+  return usage;
+}
+
+function numericTotal(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 }
 
 function computeStatus(lastActiveAt: string): AgentSessionStatus {

@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import type { BurnService } from '../../domain/analytics/burn.js';
-import type { WeeklyReviewService } from '../../domain/analytics/weekly.js';
+import { isValidIsoWeekLabel, type WeeklyReviewService } from '../../domain/analytics/weekly.js';
 import { handleError } from '../errors.js';
 
 const BurnQuery = z.object({
@@ -12,7 +12,7 @@ const BurnQuery = z.object({
 });
 
 const WeeklyQuery = z.object({
-  week: z.string().regex(/^\d{4}-W\d{2}$/).optional(),
+  week: z.string().refine(isValidIsoWeekLabel, 'week must be a valid ISO week').optional(),
 });
 
 export function createAnalyticsRouter(burn: BurnService, weekly: WeeklyReviewService): Hono {

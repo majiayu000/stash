@@ -1,5 +1,6 @@
 import { readFileSync } from 'fs';
 import type { AgentSession, AgentSessionEvent, AgentSessionStatus, UsageEvent } from '@stash/shared';
+import { isClearlyIncompleteJsonlTail, readJsonlLinesReverse } from '../jsonl-tail.js';
 
 interface RawUsage {
   input_tokens?: number;
@@ -191,23 +192,128 @@ export function parseClaudeUsage(sourcePath: string): UsageEvent[] {
     } catch {
       continue;
     }
-    if (rec.type !== 'assistant' || rec.message?.role !== 'assistant') continue;
-    const usage = rec.message?.usage;
-    if (!usage) continue;
-    const inputTokens = usage.input_tokens ?? 0;
-    const outputTokens = usage.output_tokens ?? 0;
-    if (inputTokens === 0 && outputTokens === 0) continue;
-    out.push({
-      ts: rec.timestamp ?? new Date(0).toISOString(),
-      model: rec.message?.model ?? 'unknown',
-      inputTokens,
-      outputTokens,
-      cacheReadTokens: usage.cache_read_input_tokens,
-      cacheWriteTokens: usage.cache_creation_input_tokens,
-      sourcePath,
-    });
+    const event = claudeUsageEvent(rec, sourcePath);
+    if (event) out.push(event);
   }
   return out;
+}
+
+export interface ClaudeAnalyticsData {
+  lastActiveAt: string;
+  usage: UsageEvent[];
+}
+
+/**
+ * Weekly-only fast path. Append-ordered histories whose final timestamp is
+ * before the analytics window never need a full-file usage parse. Relevant
+ * histories are read exactly once and still aggregate every usage event.
+ */
+export function parseClaudeAnalytics(
+  sourcePath: string,
+  activeSinceMs: number,
+  sourceSizeBytes?: number,
+): ClaudeAnalyticsData {
+  const tail = lastClaudeTimestamp(sourcePath, sourceSizeBytes);
+  if (!tail.trailingPartial && Date.parse(tail.timestamp) < activeSinceMs) {
+    return { lastActiveAt: tail.timestamp, usage: [] };
+  }
+
+  const raw = readFileSync(sourcePath, 'utf8');
+  const usage: UsageEvent[] = [];
+  let lastActiveAt: string | undefined;
+  let previousTimestampMs = Number.NEGATIVE_INFINITY;
+  for (const rec of parseClaudeAnalyticsRecords(raw, sourcePath)) {
+    if (rec.timestamp) {
+      const timestampMs = Date.parse(rec.timestamp);
+      if (Number.isNaN(timestampMs)) {
+        throw new Error(`Claude analytics record has an invalid timestamp: ${sourcePath}`);
+      }
+      if (timestampMs < previousTimestampMs) {
+        throw new Error(`Claude analytics timestamps are not append-ordered: ${sourcePath}`);
+      }
+      previousTimestampMs = timestampMs;
+      lastActiveAt = rec.timestamp;
+    }
+    const event = claudeUsageEvent(rec, sourcePath);
+    if (event) {
+      if (!rec.timestamp) {
+        throw new Error(`Claude usage record has no timestamp: ${sourcePath}`);
+      }
+      usage.push(event);
+    }
+  }
+  if (!lastActiveAt) throw new Error(`Claude session has no valid timestamped records: ${sourcePath}`);
+  return { lastActiveAt, usage };
+}
+
+function lastClaudeTimestamp(sourcePath: string, sourceSizeBytes?: number): {
+  timestamp: string;
+  trailingPartial: boolean;
+} {
+  let trailingPartial = false;
+  for (const line of readJsonlLinesReverse(sourcePath, undefined, sourceSizeBytes)) {
+    if (!line.text.trim()) continue;
+    let rec: RawRecord;
+    try {
+      rec = JSON.parse(line.text);
+    } catch {
+      if (!line.terminated && isClearlyIncompleteJsonlTail(line.text)) {
+        trailingPartial = true;
+        continue;
+      }
+      throw new Error(`Claude session contains malformed complete JSONL: ${sourcePath}`);
+    }
+    if (claudeUsageEvent(rec, sourcePath) && !rec.timestamp) {
+      throw new Error(`Claude usage record has no timestamp: ${sourcePath}`);
+    }
+    if (rec.timestamp) {
+      if (Number.isNaN(Date.parse(rec.timestamp))) {
+        throw new Error(`Claude analytics record has an invalid timestamp: ${sourcePath}`);
+      }
+      return { timestamp: rec.timestamp, trailingPartial };
+    }
+  }
+  throw new Error(`Claude session has no valid timestamped records: ${sourcePath}`);
+}
+
+function parseClaudeAnalyticsRecords(raw: string, sourcePath: string): RawRecord[] {
+  const hasTrailingNewline = raw.endsWith('\n');
+  const lines = raw.split('\n');
+  if (hasTrailingNewline) lines.pop();
+  const records: RawRecord[] = [];
+
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index]!;
+    if (!line.trim()) continue;
+    try {
+      records.push(JSON.parse(line) as RawRecord);
+    } catch {
+      const isTrailingPartial = !hasTrailingNewline
+        && index === lines.length - 1
+        && isClearlyIncompleteJsonlTail(line);
+      if (isTrailingPartial) continue;
+      throw new Error(`Claude session contains malformed complete JSONL: ${sourcePath}`);
+    }
+  }
+  return records;
+}
+
+function claudeUsageEvent(rec: RawRecord, sourcePath: string): UsageEvent | undefined {
+  if (rec.type !== 'assistant' || rec.message?.role !== 'assistant') return undefined;
+  const usage = rec.message?.usage;
+  if (!usage) return undefined;
+  const inputTokens = usage.input_tokens ?? 0;
+  const outputTokens = usage.output_tokens ?? 0;
+  if (inputTokens === 0 && outputTokens === 0) return undefined;
+  return {
+    ts: rec.timestamp ?? new Date(0).toISOString(),
+    model: rec.message?.model ?? 'unknown',
+    inputTokens,
+    outputTokens,
+    cacheReadTokens: usage.cache_read_input_tokens,
+    cacheWriteTokens: usage.cache_creation_input_tokens,
+    sourcePath,
+  };
 }
 
 function computeStatus(lastActiveAt: string): AgentSessionStatus {
