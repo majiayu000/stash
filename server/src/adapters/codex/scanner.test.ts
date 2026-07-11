@@ -258,6 +258,23 @@ describe('CodexSource.scan', () => {
     }
   });
 
+  test('analytics scan reports a dangling sessions directory symlink', () => {
+    const root = mkdtempSync(join(tmpdir(), 'stash-codex-strict-root-'));
+    try {
+      const sessionsDir = join(root, 'sessions');
+      symlinkSync(join(root, 'missing-sessions'), sessionsDir);
+
+      const result = new CodexSource().scanActivity({ root });
+
+      expect(result.sessions).toEqual([]);
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors[0]?.sourcePath).toBe(sessionsDir);
+      expect(result.errors[0]?.message).toMatch(/ENOENT|no such file/i);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test('analytics scan rejects malformed complete records but tolerates a clear trailing partial append', () => {
     const root = mkdtempSync(join(tmpdir(), 'stash-codex-strict-'));
     try {

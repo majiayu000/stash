@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, statSync } from 'fs';
+import { existsSync, lstatSync, readdirSync, statSync } from 'fs';
 import { join } from 'path';
 import type { AgentSession, AgentSessionEvent, UsageEvent } from '@stash/shared';
 import type { AgentSource, ScanOptions, SourceParseError, SourceScanResult } from '../source.js';
@@ -153,13 +153,16 @@ export class CodexSource implements AgentSource {
     const usageBySource = new Map<string, UsageEvent[]>();
     const dir = sessionsDir(options.root);
     let directoryExists = true;
+    let directoryEntryExists = false;
     try {
+      lstatSync(dir);
+      directoryEntryExists = true;
       const stat = statSync(dir);
       if (!stat.isDirectory()) {
         errors.push(sourceError('codex', dir, new Error('Codex sessions path is not a directory')));
       }
     } catch (error) {
-      if (isMissingPathError(error)) {
+      if (!directoryEntryExists && isMissingPathError(error)) {
         directoryExists = false;
       } else {
         errors.push(sourceError('codex', dir, error));
