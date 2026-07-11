@@ -17,6 +17,7 @@ const diffArgs =
     ? ['diff', '--check', `origin/${process.env.GITHUB_BASE_REF}...HEAD`]
     : ['diff', '--check'];
 const e2eEnv = await createIsolatedE2eEnv();
+const weeklyPerformanceE2eEnv = await createIsolatedE2eEnv(4374, 5373, 4375);
 
 const steps: Step[] = [
   { name: 'diff check', command: 'git', args: diffArgs },
@@ -35,6 +36,12 @@ const steps: Step[] = [
     args: ['run', 'client:e2e'],
     env: e2eEnv,
   },
+  {
+    name: 'weekly performance e2e',
+    command: 'bun',
+    args: ['run', 'client:e2e:weekly-performance'],
+    env: weeklyPerformanceE2eEnv,
+  },
 ];
 
 for (const step of steps) {
@@ -46,13 +53,17 @@ for (const step of steps) {
   }
 }
 
-async function createIsolatedE2eEnv(): Promise<Record<string, string>> {
+async function createIsolatedE2eEnv(
+  preferredServerPort = 4274,
+  preferredClientPort = 5273,
+  preferredAiProviderPort = 4275,
+): Promise<Record<string, string>> {
   const claimed = new Set<number>();
-  const serverPort = await pickPort(4274, claimed);
+  const serverPort = await pickPort(preferredServerPort, claimed);
   claimed.add(serverPort);
-  const clientPort = await pickPort(5273, claimed);
+  const clientPort = await pickPort(preferredClientPort, claimed);
   claimed.add(clientPort);
-  const aiProviderPort = await pickPort(4275, claimed);
+  const aiProviderPort = await pickPort(preferredAiProviderPort, claimed);
 
   return {
     STASH_E2E_SERVER_PORT: String(serverPort),

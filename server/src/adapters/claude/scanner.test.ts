@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync, utimesSync } from 'fs';
+import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync, utimesSync } from 'fs';
 import { tmpdir } from 'os';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
@@ -80,6 +80,112 @@ describe('ClaudeSource.scan', () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  test('filters old append-only histories before cache lookup and parsing', () => {
+    const root = mkdtempSync(join(tmpdir(), 'stash-claude-window-'));
+    try {
+      const projectDir = join(root, 'projects', '-Users-test-window');
+      mkdirSync(projectDir, { recursive: true });
+      const oldFile = join(projectDir, 'old.jsonl');
+      const recentFile = join(projectDir, 'recent.jsonl');
+      writeClaudeFixture(oldFile, 'old history', '2026-05-01T08:00:00.000Z');
+      writeClaudeFixture(recentFile, 'recent history', '2026-07-08T08:00:00.000Z');
+      const oldMtime = new Date('2026-05-01T09:00:00.000Z');
+      const recentMtime = new Date('2026-07-08T09:00:00.000Z');
+      utimesSync(oldFile, oldMtime, oldMtime);
+      utimesSync(recentFile, recentMtime, recentMtime);
+
+      const source = new ClaudeSource(new AgentSessionCache(freshDb()));
+      const result = source.scan({
+        root,
+        modifiedSinceMs: Date.parse('2026-06-29T00:00:00.000Z'),
+      });
+
+      expect(result.sessions.map((session) => session.title)).toEqual(['recent history']);
+      expect(result.cache).toMatchObject({
+        filesDiscovered: 2,
+        filesSeen: 1,
+        filesIndexed: 1,
+        filesReused: 0,
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('analytics scan rejects malformed complete records but tolerates a clear trailing partial append', () => {
+    const root = mkdtempSync(join(tmpdir(), 'stash-claude-strict-'));
+    const db = freshDb();
+    try {
+      const projectDir = join(root, 'projects', '-Users-test-strict');
+      mkdirSync(projectDir, { recursive: true });
+      const malformed = join(projectDir, 'malformed.jsonl');
+      const missingTimestamp = join(projectDir, 'missing-timestamp.jsonl');
+      const partial = join(projectDir, 'partial.jsonl');
+      const completeNoNewline = join(projectDir, 'complete-no-newline.jsonl');
+      writeClaudeFixture(malformed, 'malformed', '2026-07-08T08:00:00.000Z');
+      appendFileSync(malformed, 'not-json\n');
+      const [userLine, assistantLine] = claudeFixtureText(
+        'missing timestamp',
+        '2026-07-08T08:00:00.000Z',
+      ).trim().split('\n');
+      const assistant = JSON.parse(assistantLine!) as Record<string, unknown>;
+      delete assistant.timestamp;
+      writeFileSync(missingTimestamp, `${userLine}\n${JSON.stringify(assistant)}\n`);
+      writeClaudeFixture(partial, 'partial', '2026-07-08T08:00:00.000Z');
+      appendFileSync(partial, '{"type":"assistant"');
+      writeFileSync(
+        completeNoNewline,
+        claudeFixtureText('complete', '2026-07-08T08:00:00.000Z').trimEnd(),
+      );
+
+      const source = new ClaudeSource(new AgentSessionCache(db));
+      const publicScan = source.scan({ root });
+      expect(publicScan.cache).toMatchObject({ filesIndexed: 4, filesReused: 0 });
+      const result = source.scanActivity({
+        root,
+        modifiedSinceMs: Date.parse('2026-06-29T00:00:00.000Z'),
+      });
+
+      expect(result.sessions.map((session) => session.sourcePath).sort()).toEqual(
+        [completeNoNewline, partial].sort(),
+      );
+      expect(result.usageBySource?.get(partial)).toHaveLength(1);
+      expect(result.usageBySource?.get(completeNoNewline)).toHaveLength(1);
+      expect(result.errors).toHaveLength(2);
+      expect(result.errors.find((error) => error.sourcePath === malformed)?.message)
+        .toContain('malformed complete JSONL');
+      expect(result.errors.find((error) => error.sourcePath === missingTimestamp)?.message)
+        .toContain('usage record has no timestamp');
+    } finally {
+      db.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('analytics scan enforces the monotonic append-timestamp source invariant', () => {
+    const root = mkdtempSync(join(tmpdir(), 'stash-claude-order-'));
+    try {
+      const projectDir = join(root, 'projects', '-Users-test-order');
+      mkdirSync(projectDir, { recursive: true });
+      const file = join(projectDir, 'out-of-order.jsonl');
+      writeFileSync(
+        file,
+        claudeFixtureText('out of order', '2026-07-09T08:00:00.000Z')
+          + claudeFixtureText('older append', '2026-07-08T08:00:00.000Z'),
+      );
+
+      const result = new ClaudeSource().scanActivity({
+        root,
+        modifiedSinceMs: Date.parse('2026-06-29T00:00:00.000Z'),
+      });
+
+      expect(result.sessions).toEqual([]);
+      expect(result.errors[0]?.message).toContain('timestamps are not append-ordered');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('ClaudeSource.getEvents', () => {
@@ -97,6 +203,10 @@ describe('ClaudeSource.getEvents', () => {
 });
 
 function writeClaudeFixture(sourcePath: string, title: string, ts: string): void {
+  writeFileSync(sourcePath, claudeFixtureText(title, ts));
+}
+
+function claudeFixtureText(title: string, ts: string): string {
   const user = {
     type: 'user',
     timestamp: ts,
@@ -115,5 +225,5 @@ function writeClaudeFixture(sourcePath: string, title: string, ts: string): void
       usage: { input_tokens: 12, output_tokens: 3 },
     },
   };
-  writeFileSync(sourcePath, `${JSON.stringify(user)}\n${JSON.stringify(assistant)}\n`);
+  return `${JSON.stringify(user)}\n${JSON.stringify(assistant)}\n`;
 }

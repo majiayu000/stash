@@ -3,8 +3,10 @@ import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const CLAUDE_FIXTURE_ROOT = resolve(here, '../server/src/adapters/claude/fixtures');
-const CODEX_FIXTURE_ROOT = resolve(here, '../server/src/adapters/codex/fixtures');
+const CLAUDE_FIXTURE_ROOT = process.env.STASH_E2E_CLAUDE_ROOT
+  ?? resolve(here, '../server/src/adapters/claude/fixtures');
+const CODEX_FIXTURE_ROOT = process.env.STASH_E2E_CODEX_ROOT
+  ?? resolve(here, '../server/src/adapters/codex/fixtures');
 
 const CLIENT_PORT = Number(process.env.STASH_E2E_CLIENT_PORT ?? 5173);
 const SERVER_PORT = Number(process.env.STASH_E2E_SERVER_PORT ?? 4174);

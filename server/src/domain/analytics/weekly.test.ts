@@ -9,7 +9,7 @@ import {
 } from '@stash/shared';
 import { freshDb } from '../../db/test-helpers.js';
 import { AgentSourceAggregator } from '../../adapters/aggregator.js';
-import type { AgentSource, SourceScanResult } from '../../adapters/source.js';
+import type { AgentSource, ScanOptions, SourceScanResult } from '../../adapters/source.js';
 import { AreaService } from '../area/service.js';
 import { WorkItemService } from '../work-item/service.js';
 import { BurnService } from './burn.js';
@@ -17,6 +17,7 @@ import { WeeklyReviewService, resolveWeek } from './weekly.js';
 
 class FakeSource implements AgentSource {
   readonly provider: AgentProvider;
+  readonly scanOptions: ScanOptions[] = [];
   constructor(
     provider: AgentProvider,
     private readonly sessions: AgentSession[],
@@ -24,7 +25,10 @@ class FakeSource implements AgentSource {
   ) {
     this.provider = provider;
   }
-  scan(): SourceScanResult { return { sessions: this.sessions, errors: [] }; }
+  scan(options: ScanOptions): SourceScanResult {
+    this.scanOptions.push(options);
+    return { sessions: this.sessions, errors: [] };
+  }
   getEvents(): AgentSessionEvent[] { return []; }
   getUsage(p: string): UsageEvent[] { return this.usage[p] ?? []; }
 }
@@ -57,6 +61,12 @@ describe('resolveWeek', () => {
     const w = resolveWeek('2026-W01', fixedClock('2026-05-14T12:00:00.000Z'));
     expect(new Date(w.startMs).toISOString().slice(0, 10)).toBe('2025-12-29');
   });
+
+  test('rejects out-of-range and nonexistent ISO weeks', () => {
+    expect(() => resolveWeek('2026-W00', fixedClock('2026-05-14T12:00:00.000Z'))).toThrow('invalid ISO week');
+    expect(() => resolveWeek('2026-W99', fixedClock('2026-05-14T12:00:00.000Z'))).toThrow('invalid ISO week');
+    expect(() => resolveWeek('2021-W53', fixedClock('2026-05-14T12:00:00.000Z'))).toThrow('invalid ISO week');
+  });
 });
 
 describe('WeeklyReviewService', () => {
@@ -74,9 +84,10 @@ describe('WeeklyReviewService', () => {
   function build(
     sessions: AgentSession[] = [],
     usage: Record<string, UsageEvent[]> = {},
+    sourceOverride?: FakeSource,
   ): WeeklyReviewService {
     const sources = new Map<AgentProvider, { source: AgentSource; root: string }>();
-    sources.set('claude', { source: new FakeSource('claude', sessions, usage), root: '/' });
+    sources.set('claude', { source: sourceOverride ?? new FakeSource('claude', sessions, usage), root: '/' });
     const aggregator = new AgentSourceAggregator(sources);
     const burnService = new BurnService({ aggregator, areaService, clock: fixedClock(at) });
     return new WeeklyReviewService({
@@ -148,6 +159,24 @@ describe('WeeklyReviewService', () => {
     expect(snap.focusHours).toBe(2);
   });
 
+  test('historical focus hours include usage from sessions that stayed active later', () => {
+    const sessions = [makeSession({
+      id: 'cross-week',
+      sourcePath: '/cross-week.jsonl',
+      lastActiveAt: '2026-05-19T10:00:00.000Z',
+    })];
+    const usage = {
+      '/cross-week.jsonl': [
+        { ts: '2026-05-12T13:05:00.000Z', model: 'claude-sonnet-4-6', inputTokens: 10, outputTokens: 5, sourcePath: '/cross-week.jsonl' },
+        { ts: '2026-05-19T10:00:00.000Z', model: 'claude-sonnet-4-6', inputTokens: 20, outputTokens: 5, sourcePath: '/cross-week.jsonl' },
+      ],
+    };
+
+    const snap = build(sessions, usage).snapshot({ week: '2026-W20' });
+
+    expect(snap.focusHours).toBe(1);
+  });
+
   test('wow compares this week to previous week', () => {
     const sessions: AgentSession[] = [
       makeSession({ id: 'now', sourcePath: '/now.jsonl', lastActiveAt: '2026-05-12T10:00:00.000Z' }),
@@ -156,5 +185,41 @@ describe('WeeklyReviewService', () => {
     ];
     const snap = build(sessions).snapshot({ week: '2026-W20' });
     expect(snap.wow.sessions).toEqual({ now: 2, prev: 1 });
+  });
+
+  test('snapshotAsync scans from the previous ISO week without a file-count limit', async () => {
+    const source = new FakeSource('claude', []);
+    const service = build([], {}, source);
+
+    await service.snapshotAsync({ week: '2026-W20' });
+
+    expect(source.scanOptions).toHaveLength(1);
+    expect(source.scanOptions[0]).toMatchObject({
+      root: '/',
+      modifiedSinceMs: Date.parse('2026-05-04T00:00:00.000Z'),
+    });
+    expect(source.scanOptions[0]?.limit).toBeUndefined();
+  });
+
+  test('uses distinct exact usage windows for current and previous week', () => {
+    const session = makeSession({
+      id: 'range',
+      sourcePath: '/range.jsonl',
+      lastActiveAt: '2026-05-18T00:00:00.000Z',
+    });
+    const usage: Record<string, UsageEvent[]> = {
+      '/range.jsonl': [
+        { ts: '2026-05-03T23:59:59.999Z', model: 'claude-sonnet-4-6', inputTokens: 999, outputTokens: 0, sourcePath: '/range.jsonl' },
+        { ts: '2026-05-04T00:00:00.000Z', model: 'claude-sonnet-4-6', inputTokens: 100, outputTokens: 50, sourcePath: '/range.jsonl' },
+        { ts: '2026-05-11T00:00:00.000Z', model: 'claude-sonnet-4-6', inputTokens: 200, outputTokens: 25, sourcePath: '/range.jsonl' },
+        { ts: '2026-05-18T00:00:00.000Z', model: 'claude-sonnet-4-6', inputTokens: 888, outputTokens: 0, sourcePath: '/range.jsonl' },
+      ],
+    };
+
+    const snap = build([session], usage).snapshot({ week: '2026-W20' });
+
+    expect(snap.wow.tokens).toEqual({ now: 225, prev: 150 });
+    expect(snap.wow.cost.now).toBeCloseTo(0.000975, 9);
+    expect(snap.wow.cost.prev).toBeCloseTo(0.00105, 9);
   });
 });

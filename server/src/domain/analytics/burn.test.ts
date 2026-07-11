@@ -168,6 +168,32 @@ describe('BurnService', () => {
     expect(snap.totals.tokens).toBe(0);
   });
 
+  test('totalsBetween uses exact half-open boundaries', () => {
+    const s = makeSession({
+      id: 'range',
+      sourcePath: '/range.jsonl',
+      lastActiveAt: '2026-05-18T00:00:00.000Z',
+    });
+    const usage: Record<string, UsageEvent[]> = {
+      '/range.jsonl': [
+        { ts: '2026-05-10T23:59:59.999Z', model: 'claude-sonnet-4-6', inputTokens: 999, outputTokens: 0, sourcePath: '/range.jsonl' },
+        { ts: '2026-05-11T00:00:00.000Z', model: 'claude-sonnet-4-6', inputTokens: 100, outputTokens: 50, sourcePath: '/range.jsonl' },
+        { ts: '2026-05-17T23:59:59.999Z', model: 'claude-sonnet-4-6', inputTokens: 200, outputTokens: 25, sourcePath: '/range.jsonl' },
+        { ts: '2026-05-18T00:00:00.000Z', model: 'claude-sonnet-4-6', inputTokens: 888, outputTokens: 0, sourcePath: '/range.jsonl' },
+      ],
+    };
+    const svc = build([s], usage);
+
+    const totals = svc.totalsBetween(
+      Date.parse('2026-05-11T00:00:00.000Z'),
+      Date.parse('2026-05-18T00:00:00.000Z'),
+    );
+
+    expect(totals.tokens).toBe(375);
+    expect(totals.sessions).toBe(1);
+    expect(totals.cost).toBeCloseTo(0.002025, 9);
+  });
+
   test('does not read usage files for sessions older than the burn window', () => {
     const old = makeSession({
       id: 'old',

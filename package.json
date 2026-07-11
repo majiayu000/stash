@@ -13,6 +13,7 @@
     "client:build": "cd client && bun run build",
     "client:test": "cd client && bun run test",
     "client:e2e": "cd client && bun run e2e",
+    "client:e2e:weekly-performance": "cd client && bun run e2e:weekly-performance",
     "client:typecheck": "cd client && bun x tsc --noEmit",
     "install:cli": "bun run tools/install-cli.ts",
     "typecheck": "bun run server:typecheck && bun run client:typecheck",

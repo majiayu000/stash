@@ -43,10 +43,10 @@ export class WeeklyReviewService {
       scanResult,
     );
 
-    const thisBurn = this.deps.burnService.snapshot({ days: daysSpan(startMs, endMs) }, scanResult);
-    const prevBurn = this.deps.burnService.snapshot({ days: daysSpan(prevStartMs, startMs) }, scanResult);
-    const tokens: WoWPair = { now: thisBurn.totals.tokens, prev: prevBurn.totals.tokens };
-    const cost: WoWPair = { now: thisBurn.totals.cost, prev: prevBurn.totals.cost };
+    const thisBurn = this.deps.burnService.totalsBetween(startMs, endMs, scanResult);
+    const prevBurn = this.deps.burnService.totalsBetween(prevStartMs, startMs, scanResult);
+    const tokens: WoWPair = { now: thisBurn.tokens, prev: prevBurn.tokens };
+    const cost: WoWPair = { now: thisBurn.cost, prev: prevBurn.cost };
     const sessions: WoWPair = { now: sessionsThisWeek, prev: sessionsPrevWeek };
 
     return {
@@ -63,7 +63,16 @@ export class WeeklyReviewService {
   }
 
   async snapshotAsync(q: WeeklyQuery = {}): Promise<{ data: WeeklySnapshot; cache: AggregateResult['cache'] }> {
-    const scan = await this.deps.aggregator.scanAsync({});
+    const { startMs } = resolveWeek(q.week, this.clock);
+    const prevStartMs = startMs - 7 * 86_400_000;
+    const scan = await this.deps.aggregator.scanActivityAsync({ modifiedSinceMs: prevStartMs });
+    if (scan.errors.length > 0) {
+      const first = scan.errors[0]!;
+      throw new Error(
+        `weekly analytics source scan failed (${scan.errors.length}): `
+        + `${first.provider}:${first.sourcePath}: ${first.message}`,
+      );
+    }
     return { data: this.snapshot(q, scan), cache: scan.cache };
   }
 
@@ -131,9 +140,9 @@ export class WeeklyReviewService {
       } else if (t >= prevStartMs && t < startMs) {
         prevSet.add(s.sourcePath);
       }
-      if (t >= startMs && t < endMs) {
+      if (t >= startMs) {
         // Use the usage event timestamps so focus hours reflect real engagement.
-        for (const u of this.deps.aggregator.getUsage(s.provider, s.sourcePath)) {
+        for (const u of this.deps.aggregator.getUsageForScan(scanResult, s.provider, s.sourcePath)) {
           const ut = Date.parse(u.ts);
           if (Number.isNaN(ut) || ut < startMs || ut >= endMs) continue;
           hourBuckets.add(hourKey(ut));
@@ -155,25 +164,21 @@ function hourKey(ms: number): string {
   return `${d.getUTCFullYear()}-${d.getUTCMonth()}-${d.getUTCDate()}-${d.getUTCHours()}`;
 }
 
-function daysSpan(startMs: number, endMs: number): number {
-  return Math.max(1, Math.round((endMs - startMs) / 86_400_000));
-}
-
 interface ResolvedWeek { startMs: number; endMs: number; label: string }
 
 export function resolveWeek(input: string | undefined, clock: Clock): ResolvedWeek {
   if (input) {
+    if (!isValidIsoWeekLabel(input)) throw new RangeError(`invalid ISO week: ${input}`);
     const m = /^(\d{4})-W(\d{2})$/.exec(input);
-    if (m && m[1] && m[2]) {
-      const year = Number(m[1]);
-      const week = Number(m[2]);
-      const monMs = isoWeekStartMs(year, week);
-      return {
-        startMs: monMs,
-        endMs: monMs + 7 * 86_400_000,
-        label: `${year}-W${String(week).padStart(2, '0')}`,
-      };
-    }
+    if (!m?.[1] || !m[2]) throw new RangeError(`invalid ISO week: ${input}`);
+    const year = Number(m[1]);
+    const week = Number(m[2]);
+    const monMs = isoWeekStartMs(year, week);
+    return {
+      startMs: monMs,
+      endMs: monMs + 7 * 86_400_000,
+      label: `${year}-W${String(week).padStart(2, '0')}`,
+    };
   }
   const now = new Date(clock.now());
   const { year, week } = isoWeekOf(now);
@@ -183,6 +188,16 @@ export function resolveWeek(input: string | undefined, clock: Clock): ResolvedWe
     endMs: monMs + 7 * 86_400_000,
     label: `${year}-W${String(week).padStart(2, '0')}`,
   };
+}
+
+export function isValidIsoWeekLabel(input: string): boolean {
+  const match = /^(\d{4})-W(\d{2})$/.exec(input);
+  if (!match?.[1] || !match[2]) return false;
+  const year = Number(match[1]);
+  const week = Number(match[2]);
+  if (week < 1 || week > 53) return false;
+  const resolved = isoWeekOf(new Date(isoWeekStartMs(year, week)));
+  return resolved.year === year && resolved.week === week;
 }
 
 /** ISO 8601 week-numbering: Monday-anchored, week 1 contains the year's first Thursday. */

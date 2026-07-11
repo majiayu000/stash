@@ -3,7 +3,12 @@ import { join } from 'path';
 import type { AgentSession, AgentSessionEvent, UsageEvent } from '@stash/shared';
 import type { AgentSource, ScanOptions, SourceParseError, SourceScanResult } from '../source.js';
 import type { AgentSessionCache, SessionFileFingerprint } from '../session-cache.js';
-import { parseCodexEvents, parseCodexSession, parseCodexUsage } from './parser.js';
+import {
+  createAnalyticsSession,
+  isFreshAnalyticsEntry,
+  type AnalyticsCacheEntry,
+} from '../analytics-session.js';
+import { parseCodexAnalytics, parseCodexEvents, parseCodexSession, parseCodexUsage } from './parser.js';
 
 function sessionsDir(root: string): string {
   return join(root, 'sessions');
@@ -28,6 +33,7 @@ function walk(dir: string, out: string[]): void {
 
 export class CodexSource implements AgentSource {
   readonly provider = 'codex' as const;
+  private readonly analyticsCache = new Map<string, AnalyticsCacheEntry>();
 
   constructor(private readonly cache?: AgentSessionCache) {}
 
@@ -36,7 +42,7 @@ export class CodexSource implements AgentSource {
     const errors: SourceParseError[] = [];
     const dir = sessionsDir(options.root);
     if (!existsSync(dir)) {
-      return { sessions, errors, cache: scanStats(options.root, this.cache !== undefined, 0, 0, 0) };
+      return { sessions, errors, cache: scanStats(options.root, this.cache !== undefined, 0, 0, 0, 0) };
     }
 
     const files: string[] = [];
@@ -54,7 +60,10 @@ export class CodexSource implements AgentSource {
     const ordered = files
       .map((f) => fileFingerprint(f))
       .sort((a, b) => b.mtimeMs - a.mtimeMs);
-    const limited = options.limit && options.limit > 0 ? ordered.slice(0, options.limit) : ordered;
+    const candidates = options.modifiedSinceMs === undefined
+      ? ordered
+      : ordered.filter((entry) => entry.mtimeMs >= options.modifiedSinceMs!);
+    const limited = options.limit && options.limit > 0 ? candidates.slice(0, options.limit) : candidates;
     let filesIndexed = 0;
     let filesReused = 0;
 
@@ -96,7 +105,89 @@ export class CodexSource implements AgentSource {
     return {
       sessions,
       errors,
-      cache: scanStats(options.root, this.cache !== undefined, limited.length, filesIndexed, filesReused),
+      cache: scanStats(
+        options.root,
+        this.cache !== undefined,
+        ordered.length,
+        limited.length,
+        filesIndexed,
+        filesReused,
+      ),
+    };
+  }
+
+  scanActivity(options: ScanOptions): SourceScanResult {
+    const sessions: AgentSession[] = [];
+    const errors: SourceParseError[] = [];
+    const usageBySource = new Map<string, UsageEvent[]>();
+    const dir = sessionsDir(options.root);
+    if (!existsSync(dir)) {
+      return {
+        sessions,
+        errors,
+        usageBySource,
+        cache: scanStats(options.root, true, 0, 0, 0, 0),
+      };
+    }
+
+    const files: string[] = [];
+    try {
+      walk(dir, files);
+    } catch (error) {
+      return {
+        sessions,
+        errors: [sourceError('codex', dir, error)],
+        usageBySource,
+        cache: scanStats(options.root, true, 0, 0, 0, 0),
+      };
+    }
+
+    const ordered = files
+      .map((sourcePath) => fileFingerprint(sourcePath))
+      .sort((a, b) => b.mtimeMs - a.mtimeMs);
+    const candidates = options.modifiedSinceMs === undefined
+      ? ordered
+      : ordered.filter((entry) => entry.mtimeMs >= options.modifiedSinceMs!);
+    const limited = options.limit && options.limit > 0 ? candidates.slice(0, options.limit) : candidates;
+    const activeSinceMs = options.modifiedSinceMs ?? Number.NEGATIVE_INFINITY;
+    let filesIndexed = 0;
+    let filesReused = 0;
+
+    for (const entry of limited) {
+      const memoryCached = this.analyticsCache.get(entry.sourcePath);
+      if (isFreshAnalyticsEntry(memoryCached, entry, activeSinceMs)) {
+        sessions.push(memoryCached.session);
+        usageBySource.set(entry.sourcePath, memoryCached.usage);
+        filesReused++;
+        continue;
+      }
+
+      // The persisted Session/Burn cache intentionally retains Codex's public
+      // final-cumulative usage semantics. Weekly deltas use this separate,
+      // window-keyed in-process cache and never reinterpret persisted rows.
+
+      try {
+        const analytics = parseCodexAnalytics(entry.sourcePath, activeSinceMs, entry.sizeBytes);
+        const cached: AnalyticsCacheEntry = {
+          fingerprint: entry,
+          activeSinceMs,
+          session: createAnalyticsSession('codex', entry.sourcePath, analytics.lastActiveAt),
+          usage: analytics.usage,
+        };
+        this.analyticsCache.set(entry.sourcePath, cached);
+        sessions.push(cached.session);
+        usageBySource.set(entry.sourcePath, cached.usage);
+        filesIndexed++;
+      } catch (error) {
+        errors.push(sourceError('codex', entry.sourcePath, error));
+      }
+    }
+
+    return {
+      sessions,
+      errors,
+      usageBySource,
+      cache: scanStats(options.root, true, ordered.length, limited.length, filesIndexed, filesReused),
     };
   }
 
@@ -111,6 +202,18 @@ export class CodexSource implements AgentSource {
   }
 }
 
+function sourceError(
+  provider: 'codex',
+  sourcePath: string,
+  error: unknown,
+): SourceParseError {
+  return {
+    provider,
+    sourcePath,
+    message: error instanceof Error ? error.message : String(error),
+  };
+}
+
 function fileFingerprint(sourcePath: string): SessionFileFingerprint {
   const stat = statSync(sourcePath);
   return { sourcePath, mtimeMs: stat.mtimeMs, sizeBytes: stat.size };
@@ -119,6 +222,7 @@ function fileFingerprint(sourcePath: string): SessionFileFingerprint {
 function scanStats(
   root: string,
   cacheEnabled: boolean,
+  filesDiscovered: number,
   filesSeen: number,
   filesIndexed: number,
   filesReused: number,
@@ -127,6 +231,7 @@ function scanStats(
     provider: 'codex' as const,
     root,
     cacheEnabled,
+    filesDiscovered,
     filesSeen,
     filesIndexed,
     filesReused,

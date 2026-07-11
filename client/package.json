@@ -10,7 +10,8 @@
     "typecheck": "bun x tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "e2e:weekly-performance": "bun run scripts/weekly-performance-e2e.ts"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.17",

@@ -57,9 +57,28 @@ export class BurnService {
     return { data: this.snapshot(q, scan), cache: scan.cache };
   }
 
+  /**
+   * Exact totals for a caller-supplied half-open time range. Weekly analytics
+   * uses this instead of the rolling `days` query so adjacent ISO weeks do not
+   * accidentally resolve to the same clock-relative window.
+   */
+  totalsBetween(
+    startMs: number,
+    endMs: number,
+    scanResult?: AggregateResult,
+  ): BurnSnapshot['totals'] {
+    const startIso = new Date(startMs).toISOString();
+    const endIso = new Date(endMs).toISOString();
+    return this.computeTotals(this.collectEvents(startIso, scanResult, endIso));
+  }
+
   // ─── pipeline ───────────────────────────────────────────────────────────
 
-  private collectEvents(sinceIso: string, scanResult?: AggregateResult): UsageEvent[] {
+  private collectEvents(
+    sinceIso: string,
+    scanResult?: AggregateResult,
+    beforeIso?: string,
+  ): UsageEvent[] {
     const out: UsageEvent[] = [];
     const sinceMs = Date.parse(sinceIso);
     const { sessions } = scanResult ?? this.aggregator.scan({});
@@ -68,8 +87,9 @@ export class BurnService {
       if (!Number.isNaN(sinceMs) && !Number.isNaN(lastActiveMs) && lastActiveMs < sinceMs) {
         continue;
       }
-      for (const e of this.aggregator.getUsage(s.provider, s.sourcePath)) {
+      for (const e of this.aggregator.getUsageForScan(scanResult, s.provider, s.sourcePath)) {
         if (e.ts < sinceIso) continue;
+        if (beforeIso !== undefined && e.ts >= beforeIso) continue;
         out.push({ ...e, projectId: s.projectId });
       }
     }
