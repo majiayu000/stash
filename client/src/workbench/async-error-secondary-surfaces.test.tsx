@@ -14,7 +14,7 @@ import {
 import { WorkbenchDialogProvider } from '../components/ui/workbench-dialogs';
 import { AsyncErrorHost } from './AsyncErrorHost';
 import { InboxTriage } from './InboxTriage';
-import { ReminderTicker } from './ReminderTicker';
+import { ReminderTicker, requestReminderPermission } from './ReminderTicker';
 import { TodayTriage } from './TodayTriage';
 import { KnowledgeMilestonesEditor } from './concepts/conceptK.knowledge';
 
@@ -76,6 +76,17 @@ afterEach(() => {
 });
 
 describe('secondary Workbench async failures', () => {
+  test('notification permission helper preserves a browser rejection', async () => {
+    class RejectingNotification {
+      static permission: NotificationPermission = 'default';
+      static requestPermission = vi.fn().mockRejectedValue(new Error('browser permission request failed'));
+    }
+    vi.stubGlobal('Notification', RejectingNotification);
+
+    await expect(requestReminderPermission()).rejects.toThrow('browser permission request failed');
+    expect(RejectingNotification.requestPermission).toHaveBeenCalledTimes(1);
+  });
+
   test('Inbox and Today reload failures are visible and retry their safe reads', async () => {
     vi.mocked(listWorkItems)
       .mockRejectedValueOnce(new Error('inbox reload unavailable'))

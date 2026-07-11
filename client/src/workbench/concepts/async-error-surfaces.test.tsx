@@ -12,6 +12,7 @@ import { createWorkItem, getWorkItem } from '../../api/work-items';
 import { WorkbenchDialogProvider } from '../../components/ui/workbench-dialogs';
 import { AsyncErrorHost } from '../AsyncErrorHost';
 import type { WBData } from '../data';
+import { getReminderPermission, requestReminderPermission } from '../ReminderTicker';
 import { ConceptA } from './ConceptA';
 import { ConceptN } from './ConceptN';
 import { ConceptO } from './ConceptO';
@@ -116,6 +117,8 @@ beforeEach(() => {
   vi.mocked(listDispatchRuns).mockResolvedValue([]);
   vi.mocked(listSkills).mockResolvedValue([]);
   vi.mocked(listProjectSkills).mockResolvedValue([]);
+  vi.mocked(getReminderPermission).mockReturnValue('default');
+  vi.mocked(requestReminderPermission).mockResolvedValue(false);
   vi.mocked(composeSession).mockResolvedValue({
     prompt: '# Task: recover async errors',
     promptFile: '/tmp/prompt.md',
@@ -226,6 +229,25 @@ describe('high-value optional surface failures', () => {
     expect(await screen.findByText('$42.00')).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByText('budgets unavailable')).not.toBeInTheDocument());
     expect(listBudgets).toHaveBeenCalledTimes(2);
+  });
+
+  test('Concept N surfaces a notification permission rejection and safely retries it', async () => {
+    vi.mocked(requestReminderPermission)
+      .mockRejectedValueOnce(new Error('notification permission unavailable'))
+      .mockImplementationOnce(async () => {
+        vi.mocked(getReminderPermission).mockReturnValue('granted');
+        return true;
+      });
+
+    renderSurface(<ConceptN data={data} reload={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'enable browser notifications' }));
+
+    expect(await screen.findByText('notification permission unavailable')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'retry request notification permission' }));
+
+    await waitFor(() => expect(requestReminderPermission).toHaveBeenCalledTimes(2));
+    expect(await screen.findByRole('button', { name: 'notifications enabled' })).toBeDisabled();
+    await waitFor(() => expect(screen.queryByText('notification permission unavailable')).not.toBeInTheDocument());
   });
 
   test('Concept O compose failure is visible and retry restores the prompt', async () => {

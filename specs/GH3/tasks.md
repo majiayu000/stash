@@ -24,6 +24,8 @@
   - A capture 的非幂等创建失败不提供自动 Retry，只允许用户手动重新提交；
   - A capture 的迟到 resolve/reject 在卸载后不派发错误、不 reload、不设置组件状态；
   - N effects 不泄漏 rejected Promise；
+  - Notification permission rejection 保留至 Concept N 调用层，由 Host 显示并支持用户触发的安全 Retry；
+  - permission 状态只通过 `getReminderPermission()` 读取，unsupported 环境不直接访问 `Notification.permission`；
   - 所有安全读取或幂等操作提供 Retry；
   - 不修改任何 dead control 或 Dispatcher 上下文语义。
 - Verify：`bun run test -- async-error-surfaces.test.tsx`
@@ -49,6 +51,7 @@
   - Host 的去重、容量、Dismiss、Retry race 均有测试；
   - A burn/capture、N budgets、O compose forced failure 均有可见错误断言；
   - Inbox/Today reload、Reminder polling 与 Concept K 代表性 mutation 均有 forced-failure 断言；
+  - notification permission helper 保留 rejection，Concept N caller 测试证明错误可见且 reattempt 成功；
   - A delayed capture rejection 在卸载后不泄漏到保留的 Host；
   - 三条长 alert 的错误栈具备限高滚动样式；
   - Retry 至少证明一次真实重请求与成功恢复；

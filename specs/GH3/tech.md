@@ -45,6 +45,8 @@ Host 使用现有 Workbench CSS variables，固定在左下角，避免覆盖右
 - projects 与 budgets 的 `refresh` 显式捕获失败并调用 `reportAsyncError`；
 - effect 使用 `void refresh()`，所有 Promise rejection 在函数内部终止；
 - Retry 重新执行对应 list API；CRUD 已有 Dialog 错误保持不变；
+- `requestReminderPermission` 不把浏览器 rejection 改写成 `false`；`NotificationsPanel.enable` 捕获后通过共享 Host 展示，并由用户点击 Retry 重新发起权限请求；
+- 权限状态统一通过 `getReminderPermission()` 读取，unsupported 浏览器不直接访问不存在的 `Notification.permission`；
 - 不修改 settings rail、toggle、theme preview 或 integration 控件。
 
 ### Concept O
@@ -84,6 +86,7 @@ Host 使用现有 Workbench CSS variables，固定在左下角，避免覆盖右
   - Concept N budgets forced failure 显示错误且可 Retry；
   - Concept O compose forced failure 显示错误且 Retry 后恢复 Prompt。
 - `async-error-secondary-surfaces.test.tsx`：Inbox/Today reload、Reminder polling 与 Concept K 幂等 update/non-idempotent create 的 forced failure 行为。
+- notification permission 测试同时锁定 helper rejection 合同，以及 Concept N caller 的可见错误与成功 reattempt。
 - Concept A 延迟 capture rejection 测试：保留 Host、卸载 Concept A 后 reject，断言不派发跨路由错误且不 reload。
 - Host 长消息测试：三条 alert 保留，样式包含限高、纵向滚动与 overscroll containment。
 - 定向静态检查 `client/src` 不再存在用户可见 `silent|noop|swallow|surface elsewhere` 路径；只保留并记录不影响应用数据的 localStorage/telemetry 例外。

@@ -376,14 +376,20 @@ function NotificationsPanel() {
   useEffect(() => { setPerm(getReminderPermission()); }, []);
 
   async function enable() {
-    const ok = await requestReminderPermission();
-    setPerm(getReminderPermission());
-    if (!ok && Notification.permission === 'denied') {
-      await dialog.alert({
-        title: 'notifications are blocked',
-        description: 'Re-enable notifications in this browser site settings.',
-        tone: 'danger',
-      });
+    try {
+      const ok = await requestReminderPermission();
+      const nextPermission = getReminderPermission();
+      setPerm(nextPermission);
+      if (!ok && nextPermission === 'denied') {
+        await dialog.alert({
+          title: 'notifications are blocked',
+          description: 'Re-enable notifications in this browser site settings.',
+          tone: 'danger',
+        });
+      }
+    } catch (error) {
+      setPerm(getReminderPermission());
+      reportAsyncError('request notification permission', error, enable);
     }
   }
 

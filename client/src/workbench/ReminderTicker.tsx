@@ -94,10 +94,8 @@ export async function requestReminderPermission(): Promise<boolean> {
   if (typeof Notification === 'undefined') return false;
   if (Notification.permission === 'granted') return true;
   if (Notification.permission === 'denied') return false;
-  try {
-    const res = await Notification.requestPermission();
-    return res === 'granted';
-  } catch { return false; }
+  const res = await Notification.requestPermission();
+  return res === 'granted';
 }
 
 export function getReminderPermission(): NotificationPermission | 'unsupported' {
