@@ -43,6 +43,12 @@ test('Concept J is interactive within 3s on a cold 3,000-history root', async ({
   await expect(page.locator('.wr-head .shiny-text')).toContainText(/\b\d{4}-W\d{2}\b/, {
     timeout: UI_BUDGET_MS,
   });
+  const tokenKpi = page.locator('.wr-kpi', { hasText: 'tokens · 7d' });
+  const costKpi = page.locator('.wr-kpi', { hasText: 'cost · 7d' });
+  await expect(tokenKpi.locator('.wr-kpi-value')).toHaveText('225');
+  await expect(tokenKpi.locator('.wr-kpi-wow')).toHaveText('↑ 50% vs prev');
+  await expect(costKpi.locator('.wr-kpi-value')).toHaveText('$0.00');
+  await expect(costKpi.locator('.wr-kpi-wow')).toHaveText('↓ 7% vs prev');
   await expect(page.getByRole('button', { name: 'previous week' })).toBeEnabled();
   const interactiveMs = performance.now() - started;
   expect(interactiveMs).toBeLessThanOrEqual(UI_BUDGET_MS);

@@ -31,6 +31,37 @@ function walk(dir: string, out: string[]): void {
   }
 }
 
+function walkActivity(
+  dir: string,
+  out: SessionFileFingerprint[],
+  errors: SourceParseError[],
+): void {
+  let entries: string[];
+  try {
+    entries = readdirSync(dir);
+  } catch (error) {
+    errors.push(sourceError('codex', dir, error));
+    return;
+  }
+
+  for (const entry of entries) {
+    const sourcePath = join(dir, entry);
+    let stat;
+    try {
+      stat = statSync(sourcePath);
+    } catch (error) {
+      errors.push(sourceError('codex', sourcePath, error));
+      continue;
+    }
+
+    if (stat.isDirectory()) {
+      walkActivity(sourcePath, out, errors);
+    } else if (stat.isFile() && /^rollout-.*\.jsonl$/.test(entry)) {
+      out.push({ sourcePath, mtimeMs: stat.mtimeMs, sizeBytes: stat.size });
+    }
+  }
+}
+
 export class CodexSource implements AgentSource {
   readonly provider = 'codex' as const;
   private readonly analyticsCache = new Map<string, AnalyticsCacheEntry>();
@@ -121,7 +152,20 @@ export class CodexSource implements AgentSource {
     const errors: SourceParseError[] = [];
     const usageBySource = new Map<string, UsageEvent[]>();
     const dir = sessionsDir(options.root);
-    if (!existsSync(dir)) {
+    let directoryExists = true;
+    try {
+      const stat = statSync(dir);
+      if (!stat.isDirectory()) {
+        errors.push(sourceError('codex', dir, new Error('Codex sessions path is not a directory')));
+      }
+    } catch (error) {
+      if (isMissingPathError(error)) {
+        directoryExists = false;
+      } else {
+        errors.push(sourceError('codex', dir, error));
+      }
+    }
+    if (errors.length > 0 || !directoryExists) {
       return {
         sessions,
         errors,
@@ -130,21 +174,9 @@ export class CodexSource implements AgentSource {
       };
     }
 
-    const files: string[] = [];
-    try {
-      walk(dir, files);
-    } catch (error) {
-      return {
-        sessions,
-        errors: [sourceError('codex', dir, error)],
-        usageBySource,
-        cache: scanStats(options.root, true, 0, 0, 0, 0),
-      };
-    }
-
-    const ordered = files
-      .map((sourcePath) => fileFingerprint(sourcePath))
-      .sort((a, b) => b.mtimeMs - a.mtimeMs);
+    const files: SessionFileFingerprint[] = [];
+    walkActivity(dir, files, errors);
+    const ordered = files.sort((a, b) => b.mtimeMs - a.mtimeMs);
     const candidates = options.modifiedSinceMs === undefined
       ? ordered
       : ordered.filter((entry) => entry.mtimeMs >= options.modifiedSinceMs!);
@@ -217,6 +249,13 @@ function sourceError(
 function fileFingerprint(sourcePath: string): SessionFileFingerprint {
   const stat = statSync(sourcePath);
   return { sourcePath, mtimeMs: stat.mtimeMs, sizeBytes: stat.size };
+}
+
+function isMissingPathError(error: unknown): boolean {
+  return typeof error === 'object'
+    && error !== null
+    && 'code' in error
+    && error.code === 'ENOENT';
 }
 
 function scanStats(

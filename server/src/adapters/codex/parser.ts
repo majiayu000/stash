@@ -245,7 +245,7 @@ export function parseCodexAnalytics(
   let lastActiveAt: string | undefined;
   let foundAfterBoundaryToken = false;
   let foundBaselineToken = false;
-  let foundModelBeforeBoundary = false;
+  let foundModelBeforeOldestAfterBoundaryToken = false;
   let trailingPartial = false;
   let newerTimestampMs = Number.POSITIVE_INFINITY;
 
@@ -292,14 +292,24 @@ export function parseCodexAnalytics(
     if (isToken && rec.timestamp) {
       const timestampMs = Date.parse(rec.timestamp);
       if (!Number.isNaN(timestampMs)) {
-        if (timestampMs >= activeSinceMs) foundAfterBoundaryToken = true;
-        else foundBaselineToken = true;
+        if (timestampMs >= activeSinceMs) {
+          foundAfterBoundaryToken = true;
+          // A model already seen while walking backwards is newer than this
+          // token, so it cannot provide the initial context for this now-oldest
+          // in-window sample.
+          foundModelBeforeOldestAfterBoundaryToken = false;
+        } else {
+          foundBaselineToken = true;
+        }
       }
     } else if (isModel && foundAfterBoundaryToken) {
-      foundModelBeforeBoundary = true;
+      foundModelBeforeOldestAfterBoundaryToken = true;
     }
 
-    if (foundBaselineToken && (!foundAfterBoundaryToken || foundModelBeforeBoundary)) break;
+    if (
+      foundBaselineToken
+      && (!foundAfterBoundaryToken || foundModelBeforeOldestAfterBoundaryToken)
+    ) break;
   }
 
   if (lastActiveAt === undefined) {
@@ -366,9 +376,12 @@ function codexDeltaUsageFromRecords(records: RawRecord[], sourcePath: string): U
       output: numericTotal(total.output_tokens, previous.output),
       cached: numericTotal(total.cached_input_tokens, previous.cached),
     };
-    const inputTokens = cumulativeDelta(current.input, previous.input);
-    const outputTokens = cumulativeDelta(current.output, previous.output);
-    const cacheReadTokens = cumulativeDelta(current.cached, previous.cached);
+    const reset = current.input < previous.input
+      || current.output < previous.output
+      || current.cached < previous.cached;
+    const inputTokens = reset ? current.input : current.input - previous.input;
+    const outputTokens = reset ? current.output : current.output - previous.output;
+    const cacheReadTokens = reset ? current.cached : current.cached - previous.cached;
     previous = current;
 
     if (!rec.timestamp || (inputTokens === 0 && outputTokens === 0)) continue;
@@ -386,10 +399,6 @@ function codexDeltaUsageFromRecords(records: RawRecord[], sourcePath: string): U
 
 function numericTotal(value: unknown, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
-}
-
-function cumulativeDelta(current: number, previous: number): number {
-  return current >= previous ? current - previous : current;
 }
 
 function computeStatus(lastActiveAt: string): AgentSessionStatus {

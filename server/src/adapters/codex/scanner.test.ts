@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { appendFileSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'fs';
+import { appendFileSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
@@ -144,6 +144,116 @@ describe('CodexSource.scan', () => {
       expect(result.cache).toMatchObject({ filesIndexed: 1, filesReused: 0 });
     } finally {
       db.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('analytics scan treats a cumulative counter reset as one atomic sample', () => {
+    const root = mkdtempSync(join(tmpdir(), 'stash-codex-reset-'));
+    try {
+      const sessionsDir = join(root, 'sessions', '2026', '07', '01');
+      mkdirSync(sessionsDir, { recursive: true });
+      const file = join(sessionsDir, 'rollout-reset.jsonl');
+      const token = (timestamp: string, input: number, output: number, cached: number) => ({
+        timestamp,
+        type: 'event_msg',
+        payload: {
+          type: 'token_count',
+          info: { total_token_usage: {
+            input_tokens: input,
+            output_tokens: output,
+            cached_input_tokens: cached,
+          } },
+        },
+      });
+      const lines = [
+        { timestamp: '2026-06-28T22:00:00.000Z', type: 'session_meta', payload: { id: 'reset', cwd: '/tmp/reset' } },
+        { timestamp: '2026-06-28T22:30:00.000Z', type: 'turn_context', payload: { model: 'gpt-5' } },
+        token('2026-06-28T23:00:00.000Z', 100, 10, 50),
+        token('2026-07-01T08:00:00.000Z', 5, 20, 4),
+      ];
+      writeFileSync(file, `${lines.map((line) => JSON.stringify(line)).join('\n')}\n`);
+
+      const result = new CodexSource().scanActivity({
+        root,
+        modifiedSinceMs: Date.parse('2026-07-01T00:00:00.000Z'),
+      });
+
+      expect(result.errors).toEqual([]);
+      expect(result.usageBySource?.get(file)?.at(-1)).toMatchObject({
+        model: 'gpt-5',
+        inputTokens: 5,
+        outputTokens: 20,
+        cacheReadTokens: 4,
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('analytics scan keeps the model context governing the boundary delta', () => {
+    const root = mkdtempSync(join(tmpdir(), 'stash-codex-model-boundary-'));
+    try {
+      const sessionsDir = join(root, 'sessions', '2026', '07', '01');
+      mkdirSync(sessionsDir, { recursive: true });
+      const file = join(sessionsDir, 'rollout-model-boundary.jsonl');
+      const token = (timestamp: string, input: number, output: number) => ({
+        timestamp,
+        type: 'event_msg',
+        payload: {
+          type: 'token_count',
+          info: { total_token_usage: { input_tokens: input, output_tokens: output } },
+        },
+      });
+      const lines = [
+        { timestamp: '2026-06-28T22:00:00.000Z', type: 'session_meta', payload: { id: 'model-boundary', cwd: '/tmp/model-boundary' } },
+        { timestamp: '2026-06-28T22:30:00.000Z', type: 'turn_context', payload: { model: 'gpt-5' } },
+        token('2026-06-28T23:00:00.000Z', 100, 10),
+        token('2026-07-01T08:00:00.000Z', 150, 20),
+        { timestamp: '2026-07-01T09:00:00.000Z', type: 'turn_context', payload: { model: 'gpt-4.1' } },
+        token('2026-07-01T10:00:00.000Z', 180, 30),
+      ];
+      writeFileSync(file, `${lines.map((line) => JSON.stringify(line)).join('\n')}\n`);
+
+      const result = new CodexSource().scanActivity({
+        root,
+        modifiedSinceMs: Date.parse('2026-07-01T00:00:00.000Z'),
+      });
+
+      expect(result.errors).toEqual([]);
+      expect(result.usageBySource?.get(file)?.map((event) => [
+        event.ts,
+        event.model,
+        event.inputTokens,
+        event.outputTokens,
+      ])).toEqual([
+        ['2026-06-28T23:00:00.000Z', 'gpt-5', 100, 10],
+        ['2026-07-01T08:00:00.000Z', 'gpt-5', 50, 10],
+        ['2026-07-01T10:00:00.000Z', 'gpt-4.1', 30, 10],
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('analytics scan reports a rollout candidate that cannot be statted', () => {
+    const root = mkdtempSync(join(tmpdir(), 'stash-codex-strict-walk-'));
+    try {
+      const sessionsDir = join(root, 'sessions', '2026', '07', '08');
+      mkdirSync(sessionsDir, { recursive: true });
+      const broken = join(sessionsDir, 'rollout-broken.jsonl');
+      symlinkSync(join(sessionsDir, 'missing-target.jsonl'), broken);
+
+      const result = new CodexSource().scanActivity({
+        root,
+        modifiedSinceMs: Date.parse('2026-06-29T00:00:00.000Z'),
+      });
+
+      expect(result.sessions).toEqual([]);
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors[0]?.sourcePath).toBe(broken);
+      expect(result.errors[0]?.message).toMatch(/ENOENT|no such file/i);
+    } finally {
       rmSync(root, { recursive: true, force: true });
     }
   });
