@@ -4,7 +4,7 @@ import { fileURLToPath } from 'url';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const CLAUDE_FIXTURE_ROOT = process.env.STASH_E2E_CLAUDE_ROOT
-  ?? resolve(here, '../server/src/adapters/claude/fixtures');
+  ?? resolve(here, '../server/src/testing/fixtures/claude');
 const CODEX_FIXTURE_ROOT = process.env.STASH_E2E_CODEX_ROOT
   ?? resolve(here, '../server/src/adapters/codex/fixtures');
 
