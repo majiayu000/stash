@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
@@ -173,6 +173,44 @@ describe('high-value optional surface failures', () => {
     await waitFor(() => expect(createWorkItem).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(input).toHaveValue(''));
     expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  test('Concept A ignores a delayed capture rejection after the surface unmounts', async () => {
+    let rejectCreate: ((reason?: unknown) => void) | undefined;
+    const reload = vi.fn();
+    const onAsyncError = vi.fn();
+    vi.mocked(createWorkItem).mockImplementationOnce(() => new Promise<WorkItem>((_resolve, reject) => {
+      rejectCreate = reject;
+    }));
+    window.addEventListener('stash:async-error', onAsyncError);
+
+    function surface(showConcept: boolean) {
+      return (
+        <MemoryRouter>
+          <WorkbenchDialogProvider>
+            <AsyncErrorHost />
+            {showConcept && <ConceptA data={data} reload={reload} />}
+          </WorkbenchDialogProvider>
+        </MemoryRouter>
+      );
+    }
+
+    const view = render(surface(true));
+    fireEvent.change(screen.getByTestId('ca-capture-input'), { target: { value: 'leave this route' } });
+    fireEvent.submit(screen.getByTestId('ca-capture-form'));
+    await waitFor(() => expect(createWorkItem).toHaveBeenCalledTimes(1));
+
+    view.rerender(surface(false));
+    await act(async () => {
+      rejectCreate?.(new Error('late capture failure'));
+      await Promise.resolve();
+    });
+
+    expect(onAsyncError).not.toHaveBeenCalled();
+    expect(screen.queryByText('late capture failure')).not.toBeInTheDocument();
+    expect(reload).not.toHaveBeenCalled();
+    expect(console.error).not.toHaveBeenCalled();
+    window.removeEventListener('stash:async-error', onAsyncError);
   });
 
   test('Concept N budget failure is visible and retry replaces the false empty state', async () => {

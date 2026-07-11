@@ -92,6 +92,10 @@ export function AsyncErrorHost() {
           display: grid;
           gap: 8px;
           width: min(420px, calc(100vw - 48px));
+          max-height: min(70vh, 560px);
+          overflow-y: auto;
+          overscroll-behavior: contain;
+          padding-right: 4px;
           pointer-events: none;
         }
         .async-error-card {

@@ -1,13 +1,14 @@
 import { useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { listWorkItems } from '../api/work-items';
+import { reportAsyncError } from './reportAsyncError';
 
 /**
  * v0.6 — fire browser notifications for reminders that fell due in the last
  * tick window. Tick every 60s.
  *
  * Permission must be requested by user gesture (ConceptN has a button).
- * The ticker silently no-ops if permission isn't `granted`. We dedupe
+ * The ticker does no work if permission isn't `granted`. We dedupe
  * notifications per item via the Notification tag.
  *
  * Items considered: reminderAt strictly in [lastTick, now], not in done/dropped.
@@ -22,11 +23,18 @@ function loadFired(): Set<string> {
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     return new Set(raw ? JSON.parse(raw) : []);
-  } catch { return new Set(); }
+  } catch {
+    // Local-only notification dedupe must not block the server-backed poll.
+    return new Set();
+  }
 }
 
 function persistFired(fired: Set<string>) {
-  try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(Array.from(fired))); } catch { /* quota */ }
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(Array.from(fired)));
+  } catch {
+    // Best-effort local dedupe; quota/privacy failures do not change app data.
+  }
 }
 
 export function ReminderTicker() {
@@ -65,10 +73,12 @@ export function ReminderTicker() {
         }
         persistFired(fired);
         lastTick.current = now;
-      } catch { /* swallow */ }
+      } catch (error) {
+        if (!cancelled) reportAsyncError('poll reminders', error, tick);
+      }
     }
 
-    tick();
+    void tick();
     const id = window.setInterval(tick, TICK_MS);
     return () => { cancelled = true; window.clearInterval(id); };
   }, [navigate]);

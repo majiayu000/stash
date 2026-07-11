@@ -8,6 +8,7 @@
 - Done when：
   - `stash:async-error` 包含单调 `id`、scope、message 与可选 retry；
   - Host 按 scope 去重、最多三条，并支持 Dismiss；
+  - 三条长错误受 max-height 约束并可纵向滚动；
   - 安全 Retry 防重复，成功只移除原 `id`，reject 不形成未处理 rejection；
   - Host 在 Workbench 中挂载且不依赖新包。
 - Verify：`bun run test -- AsyncErrorHost.test.tsx`
@@ -21,6 +22,7 @@
   - A burn/capture、N projects/budgets、O Todo/Prompt/Runs/Skills/Bindings/Close/Copy 失败均可见；
   - A capture 失败保留文本并恢复可提交状态；
   - A capture 的非幂等创建失败不提供自动 Retry，只允许用户手动重新提交；
+  - A capture 的迟到 resolve/reject 在卸载后不派发错误、不 reload、不设置组件状态；
   - N effects 不泄漏 rejected Promise；
   - 所有安全读取或幂等操作提供 Retry；
   - 不修改任何 dead control 或 Dispatcher 上下文语义。
@@ -42,18 +44,35 @@
 
 - Owner：`/root/dead_controls_audit`
 - Dependencies：`SP3-T1`、`SP3-T2`、`SP3-T3`
-- Files：`AsyncErrorHost.test.tsx`、`async-error-surfaces.test.tsx`
+- Files：`AsyncErrorHost.test.tsx`、`async-error-surfaces.test.tsx`、`async-error-secondary-surfaces.test.tsx`
 - Done when：
   - Host 的去重、容量、Dismiss、Retry race 均有测试；
   - A burn/capture、N budgets、O compose forced failure 均有可见错误断言；
+  - Inbox/Today reload、Reminder polling 与 Concept K 代表性 mutation 均有 forced-failure 断言；
+  - A delayed capture rejection 在卸载后不泄漏到保留的 Host；
+  - 三条长 alert 的错误栈具备限高滚动样式；
   - Retry 至少证明一次真实重请求与成功恢复；
   - 测试没有未处理 rejection 或 act warning。
 - Verify：focused Vitest suites。
 
-## SP3-T5 — 完整门禁与本地交付
+## SP3-T5 — Review round 1：补齐广义静默路径
 
 - Owner：`/root/dead_controls_audit`
-- Dependencies：`SP3-T4`
+- Dependencies：`SP3-T1`
+- Files：`InboxTriage.tsx`、`TodayTriage.tsx`、`ReminderTicker.tsx`、`conceptK.knowledge.tsx`
+- Done when：
+  - Inbox/Today reload 与 Reminder polling 失败可见，安全读取可 Retry；
+  - Concept K Intent/Notes/Milestones/Decisions/Lessons mutation 失败可见；
+  - 仅幂等目标更新附带 Retry，create/delete 不附带 Retry；
+  - `client/src` 的 `silent|noop|swallow|surface elsewhere` 审计不再命中用户可见错误路径；
+  - localStorage/telemetry 例外必须完全不影响用户可见应用数据，并在 catch 处记录原因；
+  - 不修改 dead controls 或 Concept O 上下文语义。
+- Verify：`bun run test -- async-error-secondary-surfaces.test.tsx` 与定向 `rg` 审计。
+
+## SP3-T6 — 完整门禁与本地交付
+
+- Owner：`/root/dead_controls_audit`
+- Dependencies：`SP3-T4`、`SP3-T5`
 - Files：本 Issue 分支全部改动
 - Done when：
   - `git diff --check`、client 全量 test、client typecheck、client build 在当前 session 通过；

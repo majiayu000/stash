@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { BurnSnapshot } from '@stash/shared';
 import { CursorGlow, LiveDot, ParticleField } from '../../components/effects';
 import { getBurnSnapshot } from '../../api/analytics';
@@ -47,17 +47,23 @@ export function ConceptA({ data, reload }: { data: WBData; reload: () => void })
 
   const [captureText, setCaptureText] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const captureMounted = useRef(false);
+  useEffect(() => {
+    captureMounted.current = true;
+    return () => { captureMounted.current = false; };
+  }, []);
 
   async function capture(title: string) {
     setSubmitting(true);
     try {
       await createWorkItem({ title, kind: 'idea', status: 'inbox' });
+      if (!captureMounted.current) return;
       setCaptureText('');
       reload();
     } catch (error) {
-      reportAsyncError('capture work item', error);
+      if (captureMounted.current) reportAsyncError('capture work item', error);
     } finally {
-      setSubmitting(false);
+      if (captureMounted.current) setSubmitting(false);
     }
   }
 

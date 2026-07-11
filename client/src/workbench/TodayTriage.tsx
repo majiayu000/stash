@@ -12,6 +12,7 @@ import {
   registerPendingUndo,
   type PendingUndoToken,
 } from './undoCoordinator';
+import { reportAsyncError } from './reportAsyncError';
 
 /**
  * v0.9 — multi-select + bulk ops for the Today list, mirroring InboxTriage.
@@ -57,10 +58,12 @@ export function TodayTriage() {
           if (cur && next.some((it) => it.id === cur)) return cur;
           return next[0]?.id ?? null;
         });
-      } catch { /* silent */ }
+      } catch (error) {
+        if (!cancelled) reportAsyncError('reload today triage', error, reload);
+      }
     }
-    reload();
-    function onChange() { reload(); }
+    void reload();
+    function onChange() { void reload(); }
     window.addEventListener('stash:captured', onChange);
     return () => { cancelled = true; window.removeEventListener('stash:captured', onChange); };
   }, []);

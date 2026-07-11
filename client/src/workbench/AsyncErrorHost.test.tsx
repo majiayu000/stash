@@ -43,6 +43,25 @@ describe('AsyncErrorHost', () => {
     expect(screen.getAllByRole('alert')).toHaveLength(3);
   });
 
+  test('keeps three long alerts in a bounded scrollable stack', () => {
+    const { container } = render(<AsyncErrorHost />);
+    const longMessage = 'long failure detail '.repeat(40);
+
+    act(() => {
+      reportAsyncError('long scope one', new Error(longMessage));
+      reportAsyncError('long scope two', new Error(longMessage));
+      reportAsyncError('long scope three', new Error(longMessage));
+    });
+
+    expect(screen.getAllByRole('alert')).toHaveLength(3);
+    const stylesheet = Array.from(container.querySelectorAll('style'))
+      .map((style) => style.textContent)
+      .join('\n');
+    expect(stylesheet).toContain('max-height: min(70vh, 560px)');
+    expect(stylesheet).toContain('overflow-y: auto');
+    expect(stylesheet).toContain('overscroll-behavior: contain');
+  });
+
   test('runs a safe retry once and removes the resolved error', async () => {
     const retry = vi.fn().mockResolvedValue(undefined);
     render(<AsyncErrorHost />);
