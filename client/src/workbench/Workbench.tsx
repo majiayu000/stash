@@ -1,9 +1,10 @@
 import { useEffect } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useLocation, useParams } from 'react-router-dom';
 import './styles/brand.css';
 import './styles/dashboard.css';
 import { ThemeSwitcher } from '../components/ThemeSwitcher';
 import { ApiError } from '../api/client';
+import { AsyncErrorHost } from './AsyncErrorHost';
 import { useWorkbenchData } from './useWorkbenchData';
 import { findConcept } from './concepts/registry';
 import { renderConcept } from './concepts/render';
@@ -34,6 +35,7 @@ function conceptIdFromParams(params: WorkbenchRouteParams): string {
 export function Workbench() {
   const { data, loading, error, reload } = useWorkbenchData();
   const params = useParams<WorkbenchRouteParams>();
+  const location = useLocation();
   const routeConceptId = conceptIdFromParams(params);
   const entry = findConcept(routeConceptId);
 
@@ -114,6 +116,7 @@ export function Workbench() {
       <ReminderTicker />
       <TodayTriage />
       <SourceHealthBanner errors={data.sourceErrors} onRetry={reload} />
+      <AsyncErrorHost key={`${location.pathname}${location.search}`} />
       {content}
 
       <style>{`

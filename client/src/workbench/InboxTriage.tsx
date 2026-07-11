@@ -14,6 +14,7 @@ import {
   registerPendingUndo,
   type PendingUndoToken,
 } from './undoCoordinator';
+import { reportAsyncError } from './reportAsyncError';
 
 /**
  * SPEC v0.3 §3e — global inbox triage keyboard layer.
@@ -114,10 +115,12 @@ export function InboxTriage() {
           if (cur && next.some((it) => it.id === cur)) return cur;
           return next[0]?.id ?? null;
         });
-      } catch { /* silent — surface elsewhere */ }
+      } catch (error) {
+        if (!cancelled) reportAsyncError('reload inbox triage', error, reload);
+      }
     }
-    reload();
-    function onChange() { reload(); }
+    void reload();
+    function onChange() { void reload(); }
     window.addEventListener('stash:captured', onChange);
     return () => { cancelled = true; window.removeEventListener('stash:captured', onChange); };
   }, []);

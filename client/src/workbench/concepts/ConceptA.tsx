@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { BurnSnapshot } from '@stash/shared';
 import { CursorGlow, LiveDot, ParticleField } from '../../components/effects';
 import { getBurnSnapshot } from '../../api/analytics';
@@ -25,9 +25,15 @@ export function ConceptA({ data, reload }: { data: WBData; reload: () => void })
   const [burn, setBurn] = useState<BurnSnapshot | null>(null);
   useEffect(() => {
     let cancelled = false;
-    getBurnSnapshot(12)
-      .then((s) => { if (!cancelled) setBurn(s); })
-      .catch((error) => { if (!cancelled) reportAsyncError('load card wall analytics', error); });
+    async function loadBurn() {
+      try {
+        const snapshot = await getBurnSnapshot(12);
+        if (!cancelled) setBurn(snapshot);
+      } catch (error) {
+        if (!cancelled) reportAsyncError('load card wall analytics', error, loadBurn);
+      }
+    }
+    void loadBurn();
     return () => { cancelled = true; };
   }, []);
 
@@ -41,19 +47,31 @@ export function ConceptA({ data, reload }: { data: WBData; reload: () => void })
 
   const [captureText, setCaptureText] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const captureMounted = useRef(false);
+  useEffect(() => {
+    captureMounted.current = true;
+    return () => { captureMounted.current = false; };
+  }, []);
 
-  async function submitCapture(e: React.FormEvent) {
+  async function capture(title: string) {
+    setSubmitting(true);
+    try {
+      await createWorkItem({ title, kind: 'idea', status: 'inbox' });
+      if (!captureMounted.current) return;
+      setCaptureText('');
+      reload();
+    } catch (error) {
+      if (captureMounted.current) reportAsyncError('capture work item', error);
+    } finally {
+      if (captureMounted.current) setSubmitting(false);
+    }
+  }
+
+  function submitCapture(e: React.FormEvent) {
     e.preventDefault();
     const trimmed = captureText.trim();
     if (!trimmed || submitting) return;
-    setSubmitting(true);
-    try {
-      await createWorkItem({ title: trimmed, kind: 'idea', status: 'inbox' });
-      setCaptureText('');
-      reload();
-    } finally {
-      setSubmitting(false);
-    }
+    void capture(trimmed);
   }
 
   return (
