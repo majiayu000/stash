@@ -38,7 +38,7 @@
 - focus hour 按 usage `ts` 过滤；跨周 session 即使 `lastActiveAt` 晚于目标周结束，也必须保留目标周 usage；
 - 公开 `/api/analytics/burn?days=N` 行为保持不变。
 
-Session 周计数、focus hour 与 burn totals 共享同一无截断 scan result。已有 SQLite session cache 继续负责候选文件的热复用。
+Session 周计数、focus hour 与 burn totals 共享同一无截断 scan result。Weekly 的热复用由严格校验后的 window-scoped 进程内 cache 负责；已有 SQLite session cache 只继续服务普通 Session/Burn 路径。
 
 ### 3. 响应性边界
 
