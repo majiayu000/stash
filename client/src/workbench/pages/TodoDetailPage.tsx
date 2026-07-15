@@ -4,6 +4,7 @@ import type { CoachApplySummaryResponse, JournalEntry, Priority, WorkItem, WorkI
 import { apiGet } from '../../api/client';
 import { ChecklistPanel, useChecklist } from './todo-detail.checklist';
 import {
+  useEscToClose,
   useJournalEntries,
   useLinkedSessionEdges,
   useTodoDetailResources,
@@ -97,6 +98,7 @@ export function TodoDetailPage({ data, reload }: { data: WBData; reload: () => v
     } catch (error) { reportAsyncError('resolve detail close target', error); flashSaved(`✕ could not close: ${error instanceof Error ? error.message : String(error)}`); }
     finally { closeInFlightRef.current = false; }
   }
+  useEscToClose(closeDetail);
   async function dropItem() {
     if (!item || item.status === 'dropped') return;
     const confirmed = await dialog.confirm({
@@ -382,7 +384,13 @@ export function TodoDetailPage({ data, reload }: { data: WBData; reload: () => v
           {/* Header */}
           <div className="td-modal-head">
             <div className="td-header-row">
-              <button className="td-back" type="button" onClick={closeDetail}>
+              <button
+                className="td-back"
+                type="button"
+                onClick={closeDetail}
+                aria-label={item?.parentId ? 'Back to system' : 'Close detail'}
+                title={item?.parentId ? 'Back to system' : 'Close detail'}
+              >
                 <span aria-hidden>←</span>
                 <span>{item?.parentId ? 'Back to system' : 'Back to work'}</span>
               </button>
