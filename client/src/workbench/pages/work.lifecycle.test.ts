@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'vitest';
 import type { WBTodo } from '../data';
-import { groupTodosForBoard, moveInputForColumn } from './conceptE.lifecycle';
+import { groupTodosForBoard, moveInputForColumn } from './work.lifecycle';
 
-describe('Concept E lifecycle grouping', () => {
+describe('Work lifecycle grouping', () => {
   const now = new Date('2026-05-14T10:00:00.000Z');
 
   test('uses status and canonical today fields instead of project presence', () => {

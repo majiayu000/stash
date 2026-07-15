@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
-import { isoWeekRange, nextIsoWeekRange, shiftIsoWeek } from './conceptJ.week';
+import { isoWeekRange, nextIsoWeekRange, shiftIsoWeek } from './weekly-review.week';
 
-describe('Concept J ISO week helpers', () => {
+describe('Weekly review ISO week helpers', () => {
   test('builds the current week range and weekday slots', () => {
     const range = isoWeekRange('2026-W20');
 

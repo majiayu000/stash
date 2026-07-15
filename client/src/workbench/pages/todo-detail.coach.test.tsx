@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, test, vi } from 'vitest';
 import type { WorkItem } from '@stash/shared';
-import { TaskCoachPanel } from './conceptL.coach';
+import { TaskCoachPanel } from './todo-detail.coach';
 import { askCoach, listCoachMessages } from '../../api/work-item-coach';
 
 vi.mock('../../api/work-item-coach', () => ({

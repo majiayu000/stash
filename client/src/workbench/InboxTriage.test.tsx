@@ -54,7 +54,7 @@ function modalFixture(kind?: ModalFixture) {
 
 function renderTriage({ modal }: { modal?: ModalFixture } = {}) {
   return render(
-    <MemoryRouter initialEntries={['/c/n']}>
+    <MemoryRouter initialEntries={['/settings']}>
       <WorkbenchDialogProvider>
         <InboxTriage />
         <button type="button">settings paths</button>
@@ -109,7 +109,7 @@ describe('InboxTriage keyboard safety', () => {
 
   test.each([
     ['semantic modal', 'semantic'],
-    ['Concept L todo-detail overlay', 'td-overlay'],
+    ['task-detail overlay', 'td-overlay'],
     ['native open dialog', 'native-dialog'],
   ] as const)('pauses inbox writes while %s is open', async (_label, modal) => {
     renderTriage({ modal });
@@ -143,7 +143,7 @@ describe('InboxTriage keyboard safety', () => {
     await waitForInboxCursor('inbox-2');
     fireEvent.keyDown(document.body, { key: 'Enter' });
 
-    await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('/c/l/inbox-2'));
+    await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('/todos/inbox-2'));
   });
 
   test.each([

@@ -41,7 +41,7 @@ try {
   })}\n`);
 
   const child = Bun.spawn(
-    [process.execPath, 'x', 'playwright', 'test', 'e2e/concept-j.performance.spec.ts'],
+    [process.execPath, 'x', 'playwright', 'test', 'e2e/weekly-review.performance.spec.ts'],
     {
       cwd: clientRoot,
       env: {

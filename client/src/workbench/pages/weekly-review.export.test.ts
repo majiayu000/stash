@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'vitest';
 import type { WeeklySnapshot, WorkItem } from '@stash/shared';
-import { buildWeeklyReviewMarkdown } from './conceptJ.export';
+import { buildWeeklyReviewMarkdown } from './weekly-review.export';
 
-describe('Concept J markdown export', () => {
+describe('Weekly review markdown export', () => {
   test('includes completed work, stale work, and next-week plan', () => {
     const markdown = buildWeeklyReviewMarkdown({
       week: weekly,

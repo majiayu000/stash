@@ -10,13 +10,13 @@ async function clearSkills(request: APIRequestContext) {
 }
 
 /**
- * Concept M golden path:
+ * Skills settings golden path:
  * 1. Seed one skill via API
- * 2. Open `/c/m`
+ * 2. Open `/settings/skills`
  * 3. Topbar renders, skill name appears
  * 4. The "installed" tab count reflects reality
  */
-test('Concept M lists seeded skills', async ({ page, request }) => {
+test('Skills settings lists seeded skills', async ({ page, request }) => {
   // Seed a uniquely named skill so repeated local e2e runs against the same
   // /tmp database do not make the locator ambiguous.
   const id = `e2e-skill-${Date.now()}`;
@@ -26,14 +26,14 @@ test('Concept M lists seeded skills', async ({ page, request }) => {
   });
   expect(create.ok()).toBeTruthy();
 
-  await page.goto('/c/m');
+  await page.goto('/settings/skills');
   await expect(page.locator('.topbar-title')).toContainText('stash');
 
   // Skill card should appear in the catalog grid (also appears in detail header — pick the card).
   await expect(page.locator('.sk-card-name', { hasText: name })).toBeVisible({ timeout: 10_000 });
 });
 
-test('Concept M empty state creates a skill through the UI', async ({ page, request }) => {
+test('Skills settings empty state creates a skill through the UI', async ({ page, request }) => {
   await clearSkills(request);
 
   let nativeDialogSeen = false;
@@ -42,7 +42,7 @@ test('Concept M empty state creates a skill through the UI', async ({ page, requ
     await dialog.dismiss();
   });
 
-  await page.goto('/c/m');
+  await page.goto('/settings/skills');
   await expect(page.getByText('no skills registered')).toBeVisible({ timeout: 10_000 });
   await expect(page.getByText('POST /api/skills')).toHaveCount(0);
 

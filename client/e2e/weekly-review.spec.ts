@@ -1,15 +1,15 @@
 import { test, expect } from '@playwright/test';
 
 /**
- * Concept J golden path:
- * 1. Open `/c/j` (Weekly review)
+ * Weekly review golden path:
+ * 1. Open `/review` (Weekly review)
  * 2. Topbar renders
  * 3. The week summary header is visible (ISO-week label) — proves the
  *    `/api/analytics/weekly` fetch resolved.
  */
-test('Concept J renders the weekly review with an ISO-week label', async ({ page }) => {
+test('Weekly review renders an ISO-week label', async ({ page }) => {
   const started = performance.now();
-  await page.goto('/c/j');
+  await page.goto('/review');
 
   await expect(page.locator('.topbar-title')).toContainText('stash');
 

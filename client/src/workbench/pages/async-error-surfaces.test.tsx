@@ -2,20 +2,17 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import type { Budget, BurnSnapshot, WorkItem } from '@stash/shared';
-import { getBurnSnapshot } from '../../api/analytics';
-import { listAreas } from '../../api/areas';
+import type { Budget, WorkItem } from '@stash/shared';
 import { listBudgets } from '../../api/budgets';
 import { composeSession, listDispatchRuns } from '../../api/sessions';
 import { listProjectSkills, listSkills } from '../../api/skills';
-import { createWorkItem, getWorkItem } from '../../api/work-items';
+import { getWorkItem } from '../../api/work-items';
 import { WorkbenchDialogProvider } from '../../components/ui/workbench-dialogs';
 import { AsyncErrorHost } from '../AsyncErrorHost';
 import type { WBData } from '../data';
 import { getReminderPermission, requestReminderPermission } from '../ReminderTicker';
-import { ConceptA } from './ConceptA';
-import { ConceptN } from './ConceptN';
-import { ConceptO } from './ConceptO';
+import { SettingsPage } from './SettingsPage';
+import { SessionStartPage } from './SessionStartPage';
 
 vi.mock('../../components/effects', () => ({
   CountUp: ({ to, format }: { to: number; format?: (n: number) => string }) => <span>{format ? format(to) : to}</span>,
@@ -25,13 +22,6 @@ vi.mock('../../components/effects', () => ({
   ShinyText: ({ children }: { children: ReactNode }) => <>{children}</>,
 }));
 
-vi.mock('../../api/analytics', () => ({ getBurnSnapshot: vi.fn() }));
-vi.mock('../../api/areas', () => ({
-  createArea: vi.fn(),
-  deleteArea: vi.fn(),
-  listAreas: vi.fn(),
-  updateArea: vi.fn(),
-}));
 vi.mock('../../api/budgets', () => ({
   createBudget: vi.fn(),
   deleteBudget: vi.fn(),
@@ -49,7 +39,6 @@ vi.mock('../../api/skills', () => ({
   listSkills: vi.fn(),
 }));
 vi.mock('../../api/work-items', () => ({
-  createWorkItem: vi.fn(),
   getWorkItem: vi.fn(),
 }));
 vi.mock('../ReminderTicker', () => ({
@@ -70,14 +59,6 @@ const data: WBData = {
     todosOpen: 0,
     todosDone: 0,
   },
-};
-
-const emptyBurn: BurnSnapshot = {
-  totals: { tokens: 0, cost: 0, sessions: 0 },
-  dailySpend: [],
-  hourlyHeatmap: [],
-  modelMix: [],
-  perProjectLeaderboard: [],
 };
 
 const workItem: WorkItem = {
@@ -109,10 +90,7 @@ const budget: Budget = {
 beforeEach(() => {
   vi.resetAllMocks();
   vi.spyOn(console, 'error').mockImplementation(() => {});
-  vi.mocked(getBurnSnapshot).mockResolvedValue(emptyBurn);
-  vi.mocked(createWorkItem).mockResolvedValue(workItem);
   vi.mocked(getWorkItem).mockResolvedValue(workItem);
-  vi.mocked(listAreas).mockResolvedValue([]);
   vi.mocked(listBudgets).mockResolvedValue([]);
   vi.mocked(listDispatchRuns).mockResolvedValue([]);
   vi.mocked(listSkills).mockResolvedValue([]);
@@ -141,98 +119,36 @@ function renderSurface(node: ReactNode, route = '/') {
   );
 }
 
-function notificationSurface(showConcept: boolean) {
+function notificationSurface(showPage: boolean) {
   return (
     <MemoryRouter>
       <WorkbenchDialogProvider>
         <AsyncErrorHost />
-        {showConcept && <ConceptN data={data} reload={vi.fn()} />}
+        {showPage && <SettingsPage data={data} reload={vi.fn()} />}
       </WorkbenchDialogProvider>
     </MemoryRouter>
   );
 }
 
 describe('high-value optional surface failures', () => {
-  test('Concept A burn failure is visible and retry reloads analytics', async () => {
-    vi.mocked(getBurnSnapshot)
-      .mockRejectedValueOnce(new Error('burn unavailable'))
-      .mockResolvedValueOnce(emptyBurn);
+  test('Settings exposes only controls backed by real application state', () => {
+    renderSurface(<SettingsPage data={data} reload={vi.fn()} />);
 
-    renderSurface(<ConceptA data={data} reload={vi.fn()} />);
-
-    expect(await screen.findByText('burn unavailable')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'retry load card wall analytics' }));
-
-    await waitFor(() => expect(getBurnSnapshot).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(screen.queryByText('burn unavailable')).not.toBeInTheDocument());
+    expect(screen.getByRole('link', { name: /appearance/ })).toHaveAttribute('href', '#settings-appearance');
+    expect(screen.getByRole('link', { name: /notifications/ })).toHaveAttribute('href', '#settings-notifications');
+    expect(screen.getByRole('link', { name: /budgets/ })).toHaveAttribute('href', '#settings-budgets');
+    expect(screen.getByRole('button', { name: 'Apply Cyber neon theme' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.queryByText('integrations')).not.toBeInTheDocument();
+    expect(screen.queryByText('quick toggles')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'connect' })).not.toBeInTheDocument();
   });
 
-  test('Concept A capture failure preserves a usable input without unsafe automatic retry', async () => {
-    const reload = vi.fn();
-    vi.mocked(createWorkItem)
-      .mockRejectedValueOnce(new Error('capture unavailable'))
-      .mockResolvedValueOnce(workItem);
-    renderSurface(<ConceptA data={data} reload={reload} />);
-    const input = screen.getByTestId('ca-capture-input');
-
-    fireEvent.change(input, { target: { value: 'keep this text' } });
-    fireEvent.submit(screen.getByTestId('ca-capture-form'));
-
-    expect(await screen.findByText('capture unavailable')).toBeInTheDocument();
-    expect(input).toHaveValue('keep this text');
-    expect(input).not.toBeDisabled();
-    expect(screen.queryByRole('button', { name: 'retry capture work item' })).not.toBeInTheDocument();
-
-    fireEvent.submit(screen.getByTestId('ca-capture-form'));
-    await waitFor(() => expect(createWorkItem).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(input).toHaveValue(''));
-    expect(reload).toHaveBeenCalledTimes(1);
-  });
-
-  test('Concept A ignores a delayed capture rejection after the surface unmounts', async () => {
-    let rejectCreate: ((reason?: unknown) => void) | undefined;
-    const reload = vi.fn();
-    const onAsyncError = vi.fn();
-    vi.mocked(createWorkItem).mockImplementationOnce(() => new Promise<WorkItem>((_resolve, reject) => {
-      rejectCreate = reject;
-    }));
-    window.addEventListener('stash:async-error', onAsyncError);
-
-    function surface(showConcept: boolean) {
-      return (
-        <MemoryRouter>
-          <WorkbenchDialogProvider>
-            <AsyncErrorHost />
-            {showConcept && <ConceptA data={data} reload={reload} />}
-          </WorkbenchDialogProvider>
-        </MemoryRouter>
-      );
-    }
-
-    const view = render(surface(true));
-    fireEvent.change(screen.getByTestId('ca-capture-input'), { target: { value: 'leave this route' } });
-    fireEvent.submit(screen.getByTestId('ca-capture-form'));
-    await waitFor(() => expect(createWorkItem).toHaveBeenCalledTimes(1));
-
-    view.rerender(surface(false));
-    await act(async () => {
-      rejectCreate?.(new Error('late capture failure'));
-      await Promise.resolve();
-    });
-
-    expect(onAsyncError).not.toHaveBeenCalled();
-    expect(screen.queryByText('late capture failure')).not.toBeInTheDocument();
-    expect(reload).not.toHaveBeenCalled();
-    expect(console.error).not.toHaveBeenCalled();
-    window.removeEventListener('stash:async-error', onAsyncError);
-  });
-
-  test('Concept N budget failure is visible and retry replaces the false empty state', async () => {
+  test('Settings budget failure is visible and retry replaces the false empty state', async () => {
     vi.mocked(listBudgets)
       .mockRejectedValueOnce(new Error('budgets unavailable'))
       .mockResolvedValueOnce([budget]);
 
-    renderSurface(<ConceptN data={data} reload={vi.fn()} />);
+    renderSurface(<SettingsPage data={data} reload={vi.fn()} />);
 
     expect(await screen.findByText('budgets unavailable')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'retry load settings budgets' }));
@@ -242,7 +158,7 @@ describe('high-value optional surface failures', () => {
     expect(listBudgets).toHaveBeenCalledTimes(2);
   });
 
-  test('Concept N surfaces a notification permission rejection and safely retries it', async () => {
+  test('Settings surfaces a notification permission rejection and safely retries it', async () => {
     vi.mocked(requestReminderPermission)
       .mockRejectedValueOnce(new Error('notification permission unavailable'))
       .mockImplementationOnce(async () => {
@@ -250,7 +166,7 @@ describe('high-value optional surface failures', () => {
         return true;
       });
 
-    renderSurface(<ConceptN data={data} reload={vi.fn()} />);
+    renderSurface(<SettingsPage data={data} reload={vi.fn()} />);
     fireEvent.click(screen.getByRole('button', { name: 'enable browser notifications' }));
 
     expect(await screen.findByText('notification permission unavailable')).toBeInTheDocument();
@@ -261,7 +177,7 @@ describe('high-value optional surface failures', () => {
     await waitFor(() => expect(screen.queryByText('notification permission unavailable')).not.toBeInTheDocument());
   });
 
-  test('Concept N ignores a delayed notification permission resolve after unmount', async () => {
+  test('Settings ignores a delayed notification permission resolve after unmount', async () => {
     let resolvePermission: ((granted: boolean) => void) | undefined;
     vi.mocked(requestReminderPermission).mockImplementationOnce(() => new Promise<boolean>((resolve) => {
       resolvePermission = resolve;
@@ -282,7 +198,7 @@ describe('high-value optional surface failures', () => {
     expect(console.error).not.toHaveBeenCalled();
   });
 
-  test('Concept N ignores a delayed notification permission rejection after unmount', async () => {
+  test('Settings ignores a delayed notification permission rejection after unmount', async () => {
     let rejectPermission: ((reason?: unknown) => void) | undefined;
     const onAsyncError = vi.fn();
     vi.mocked(requestReminderPermission).mockImplementationOnce(() => new Promise<boolean>((_resolve, reject) => {
@@ -310,7 +226,7 @@ describe('high-value optional surface failures', () => {
     }
   });
 
-  test('Concept N permission retry becomes inert after the panel unmounts', async () => {
+  test('Settings permission retry becomes inert after the panel unmounts', async () => {
     vi.mocked(requestReminderPermission).mockRejectedValueOnce(new Error('permission retry should expire'));
 
     const view = render(notificationSurface(true));
@@ -324,7 +240,7 @@ describe('high-value optional surface failures', () => {
     expect(requestReminderPermission).toHaveBeenCalledTimes(1);
   });
 
-  test('Concept O compose failure is visible and retry restores the prompt', async () => {
+  test('Session starter compose failure is visible and retry restores the prompt', async () => {
     vi.mocked(composeSession)
       .mockRejectedValueOnce(new Error('compose unavailable'))
       .mockResolvedValueOnce({
@@ -333,7 +249,7 @@ describe('high-value optional surface failures', () => {
         suggestedCommand: 'claude < /tmp/prompt.md',
       });
 
-    renderSurface(<ConceptO data={data} reload={vi.fn()} />, '/c/o?todoId=todo-1');
+    renderSurface(<SessionStartPage data={data} reload={vi.fn()} />, '/sessions/new?todoId=todo-1');
 
     expect(await screen.findByText('compose unavailable')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'retry compose dispatch prompt' }));

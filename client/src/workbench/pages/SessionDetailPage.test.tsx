@@ -4,7 +4,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import type { AgentSessionEvent } from '@stash/shared';
 import { getAgentSessionEvents } from '../../api/agent-sessions';
-import { ConceptG, EmptyTranscript, EstimatedSessionMetrics, formatToolCallDetails, RealTranscript } from './ConceptG';
+import { SessionDetailPage, EmptyTranscript, EstimatedSessionMetrics, formatToolCallDetails, RealTranscript } from './SessionDetailPage';
 import type { WBData, WBSession } from '../data';
 
 vi.mock('../../api/agent-sessions', () => ({
@@ -29,7 +29,7 @@ function session(overrides: Partial<WBSession> = {}): WBSession {
   };
 }
 
-function renderConceptG(sessionValue = session()) {
+function renderSessionDetailPage(sessionValue = session()) {
   const data: WBData = {
     projects: [],
     sessions: [sessionValue],
@@ -45,9 +45,9 @@ function renderConceptG(sessionValue = session()) {
     },
   };
   return render(
-    <MemoryRouter initialEntries={[`/c/g/${sessionValue.id}`]}>
+    <MemoryRouter initialEntries={[`/sessions/${sessionValue.id}`]}>
       <Routes>
-        <Route path="/c/g/:sessionId" element={<ConceptG data={data} reload={vi.fn()} />} />
+        <Route path="/sessions/:sessionId" element={<SessionDetailPage data={data} reload={vi.fn()} />} />
       </Routes>
     </MemoryRouter>,
   );
@@ -57,7 +57,7 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-describe('ConceptG real transcript', () => {
+describe('SessionDetailPage real transcript', () => {
   test('renders a truthful empty state without demo evidence', () => {
     render(<EmptyTranscript />);
 
@@ -69,7 +69,7 @@ describe('ConceptG real transcript', () => {
 
   test('routes an empty events response through the truthful empty state', async () => {
     vi.mocked(getAgentSessionEvents).mockResolvedValue([]);
-    renderConceptG();
+    renderSessionDetailPage();
 
     expect(await screen.findByTestId('empty-session-events')).toBeInTheDocument();
     expect(screen.queryByText(/src\/auth\/oauth\.ts/)).not.toBeInTheDocument();
@@ -78,7 +78,7 @@ describe('ConceptG real transcript', () => {
 
   test('keeps event load failures distinct from an empty session', async () => {
     vi.mocked(getAgentSessionEvents).mockRejectedValue(new Error('events unavailable'));
-    renderConceptG();
+    renderSessionDetailPage();
 
     expect(await screen.findByRole('alert')).toHaveTextContent('events unavailable');
     expect(screen.queryByTestId('empty-session-events')).not.toBeInTheDocument();

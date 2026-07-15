@@ -7,9 +7,9 @@ import { listBudgets } from '../../api/budgets';
 import { listSkills } from '../../api/skills';
 import { listStale, listWorkItems } from '../../api/work-items';
 import type { WBData } from '../data';
-import { ConceptH } from './ConceptH';
-import { ConceptJ } from './ConceptJ';
-import { ConceptM } from './ConceptM';
+import { UsageReviewPage } from './UsageReviewPage';
+import { WeeklyReviewPage } from './WeeklyReviewPage';
+import { SkillsSettingsPage } from './SkillsSettingsPage';
 
 vi.mock('../../components/effects', () => ({
   CountUp: ({ to, format }: { to: number; format?: (n: number) => string }) => <span>{format ? format(to) : to}</span>,
@@ -64,15 +64,15 @@ beforeEach(() => {
   vi.mocked(listSkills).mockResolvedValue([]);
 });
 
-function renderConcept(node: ReactNode) {
+function renderPage(node: ReactNode) {
   return render(<MemoryRouter>{node}</MemoryRouter>);
 }
 
-describe('concept API load errors', () => {
-  test('Concept H surfaces burn analytics failures', async () => {
+describe('page API load errors', () => {
+  test('Usage review surfaces burn analytics failures', async () => {
     vi.mocked(getBurnSnapshot).mockRejectedValue(new Error('burn exploded'));
 
-    renderConcept(<ConceptH data={data} reload={vi.fn()} />);
+    renderPage(<UsageReviewPage data={data} reload={vi.fn()} />);
 
     expect(await screen.findByText('analytics failed to load')).toBeInTheDocument();
     expect(screen.getByText('/api/analytics/burn?days=30')).toBeInTheDocument();
@@ -80,10 +80,10 @@ describe('concept API load errors', () => {
     expect(screen.getByRole('button', { name: 'retry' })).toBeInTheDocument();
   });
 
-  test('Concept J surfaces weekly review failures', async () => {
+  test('Weekly review surfaces load failures', async () => {
     vi.mocked(getWeeklySnapshot).mockRejectedValue(new Error('weekly exploded'));
 
-    renderConcept(<ConceptJ data={data} reload={vi.fn()} />);
+    renderPage(<WeeklyReviewPage data={data} reload={vi.fn()} />);
 
     expect(await screen.findByText('weekly review failed to load')).toBeInTheDocument();
     expect(
@@ -92,10 +92,10 @@ describe('concept API load errors', () => {
     expect(screen.getByText('weekly exploded')).toBeInTheDocument();
   });
 
-  test('Concept M surfaces skill registry failures', async () => {
+  test('Skills settings surfaces registry failures', async () => {
     vi.mocked(listSkills).mockRejectedValue(new Error('skills exploded'));
 
-    renderConcept(<ConceptM data={data} reload={vi.fn()} />);
+    renderPage(<SkillsSettingsPage data={data} reload={vi.fn()} />);
 
     expect(await screen.findByText('skills failed to load')).toBeInTheDocument();
     expect(screen.getByText('/api/skills + /api/projects/:id/skills')).toBeInTheDocument();

@@ -11,7 +11,7 @@ test('Task coach summarizes to journal only after confirmation', async ({ page, 
   expect(create.ok()).toBeTruthy();
   const id = ((await create.json()) as { data: { id: string } }).data.id;
 
-  await page.goto(`/c/l/${id}`);
+  await page.goto(`/todos/${id}`);
   await expect(page.getByTestId('task-coach-panel')).toBeVisible({ timeout: 10_000 });
   await page.getByTestId('coach-input').fill('What is the next step?');
   await page.keyboard.press('Enter');

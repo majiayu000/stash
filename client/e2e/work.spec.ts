@@ -1,13 +1,13 @@
 import { test, expect } from '@playwright/test';
 
 /**
- * ConceptE golden path:
- * 1. Open `/` → Concept E loads with real backend data
+ * Work page golden path:
+ * 1. Open `/` with real backend data
  * 2. Topbar wordmark "stash" visible
  * 3. 4 board columns visible: inbox / today / doing / later
  * 4. Capture an item via the capture row → it appears in the inbox column
  */
-test('Concept E capture → item lands in inbox column', async ({ page }) => {
+test('Work capture adds an item to Inbox', async ({ page }) => {
   await page.goto('/');
 
   // Topbar
@@ -31,7 +31,7 @@ test('Concept E capture → item lands in inbox column', async ({ page }) => {
   await expect(inbox.getByText(unique)).toBeVisible();
 });
 
-test('Concept E column add uses the in-app dialog', async ({ page }) => {
+test('Work column add uses the in-app dialog', async ({ page }) => {
   let nativeDialogSeen = false;
   page.on('dialog', async (dialog) => {
     nativeDialogSeen = true;
@@ -55,7 +55,7 @@ test('Concept E column add uses the in-app dialog', async ({ page }) => {
  * GH #103 — the hero capture legend must teach the same grammar the parser
  * implements (#project / @tag / ^p0..^p3 priority / !today schedule).
  */
-test('Concept E hero legend matches the capture grammar end-to-end', async ({ page }) => {
+test('Work capture legend matches the parser grammar end-to-end', async ({ page }) => {
   const API = process.env.STASH_E2E_API_URL ?? 'http://localhost:4174/api';
 
   await page.goto('/');
@@ -92,10 +92,10 @@ test('Concept E hero legend matches the capture grammar end-to-end', async ({ pa
  * cards stay available behind a persisted disclosure and priority is readable
  * without color.
  */
-test('Concept E first viewport is todo-first with semantic priority labels', async ({ page }) => {
+test('Work first viewport is task-first with semantic priority labels', async ({ page }) => {
   await page.addInitScript(() => {
     if (window.sessionStorage.getItem('stash:e2e:insights-init') === '1') return;
-    window.localStorage.removeItem('stash:concept-e:insights-open');
+    window.localStorage.removeItem('stash:work:insights-open');
     window.sessionStorage.setItem('stash:e2e:insights-init', '1');
   });
   await page.goto('/', { waitUntil: 'networkidle' });
@@ -107,7 +107,7 @@ test('Concept E first viewport is todo-first with semantic priority labels', asy
   await expect(topbarStats).not.toContainText('tokens');
   await expect(topbarStats).not.toContainText('cost');
 
-  const board = page.getByTestId('concept-e-board-shell');
+  const board = page.getByTestId('work-board-shell');
   await expect(board).toBeVisible();
   const boardBox = await board.boundingBox();
   expect(boardBox, 'board should have a stable first-viewport box').toBeTruthy();
@@ -127,4 +127,36 @@ test('Concept E first viewport is todo-first with semantic priority labels', asy
   await page.getByTestId('capture-submit').click();
   const row = page.getByTestId('board-col-inbox').getByText(unique).locator('xpath=ancestor::*[contains(@class, "todo")]');
   await expect(row.locator('.todo-prio')).toHaveText('P1');
+});
+
+test('Work scroll regions stay subtle and project cards align with the live summary', async ({ page }) => {
+  await page.setViewportSize({ width: 1848, height: 1072 });
+  await page.addInitScript(() => window.localStorage.setItem('stash:theme', 'mono'));
+  await page.goto('/');
+
+  const projectRegion = page.getByTestId('project-scroll-region');
+  const project = projectRegion.locator('.proj-chip').first();
+  const liveSummary = page.locator('.ce-side-rail .surface');
+  await expect(project).toBeVisible({ timeout: 10_000 });
+  await expect(liveSummary).toBeVisible();
+
+  const geometry = await page.evaluate(() => {
+    const region = document.querySelector<HTMLElement>('[data-testid="project-scroll-region"]')!;
+    const projectRect = region.querySelector<HTMLElement>('.proj-chip')!.getBoundingClientRect();
+    const liveRect = document.querySelector<HTMLElement>('.ce-side-rail .surface')!.getBoundingClientRect();
+    const scrollbar = getComputedStyle(region, '::-webkit-scrollbar');
+    return {
+      rightEdgeDifference: Math.abs(projectRect.right - liveRect.right),
+      standardWidth: getComputedStyle(region).scrollbarWidth,
+      webkitWidth: scrollbar.width,
+      laterUsesSharedStyle: document.querySelector('[data-testid="board-col-later"] .board-col-body')?.classList.contains('work-scroll-region'),
+      doneUsesSharedStyle: document.querySelector('.done-drop-list')?.classList.contains('work-scroll-region'),
+    };
+  });
+
+  expect(geometry.rightEdgeDifference).toBeLessThan(1);
+  expect(geometry.standardWidth).toBe('thin');
+  expect(geometry.webkitWidth).toBe('4px');
+  expect(geometry.laterUsesSharedStyle).toBe(true);
+  expect(geometry.doneUsesSharedStyle).toBe(true);
 });
