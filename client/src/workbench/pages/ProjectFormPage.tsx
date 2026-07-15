@@ -1,51 +1,44 @@
 import { useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import type { Area, ReviewCadence } from '@stash/shared';
-import { CountUp, ShinyText } from '../../components/effects';
+import { ShinyText } from '../../components/effects';
 import { useWorkbenchDialog } from '../../components/ui/workbench-dialogs';
 import { createArea, deleteArea, listAreas, updateArea } from '../../api/areas';
-import { fmt, type WBData, type WBProject } from '../data';
+import type { WBData, WBProject } from '../data';
 import { reportAsyncError } from '../reportAsyncError';
-import { ProgressBar, Topbar } from '../shared';
-import { slugify } from './conceptL.stubs';
+import { Topbar } from '../shared';
+import { slugify } from './todo-detail.utils';
 
-/**
- * Concept F — New Project + Edit. Side-by-side: left = scaffold-new flow,
- * right = edit-existing settings.
- *
- * Backend coverage:
- *   - Real CRUD against /api/areas (name / description / reviewCadence).
- *   - Visual fields without persistence (features, tags, session sources,
- *     budgets) are labelled `(preview)` so the user knows they don't save.
- */
-export function ConceptF({ data, reload }: { data: WBData; reload: () => void }) {
+/** Create projects and edit their durable settings through /api/areas. */
+export function ProjectFormPage({ data, reload }: { data: WBData; reload: () => void }) {
   const { projects } = data;
+  const navigate = useNavigate();
+  const { projectId } = useParams<{ projectId?: string }>();
   const [searchParams] = useSearchParams();
-  const requestedProjectId = searchParams.get('projectId');
-  const [editingId, setEditingId] = useState<string>(projects[0]?.id ?? '');
+  const requestedProjectId = projectId ?? searchParams.get('projectId');
   const [areas, setAreas] = useState<Area[]>([]);
+  const [areasLoading, setAreasLoading] = useState(true);
   const [flash, setFlash] = useState<string | null>(null);
 
   useEffect(() => {
-    listAreas().then(setAreas).catch((error) => {
-      setAreas([]);
-      reportAsyncError('load project areas', error);
-    });
+    setAreasLoading(true);
+    listAreas()
+      .then(setAreas)
+      .catch((error) => {
+        setAreas([]);
+        reportAsyncError('load project areas', error);
+      })
+      .finally(() => setAreasLoading(false));
   }, [projects.length]);
-
-  useEffect(() => {
-    if (requestedProjectId && projects.some((p) => p.id === requestedProjectId)) {
-      setEditingId(requestedProjectId);
-    }
-  }, [requestedProjectId, projects]);
 
   function flashMsg(m: string) {
     setFlash(m);
     setTimeout(() => setFlash(null), 1600);
   }
 
-  const editTarget = projects.find((p) => p.id === editingId) ?? projects[0];
+  const editTarget = requestedProjectId ? projects.find((p) => p.id === requestedProjectId) : undefined;
   const editArea = areas.find((a) => a.id === (editTarget?.id ?? ''));
+  const editing = Boolean(requestedProjectId);
 
   return (
     <div className="dashboard-canvas">
@@ -56,23 +49,21 @@ export function ConceptF({ data, reload }: { data: WBData; reload: () => void })
             {flash}
           </div>
         )}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem', flex: 1, minHeight: 0 }}>
-          <NewProjectPanel
-            onCreated={(a) => {
-              reload();
-              setAreas((cur) => [...cur, a]);
-              setEditingId(a.id);
-              flashMsg(`✓ created #${a.name}`);
-            }}
-            onError={(msg) => flashMsg(`✕ ${msg}`)}
-          />
-          {editTarget && editArea ? (
+        <div className="project-form-layout">
+          {!editing && (
+            <NewProjectPanel
+              onCreated={(area) => {
+                reload();
+                navigate(`/projects/${encodeURIComponent(area.id)}`);
+              }}
+              onError={(msg) => flashMsg(`✕ ${msg}`)}
+            />
+          )}
+          {editing && editTarget && editArea ? (
             <EditProjectPanel
               key={editArea.id}
               p={editTarget}
               area={editArea}
-              allProjects={projects}
-              onPick={setEditingId}
               onSaved={(a) => {
                 setAreas((cur) => cur.map((x) => (x.id === a.id ? a : x)));
                 reload();
@@ -80,21 +71,21 @@ export function ConceptF({ data, reload }: { data: WBData; reload: () => void })
               }}
               onDeleted={(id) => {
                 setAreas((cur) => cur.filter((x) => x.id !== id));
-                const next = projects.find((p) => p.id !== id);
-                setEditingId(next?.id ?? '');
                 reload();
-                flashMsg('✕ deleted');
+                navigate('/projects');
               }}
               onError={(msg) => flashMsg(`✕ ${msg}`)}
             />
-          ) : (
+          ) : editing && areasLoading ? (
+            <div className="surface project-form-state">Loading project settings…</div>
+          ) : editing ? (
             <div className="surface" style={{ padding: '2rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', alignSelf: 'center' }}>
-              no existing projects to edit — scaffold one from the left.
+              Project not found. Return to Projects and choose an existing project.
             </div>
-          )}
+          ) : null}
         </div>
       </div>
-      <style>{conceptFStyles}</style>
+      <style>{projectFormStyles}</style>
     </div>
   );
 }
@@ -204,27 +195,6 @@ function NewProjectPanel({ onCreated, onError }: {
           </div>
         </div>
 
-        <div className="np-field" style={{ opacity: 0.55 }}>
-          <label>seed features <span className="np-hint inline">— preview, not persisted yet</span></label>
-          <div className="np-feat-list">
-            {['type generation', 'event bus', 'docs'].map((n) => (
-              <div key={n} className="np-feat-row">
-                <span className="feat-dot todo" />
-                <span className="np-feat-name">{n}</span>
-                <button className="np-feat-x" type="button" disabled>×</button>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="np-field" style={{ opacity: 0.55 }}>
-          <label>watch sessions from <span className="np-hint inline">— auto-discovered, not editable here</span></label>
-          <div className="np-tools-row">
-            <span className="np-tool on"><span>●</span> claude code</span>
-            <span className="np-tool on"><span>●</span> codex</span>
-          </div>
-        </div>
-
         <div className="np-actions">
           <button className="np-btn ghost" type="button" onClick={clear}>cancel <kbd>esc</kbd></button>
           <button
@@ -238,20 +208,13 @@ function NewProjectPanel({ onCreated, onError }: {
         </div>
       </div>
 
-      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)', padding: '0.6rem 0.8rem', background: 'var(--bg-glass)', border: '1px dashed var(--border-subtle)', borderRadius: 'var(--radius-md)' }}>
-        <span style={{ color: 'var(--neon-cyan)' }}>$</span>{' '}
-        <span style={{ color: 'var(--neon-green)' }}>stash new {slugify(name) || 'spectre-sdk'} {description ? `--desc "${description.slice(0, 30)}"` : ''}</span>
-        <span style={{ color: 'var(--text-muted)' }}> # CLI equivalent</span>
-      </div>
     </div>
   );
 }
 
-function EditProjectPanel({ p, area, allProjects, onPick, onSaved, onDeleted, onError }: {
+function EditProjectPanel({ p, area, onSaved, onDeleted, onError }: {
   p: WBProject;
   area: Area;
-  allProjects: WBProject[];
-  onPick: (id: string) => void;
   onSaved: (a: Area) => void;
   onDeleted: (id: string) => void;
   onError: (msg: string) => void;
@@ -268,10 +231,6 @@ function EditProjectPanel({ p, area, allProjects, onPick, onSaved, onDeleted, on
     (description || undefined) !== (area.description || undefined) ||
     (emoji || undefined) !== (area.emoji || undefined) ||
     cadence !== area.reviewCadence;
-
-  const featPct = p.features.length === 0 ? [{ name: '(no features)', status: 'todo' as const, progress: 0 }] : p.features;
-  const tokenCap = Math.max(500_000, p.estimatedTokens * 5);
-  const costCap = Math.max(10, p.estimatedCost * 5);
 
   async function save() {
     if (!dirty) return;
@@ -319,17 +278,7 @@ function EditProjectPanel({ p, area, allProjects, onPick, onSaved, onDeleted, on
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', minHeight: 0, overflowY: 'auto' }}>
       <div className="sec-head" style={{ marginBottom: 0, display: 'flex', gap: '0.5rem', alignItems: 'center', whiteSpace: 'nowrap', overflow: 'hidden' }}>
-        <span className="prompt">&gt;</span> edit project ·
-        <select
-          value={area.id}
-          onChange={(e) => onPick(e.target.value)}
-          data-testid="cf-pick"
-          style={{ background: 'transparent', border: 0, color: 'var(--neon-cyan)', fontFamily: 'var(--font-mono)', fontSize: '0.8rem', cursor: 'pointer', flex: 1, minWidth: 0, textOverflow: 'ellipsis' }}
-        >
-          {allProjects.map((proj) => (
-            <option key={proj.id} value={proj.id}>#{proj.name}</option>
-          ))}
-        </select>
+        <span className="prompt">&gt;</span> project settings · <span style={{ color: 'var(--neon-cyan)' }}>#{area.name}</span>
       </div>
 
       <div className="surface">
@@ -392,44 +341,6 @@ function EditProjectPanel({ p, area, allProjects, onPick, onSaved, onDeleted, on
                 <span>{cadence === c ? '●' : '○'}</span> {c.replace('_', ' ')}
               </button>
             ))}
-          </div>
-        </div>
-
-        <div className="ep-section" style={{ opacity: 0.55 }}>
-          <label>features <span className="np-hint inline">— preview, edited via ConceptK</span></label>
-          <div className="np-feat-list">
-            {featPct.map((f) => (
-              <div key={f.name} className="np-feat-row editable">
-                <span className={`feat-dot ${f.status}`} />
-                <span className="np-feat-name">{f.name}</span>
-                <div style={{ flex: 1 }}>
-                  <ProgressBar value={f.progress} thin />
-                </div>
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)', minWidth: 32, textAlign: 'right' }}>{f.progress}%</span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="ep-section" style={{ opacity: 0.55 }}>
-          <label>session sources <span className="np-hint inline">— auto-discovered</span></label>
-          <div className="np-tools-row">
-            <span className="np-tool on"><span>●</span> claude code <span style={{ color: 'var(--text-muted)' }}>· {Math.max(0, p.sessions - 2)} sessions</span></span>
-            <span className="np-tool on"><span>●</span> codex <span style={{ color: 'var(--text-muted)' }}>· {Math.min(p.sessions, 2)} sessions</span></span>
-          </div>
-        </div>
-
-        <div className="ep-section" style={{ opacity: 0.55 }}>
-          <label>suggested budget cap <span className="np-hint inline">— derived from estimated activity; configure in analytics</span></label>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
-            <div className="ep-budget">
-              <span className="ep-budget-label">token cap</span>
-              <span className="ep-budget-val"><CountUp to={tokenCap} format={(n: number) => fmt.k(Math.round(n))} /></span>
-            </div>
-            <div className="ep-budget">
-              <span className="ep-budget-label">cost cap</span>
-              <span className="ep-budget-val">${costCap.toFixed(2)}</span>
-            </div>
           </div>
         </div>
 
@@ -516,7 +427,14 @@ function EmojiPicker({ value, onPick }: { value: string; onPick: (next: string) 
   );
 }
 
-const conceptFStyles = `
+const projectFormStyles = `
+.project-form-layout {
+  width: min(46rem, 100%);
+  flex: 1;
+  min-height: 0;
+  margin: 0 auto;
+}
+.project-form-state { padding: 2rem; color: var(--text-muted); font-family: var(--font-mono); }
 .np-modal {
   background: var(--bg-secondary);
   border: 1px solid var(--border-glow);

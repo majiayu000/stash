@@ -12,20 +12,20 @@ import { reportAsyncError } from '../reportAsyncError';
 import { Topbar } from '../shared';
 
 /**
- * Concept O — Start Session Dispatcher.
+ * Start a connected agent session from a task.
  * Modal over a dimmed canvas. Prompt textarea, project/tool/model pickers,
  * auto-loaded skills, context toggles, budget caps, footer with estimate.
  *
  * Data: real skills + project bindings via /api/skills + /api/projects/:id/skills.
  */
-export function ConceptO({ data }: { data: WBData; reload: () => void }) {
+export function SessionStartPage({ data }: { data: WBData; reload: () => void }) {
   const { projects } = data;
   const navigate = useNavigate();
   const dialog = useWorkbenchDialog();
   const [searchParams] = useSearchParams();
   const todoId = searchParams.get('todoId');
 
-  // If we arrived from ConceptL "▶ run with", pre-load the todo so we can use
+  // When opened from a task, preload its project and title as execution context.
   // its project + title as the starting prompt.
   const [todo, setTodo] = useState<WorkItem | null>(null);
   useEffect(() => {
@@ -168,6 +168,25 @@ export function ConceptO({ data }: { data: WBData; reload: () => void }) {
     }
   }
 
+  const backToTask = todoId ? `/todos/${encodeURIComponent(todoId)}` : '/';
+
+  if (!todoId) {
+    return (
+      <div className="dashboard-canvas">
+        <div className="inner">
+          <Topbar data={data} />
+          <section className="surface" style={{ width: 'min(36rem, 100%)', padding: '2rem', display: 'grid', justifyItems: 'start', gap: '0.75rem', margin: '2rem auto' }}>
+            <h1 style={{ margin: 0, fontSize: '1.25rem' }}>Choose a task before starting a session</h1>
+            <p style={{ margin: 0, color: 'var(--text-muted)', maxWidth: '58ch' }}>
+              Sessions start from a task so the prompt, project, skills, and result remain connected.
+            </p>
+            <button className="np-btn primary" type="button" onClick={() => navigate('/')}>Choose a task</button>
+          </section>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="dashboard-canvas" style={{ position: 'relative' }}>
       <div className="td-topbar-layer"><Topbar data={data} /></div>
@@ -183,7 +202,7 @@ export function ConceptO({ data }: { data: WBData; reload: () => void }) {
                 <ShinyText>dispatch to agent</ShinyText>
               </div>
             </div>
-            <button className="td-close" type="button" style={{ marginLeft: 'auto' }} onClick={() => navigate('/')}>✕</button>
+            <button className="td-close" type="button" style={{ marginLeft: 'auto' }} onClick={() => navigate(backToTask)} aria-label="Back to task">✕</button>
           </div>
 
           <div className="ss-section">
@@ -252,7 +271,7 @@ export function ConceptO({ data }: { data: WBData; reload: () => void }) {
           <div className="ss-section">
             <label className="ss-label">
               auto-loaded skills
-              <span style={{ color: 'var(--text-muted)', fontWeight: 400, marginLeft: 6 }}>· bound to #{selectedProject?.name ?? 'inbox'} — edit in Concept M</span>
+              <span style={{ color: 'var(--text-muted)', fontWeight: 400, marginLeft: 6 }}>· bound to #{selectedProject?.name ?? 'inbox'} · manage in Skills settings</span>
             </label>
             {boundSkills.length === 0 ? (
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.74rem', color: 'var(--text-muted)' }}>
@@ -300,7 +319,7 @@ export function ConceptO({ data }: { data: WBData; reload: () => void }) {
               auto-skill load: <span style={{ color: 'var(--neon-cyan)' }}>{boundSkills.length} of {allSkills.length}</span>
             </span>
             <span style={{ flex: 1 }} />
-            <button className="np-btn ghost" type="button" onClick={() => navigate('/')}>cancel <kbd>esc</kbd></button>
+            <button className="np-btn ghost" type="button" onClick={() => navigate(backToTask)}>back to task <kbd>esc</kbd></button>
             <button
               className="np-btn primary"
               type="button"
@@ -359,7 +378,7 @@ export function ConceptO({ data }: { data: WBData; reload: () => void }) {
         </div>
       )}
 
-      <style>{conceptOStyles}</style>
+      <style>{sessionStartStyles}</style>
     </div>
   );
 }
@@ -405,7 +424,7 @@ function RunBadge({ status }: { status: DispatchRun['status'] }) {
   return <span className="ss-run-badge" style={{ color, borderColor: color }}>{status}</span>;
 }
 
-const conceptOStyles = `
+const sessionStartStyles = `
 .ss-modal {
   width: min(820px, 100%);
   max-height: calc(100% - 2rem);

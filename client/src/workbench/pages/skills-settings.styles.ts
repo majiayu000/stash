@@ -1,4 +1,4 @@
-export const conceptMStyles = `
+export const skillsSettingsStyles = `
 .sk-bar {
   display: grid;
   grid-template-columns: 1fr auto auto;

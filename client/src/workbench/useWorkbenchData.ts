@@ -7,7 +7,7 @@ import { getWorkboard } from '../api/workboard';
 import { adaptToWorkbenchData, type WBData } from './data';
 
 /**
- * One-stop hook used by every Concept: fetches the three primary sources in
+ * One-stop hook used by every workbench page: fetches the primary sources in
  * parallel, reshapes them into workbench-style `{projects, todos, sessions, stats}`.
  * Hook returns `{ data, loading, error, reload }`.
  */

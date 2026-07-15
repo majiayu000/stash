@@ -1,5 +1,5 @@
 // Workbench-shape data types + adapters from real backend data.
-// Concept components consume `{ projects, todos, sessions, stats }` exactly like
+// Workbench pages consume `{ projects, todos, sessions, stats }` exactly like
 // the original workbench (window.AppData), but the values come from real hooks.
 
 import type { AgentSession, Area, Priority, WorkItem, WorkItemKind } from '@stash/shared';
@@ -140,7 +140,7 @@ export function estimateSessionActivity(toolCount: number, messageCount: number)
 }
 
 /**
- * Adapt real backend payloads into workbench-shape data. Concept components
+ * Adapt real backend payloads into workbench-shape data. Workbench pages
  * read from this consistent shape; reshape lives in one place.
  */
 export interface AdaptInput {

@@ -8,13 +8,13 @@ import { fmt, type WBData } from '../data';
 import { LoadErrorPanel, StatTile, Topbar, toError } from '../shared';
 
 /**
- * Concept H — Cost & Burn Analytics.
+ * Usage and cost review.
  * 4 KPI tiles + grid:
  *   left:  daily spend chart · per-project leaderboard · hourly heatmap
  *   right: model donut · budgets · alerts
  *
  * Daily spend / heatmap / model mix / leaderboard pull from /api/analytics/burn.
- * Budgets + alerts are still mock — no settings/alerting backend yet.
+ * Budgets are loaded from the persisted budget API.
  */
 const MODEL_PALETTE = [
   'var(--neon-cyan)',
@@ -24,7 +24,7 @@ const MODEL_PALETTE = [
   'var(--neon-pink)',
 ];
 
-export function ConceptH({ data }: { data: WBData; reload: () => void }) {
+export function UsageReviewPage({ data }: { data: WBData; reload: () => void }) {
   const navigate = useNavigate();
   const [snap, setSnap] = useState<BurnSnapshot | null>(null);
   const [budgets, setBudgets] = useState<Budget[]>([]);
@@ -105,14 +105,14 @@ export function ConceptH({ data }: { data: WBData; reload: () => void }) {
               type="button"
               className="burn-settings-link"
               data-testid="burn-settings"
-              onClick={() => navigate('/c/n')}
+              onClick={() => navigate('/settings')}
               style={{ marginTop: '1rem' }}
             >
               edit budgets
             </button>
           </div>
         </div>
-        <style>{conceptHStyles}</style>
+        <style>{usageReviewStyles}</style>
       </div>
     );
   }
@@ -127,6 +127,8 @@ export function ConceptH({ data }: { data: WBData; reload: () => void }) {
   const totalTokens7d = sumTail(snap.dailySpend.map((d) => d.tokens), 7);
   const cost24h = dailyCosts[dailyCosts.length - 1] ?? 0;
   const avgSessionTokens = snap.totals.sessions > 0 ? Math.round(snap.totals.tokens / snap.totals.sessions) : 0;
+  const monthlyBudget = budgets.find((budget) => budget.scope === 'all' && budget.period === 'month');
+  const budgetPercent = monthlyBudget ? Math.min(100, (monthTotal / monthlyBudget.capUsd) * 100) : 0;
 
   return (
     <div className="dashboard-canvas">
@@ -136,7 +138,7 @@ export function ConceptH({ data }: { data: WBData; reload: () => void }) {
         {/* Top KPIs */}
         <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 1fr 1fr', gap: '1rem', marginBottom: '1.25rem' }}>
           <div className="surface" style={{ padding: '1.2rem 1.4rem' }}>
-            <div className="stat-tile-label">this month · spend</div>
+            <div className="stat-tile-label">last 30 days · spend</div>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.6rem', marginTop: '0.4rem' }}>
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: '2.6rem', fontWeight: 700, background: 'var(--gradient-primary)', WebkitBackgroundClip: 'text', backgroundClip: 'text', WebkitTextFillColor: 'transparent', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
                 <CountUp to={monthTotal} duration={1400} format={(n: number) => '$' + n.toFixed(2)} />
@@ -146,11 +148,12 @@ export function ConceptH({ data }: { data: WBData; reload: () => void }) {
               </span>
             </div>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.4rem' }}>
-              projected month: <span style={{ color: 'var(--neon-orange)' }}>${(monthTotal * 1.3).toFixed(2)}</span> · budget <span style={{ color: 'var(--text-secondary)' }}>$100.00</span>
+              {monthlyBudget
+                ? <>global monthly budget: <span style={{ color: 'var(--text-secondary)' }}>${monthlyBudget.capUsd.toFixed(2)}</span></>
+                : <>No global monthly budget. Add one in Settings.</>}
             </div>
             <div style={{ height: 6, background: 'var(--bg-elevated)', borderRadius: 3, overflow: 'hidden', marginTop: '0.5rem', position: 'relative' }}>
-              <div style={{ width: Math.min(100, (monthTotal / 100) * 100) + '%', height: '100%', background: 'var(--gradient-primary)', boxShadow: '0 0 12px var(--neon-cyan)' }} />
-              <div style={{ position: 'absolute', top: -4, left: '84%', width: 1, height: 14, background: 'var(--neon-orange)' }} />
+              <div style={{ width: budgetPercent + '%', height: '100%', background: 'var(--gradient-primary)', boxShadow: '0 0 12px var(--neon-cyan)' }} />
             </div>
           </div>
 
@@ -177,7 +180,7 @@ export function ConceptH({ data }: { data: WBData; reload: () => void }) {
               {snap.perProjectLeaderboard.length === 0 ? (
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)' }}>no per-project usage yet</div>
               ) : (
-                <Leaderboard rows={snap.perProjectLeaderboard} onOpenProject={(projectId) => navigate(`/c/k/${encodeURIComponent(projectId)}`)} />
+                <Leaderboard rows={snap.perProjectLeaderboard} onOpenProject={(projectId) => navigate(`/projects/${encodeURIComponent(projectId)}`)} />
               )}
             </div>
 
@@ -214,7 +217,7 @@ export function ConceptH({ data }: { data: WBData; reload: () => void }) {
                   type="button"
                   className="burn-settings-link"
                   data-testid="burn-settings"
-                  onClick={() => navigate('/c/n')}
+                  onClick={() => navigate('/settings')}
                 >
                   edit budgets
                 </button>
@@ -248,7 +251,7 @@ export function ConceptH({ data }: { data: WBData; reload: () => void }) {
         </div>
       </div>
 
-      <style>{conceptHStyles}</style>
+      <style>{usageReviewStyles}</style>
     </div>
   );
 }
@@ -401,7 +404,7 @@ function BudgetRow({ b, used }: { b: Budget; used: number }) {
   );
 }
 
-const conceptHStyles = `
+const usageReviewStyles = `
 .dsc { display: flex; flex-direction: column; gap: 0.4rem; }
 .dsc-bars {
   display: flex; align-items: flex-end; gap: 3px;

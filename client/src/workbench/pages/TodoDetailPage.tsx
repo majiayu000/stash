@@ -2,16 +2,15 @@ import { useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import type { CoachApplySummaryResponse, JournalEntry, Priority, WorkItem, WorkItemStatus } from '@stash/shared';
 import { apiGet } from '../../api/client';
-import { ChecklistPanel, useChecklist } from './conceptL.checklist';
+import { ChecklistPanel, useChecklist } from './todo-detail.checklist';
 import {
-  useEscToClose,
   useJournalEntries,
   useLinkedSessionEdges,
   useTodoDetailResources,
-} from './conceptL.hooks';
-import { EvidencePanel, usePendingEvidence } from './conceptL.evidence';
-import { IdeaDecomposeAction } from './conceptL.ai';
-import { TaskCoachPanel } from './conceptL.coach';
+} from './todo-detail.hooks';
+import { EvidencePanel, usePendingEvidence } from './todo-detail.evidence';
+import { IdeaDecomposeAction } from './todo-detail.ai';
+import { TaskCoachPanel } from './todo-detail.coach';
 import {
   EditableDescription,
   EditableTitle,
@@ -21,7 +20,7 @@ import {
   optionToRecurrence,
   recurrenceToOption,
   toLocalDateTime,
-} from './conceptL.meta';
+} from './todo-detail.meta';
 import { linkSession, listLinkedSessions, unlinkSession, type LinkedSessionEdge } from '../../api/agent-sessions';
 import { createArea } from '../../api/areas';
 import { createLesson } from '../../api/project-knowledge';
@@ -36,9 +35,8 @@ import {
 } from '../../api/work-items';
 import { fmt, type WBData, type WBTodo } from '../data';
 import { reportAsyncError } from '../reportAsyncError';
-import { Topbar } from '../shared';
-import { conceptLStyles } from './conceptL.styles';
-import { slugify, stubSubTasks } from './conceptL.stubs';
+import { todoDetailStyles } from './todo-detail.styles';
+import { slugify } from './todo-detail.utils';
 
 function kindChrome(kind: WorkItem['kind']): { label: string; color: string } {
   if (kind === 'idea') return { label: '💡 idea', color: 'var(--neon-purple)' };
@@ -46,8 +44,8 @@ function kindChrome(kind: WorkItem['kind']): { label: string; color: string } {
   return { label: `✓ ${kind}`, color: 'var(--neon-cyan)' };
 }
 
-/** Concept L — Todo detail modal over a dimmed board preview. */
-export function ConceptL({ data, reload }: { data: WBData; reload: () => void }) {
+/** Todo detail, planning, decomposition, evidence, and execution context. */
+export function TodoDetailPage({ data, reload }: { data: WBData; reload: () => void }) {
   const { projects, todos } = data;
   const { workItemId } = useParams<{ workItemId?: string }>();
   const navigate = useNavigate();
@@ -77,7 +75,7 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
       <div className="dashboard-canvas">
         <div className="inner" style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <div className="surface" style={{ padding: '2rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-            no todos to inspect — capture one from Concept E first
+            No task selected. Return to Work and choose a task.
           </div>
         </div>
       </div>
@@ -95,11 +93,20 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
     closeInFlightRef.current = true;
     try {
       const current = item ?? await getWorkItem(todo!.id);
-      navigate(current.parentId ? `/c/l/${current.parentId}` : '/', { replace: true });
+      navigate(current.parentId ? `/todos/${current.parentId}` : '/', { replace: true });
     } catch (error) { reportAsyncError('resolve detail close target', error); flashSaved(`✕ could not close: ${error instanceof Error ? error.message : String(error)}`); }
     finally { closeInFlightRef.current = false; }
   }
-  useEscToClose(closeDetail);
+  async function dropItem() {
+    if (!item || item.status === 'dropped') return;
+    const confirmed = await dialog.confirm({
+      title: 'drop this task?',
+      description: 'The task will leave active work. You can still find it in its project history.',
+      confirmLabel: 'drop task',
+      tone: 'danger',
+    });
+    if (confirmed) await save('status', 'dropped' as WorkItemStatus);
+  }
   async function runThisSystem() {
     if (!item || item.kind !== 'system' || runInFlightRef.current) return;
     runInFlightRef.current = true; setIsCreatingRun(true);
@@ -107,7 +114,7 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
       const run = await runSystem(item.id);
       flashSaved('run created');
       reload();
-      navigate(`/c/l/${run.id}`, { replace: false });
+      navigate(`/todos/${run.id}`, { replace: false });
     } catch (e) {
       flashSaved(`✕ ${e instanceof Error ? e.message : String(e)}`);
     } finally { runInFlightRef.current = false; setIsCreatingRun(false); }
@@ -278,11 +285,7 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
     }
   }
 
-  // Stub fallback only when real subtasks aren't loaded yet, for visual continuity.
-  const stubSubs = stubSubTasks(todo);
-  const showStub = realSubs === null;
-  const subs = showStub ? stubSubs : [];
-  const doneSubs = subs.filter((s) => s.done).length;
+  const subtasksLoading = realSubs === null;
   const historyRuns = item?.kind === 'system' ? (realSubs ?? []) : [];
 
   // SPEC v0.3 — real linked sessions via /api/work-items/:id/sessions (proxied by listLinkedSessions).
@@ -351,7 +354,7 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
       setItem(updated);
       flashSaved(`✓ project #${area.name} created`);
       reload();
-      navigate(`/c/k/${area.id}`);
+      navigate(`/projects/${area.id}`);
     } catch (e) { flashSaved(`✕ ${e instanceof Error ? e.message : String(e)}`); }
   }
 
@@ -368,29 +371,21 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
       await updateWorkItem(todoId, { status: 'dropped' });
       flashSaved('✓ saved as lesson, original dropped');
       reload();
-      navigate(item.projectId ? `/c/k/${item.projectId}` : '/');
+      navigate(item.projectId ? `/projects/${item.projectId}` : '/');
     } catch (e) { flashSaved(`✕ ${e instanceof Error ? e.message : String(e)}`); }
   }
 
   return (
-    <div className="dashboard-canvas" style={{ position: 'relative' }}>
-      <div className="td-topbar-layer"><Topbar data={data} /></div>
-      <div className="inner td-backdrop-preview" style={{ overflow: 'hidden', filter: 'blur(2px) brightness(0.5)', pointerEvents: 'none' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.85rem', marginBottom: '1rem' }}>
-          {['📥', '🌅', '🚧', '📅'].map((e, i) => (
-            <div key={i} className="board-col tone-purple" style={{ height: 200 }}>
-              <div className="board-col-head"><span style={{ fontSize: '1rem' }}>{e}</span><span className="board-col-name">col</span></div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Modal */}
-      <div className="td-overlay" onClick={(e) => { if (e.target === e.currentTarget) closeDetail(); }}>
-        <div className="td-modal" onClick={(e) => e.stopPropagation()}>
+    <div className="dashboard-canvas todo-detail-page">
+      <div className="inner td-page-shell">
+        <article className="td-page" data-testid="todo-detail-page">
           {/* Header */}
           <div className="td-modal-head">
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.4rem' }}>
+            <div className="td-header-row">
+              <button className="td-back" type="button" onClick={closeDetail}>
+                <span aria-hidden>←</span>
+                <span>{item?.parentId ? 'Back to system' : 'Back to work'}</span>
+              </button>
               <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.65rem', color: shownKind.color, background: 'rgba(191,90,242,0.1)', padding: '2px 7px', borderRadius: 'var(--radius-pill)', border: '1px solid rgba(191,90,242,0.25)', fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
                 {shownKind.label} {proj ? `· #${proj.name}` : '· from inbox'}
               </span>
@@ -424,7 +419,6 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
                   {isCreatingRun ? 'creating run…' : '▶ Run system'}
                 </button>
               )}
-              <button className="td-close" style={{ marginLeft: item?.kind === 'system' ? 0 : 'auto' }} type="button" onClick={closeDetail} aria-label={item?.parentId ? 'Back to system' : 'Close detail'} title={item?.parentId ? 'Back to system' : 'Close detail'}>✕</button>
             </div>
             <EditableTitle
               key={`title-${todo.id}`}
@@ -451,14 +445,14 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
             <div className="td-modal-main">
               <div className="td-section">
                 <div className="td-section-label">
-                  <span>sub-tasks{showStub && ' '}{showStub && <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(loading…)</span>}</span>
-                  {showStub
-                    ? <span style={{ color: 'var(--neon-green)' }}>{doneSubs}/{subs.length}</span>
+                  <span>sub-tasks{subtasksLoading && ' '}{subtasksLoading && <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(loading…)</span>}</span>
+                  {subtasksLoading
+                    ? <span style={{ color: 'var(--text-muted)' }}>—</span>
                     : <span style={{ color: 'var(--neon-green)' }}>{(realSubs ?? []).filter((s) => s.status === 'done').length}/{(realSubs ?? []).length}</span>}
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {showStub
-                    ? subs.map((s, i) => <SubTask key={i} done={s.done} text={s.text} />)
+                  {subtasksLoading
+                    ? <div data-testid="subtasks-loading" style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)' }}>loading sub-tasks…</div>
                     : (realSubs ?? []).length === 0
                       ? <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)' }}>no sub-tasks. break the work down to keep your context fresh next session.</div>
                       : (realSubs ?? []).map((s) => (
@@ -471,7 +465,7 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
                           onDrop={() => dropSubtask(s)}
                         />
                       ))}
-                  <button className="td-subtask-add" type="button" onClick={addSubtask}>+ add sub-task</button>
+                  <button className="td-subtask-add" type="button" onClick={addSubtask} disabled={subtasksLoading}>+ add sub-task</button>
                 </div>
               </div>
 
@@ -497,7 +491,7 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
                           key={run.id}
                           type="button"
                           className="td-history-run"
-                          onClick={() => navigate(`/c/l/${run.id}`)}
+                          onClick={() => navigate(`/todos/${run.id}`)}
                           data-testid="system-history-run"
                         >
                           <span>{date}</span>
@@ -629,29 +623,22 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
 
             {/* Meta column */}
             <div className="td-modal-meta">
-              <div className="td-promote">
-                <div className="td-section-label" style={{ color: 'var(--neon-purple)' }}>💎 promote this {todo.kind}</div>
-                <PromoteBtn
-                  icon="🌌"
-                  title="into a feature"
-                  sub={item?.kind === 'feature' ? 'already a feature' : 'switch kind=feature'}
-                  onClick={promoteToFeature}
-                  disabled={!item || item.kind === 'feature'}
-                />
-                <PromoteBtn
-                  icon="📁"
-                  title="into a new project"
-                  sub={`scaffold "${slugify(todo.text)}"`}
-                  onClick={promoteToNewProject}
-                  disabled={!item}
-                />
-                <PromoteBtn
-                  icon="📑"
-                  title="into a lesson"
-                  sub="save as cross-project knowledge, drop the source"
-                  onClick={promoteToLesson}
-                  disabled={!item}
-                />
+              <div className="td-run">
+                <div className="td-section-label" style={{ color: 'var(--neon-cyan)' }}>▶ run with</div>
+                <IdeaDecomposeAction item={item} onFlash={flashSaved} />
+                <button
+                  className="td-run-btn"
+                  type="button"
+                  onClick={() => navigate(`/sessions/new?todoId=${journalTodoId}`)}
+                  data-testid="td-run"
+                >
+                  <span style={{ fontSize: '1.05rem' }}>🤖</span>
+                  <span>claude code · sonnet-4.5</span>
+                  <span className="td-run-kbd">⌘↵</span>
+                </button>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.68rem', color: 'var(--text-muted)', lineHeight: 1.5, padding: '0.5rem' }}>
+                  Opens the session starter with this task and its linked sessions as context.
+                </div>
               </div>
 
               <div className="td-meta-block">
@@ -719,35 +706,48 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
                 <MetaRow k="id" v={todo.id.slice(0, 12) + '…'} />
               </div>
 
-              <div className="td-run">
-                <div className="td-section-label" style={{ color: 'var(--neon-cyan)' }}>▶ run with</div>
-                <IdeaDecomposeAction item={item} onFlash={flashSaved} />
-                <button
-                  className="td-run-btn"
-                  type="button"
-                  onClick={() => navigate(`/c/o?todoId=${journalTodoId}`)}
-                  data-testid="td-run"
-                >
-                  <span style={{ fontSize: '1.05rem' }}>🤖</span>
-                  <span>claude code · sonnet-4.5</span>
-                  <span className="td-run-kbd">⌘↵</span>
-                </button>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.68rem', color: 'var(--text-muted)', lineHeight: 1.5, padding: '0.5rem' }}>
-                  opens Concept O (dispatcher) with this todo as the prompt + linked sessions as context.
-                </div>
+              <div className="td-promote">
+                <div className="td-section-label" style={{ color: 'var(--neon-purple)' }}>💎 promote this {todo.kind}</div>
+                <PromoteBtn
+                  icon="🌌"
+                  title="into a feature"
+                  sub={item?.kind === 'feature' ? 'already a feature' : 'switch kind=feature'}
+                  onClick={promoteToFeature}
+                  disabled={!item || item.kind === 'feature'}
+                />
+                <PromoteBtn
+                  icon="📁"
+                  title="into a new project"
+                  sub={`scaffold "${slugify(todo.text)}"`}
+                  onClick={promoteToNewProject}
+                  disabled={!item}
+                />
+                <PromoteBtn
+                  icon="📑"
+                  title="into a lesson"
+                  sub="save as cross-project knowledge, drop the source"
+                  onClick={promoteToLesson}
+                  disabled={!item}
+                />
               </div>
+
             </div>
           </div>
 
           {/* Footer */}
           <div className="td-modal-foot">
-            <button
-              className="np-btn ghost"
-              type="button"
-              disabled={!item || item.status === 'dropped'}
-              onClick={() => { void save('status', 'dropped' as WorkItemStatus); }}
-              data-testid="td-drop"
-            >drop</button>
+            <details className="td-more-actions">
+              <summary className="np-btn ghost">More actions</summary>
+              <div className="td-more-menu">
+                <button
+                  className="np-btn ghost danger"
+                  type="button"
+                  disabled={!item || item.status === 'dropped'}
+                  onClick={() => { void dropItem(); }}
+                  data-testid="td-drop"
+                >Drop task…</button>
+              </div>
+            </details>
             <span style={{ flex: 1 }} />
             <button
               className="np-btn primary"
@@ -758,10 +758,10 @@ export function ConceptL({ data, reload }: { data: WBData; reload: () => void })
               data-testid="td-done"
             >{item?.kind === 'system' ? 'template only' : item?.status === 'done' ? '↶ reopen' : '✓ mark done'}</button>
           </div>
-        </div>
+        </article>
       </div>
 
-      <style>{conceptLStyles}</style>
+      <style>{todoDetailStyles}</style>
     </div>
   );
 }

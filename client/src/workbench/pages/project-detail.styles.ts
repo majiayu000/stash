@@ -1,5 +1,5 @@
 export 
-const conceptKStyles = `
+const projectDetailStyles = `
 .kw-hero {
   background: var(--bg-glass);
   backdrop-filter: blur(20px);

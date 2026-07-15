@@ -7,7 +7,7 @@ import { fmt, type WBData, type WBSession } from '../data';
 import { LoadErrorPanel, ModelBadge, Tile, TodoItem, ToolBadge, Topbar, toError } from '../shared';
 
 /**
- * Concept G — Session Detail.
+ * Session detail.
  * Header: project crumb + actions.
  * Left:   transcript (turns + tool calls + diffs).
  * Right:  estimated activity metrics · tool-call summary · files touched · related todos · actions.
@@ -15,11 +15,9 @@ import { LoadErrorPanel, ModelBadge, Tile, TodoItem, ToolBadge, Topbar, toError 
  * Backend coverage:
  *   - session metadata: real (WBSession from workbench data adapter)
  *   - related todos:    real (filter by project)
- *   - transcript turns + tool calls + diffs: STUB — Phase 4 will fetch from
- *     /api/agent-sessions/:provider/:id/events. The stub shape mirrors the
- *     workbench design template so the layout doesn't reflow on wire-up.
+ *   - transcript turns + tool calls + diffs: real agent session events API
  */
-export function ConceptG({ data }: { data: WBData; reload: () => void }) {
+export function SessionDetailPage({ data }: { data: WBData; reload: () => void }) {
   const { projects, sessions, todos } = data;
   const { sessionId } = useParams<{ sessionId?: string }>();
   const navigate = useNavigate();
@@ -53,7 +51,7 @@ export function ConceptG({ data }: { data: WBData; reload: () => void }) {
       <div className="dashboard-canvas">
         <div className="inner" style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <div className="surface" style={{ padding: '2rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-            no sessions available — start one via Concept O
+            No session selected. Open Sessions to choose one, or start from a task.
           </div>
         </div>
       </div>
@@ -71,9 +69,10 @@ export function ConceptG({ data }: { data: WBData; reload: () => void }) {
         {/* Session header */}
         <div className="sd-head">
           <div className="sd-crumb">
-            <span style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: '0.75rem' }}>workbench &nbsp;/&nbsp;</span>
-            <button className="sd-crumb-link" type="button" onClick={() => project && navigate(`/c/k/${encodeURIComponent(project.id)}`)} disabled={!project}>{project?.emoji} {project?.name ?? session.project}</button>
-            <span style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: '0.75rem' }}>&nbsp;/&nbsp; sessions &nbsp;/&nbsp;</span>
+            <button className="sd-crumb-link" type="button" onClick={() => navigate('/sessions')}>sessions</button>
+            <span style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: '0.75rem' }}>&nbsp;/&nbsp;</span>
+            <button className="sd-crumb-link" type="button" onClick={() => project && navigate(`/projects/${encodeURIComponent(project.id)}`)} disabled={!project}>{project?.emoji} {project?.name ?? session.project}</button>
+            <span style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: '0.75rem' }}>&nbsp;/&nbsp;</span>
             <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', color: 'var(--text-primary)' }}>{session.id.slice(0, 8)}</span>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem', marginTop: '0.4rem' }}>
@@ -93,10 +92,10 @@ export function ConceptG({ data }: { data: WBData; reload: () => void }) {
               </div>
             </div>
             <div style={{ display: 'flex', gap: '0.4rem' }}>
-              <button className="sd-action" type="button" onClick={() => project && navigate(`/c/k/${encodeURIComponent(project.id)}`)} disabled={!project}>project</button>
-              <button className="sd-action" type="button" onClick={() => navigate('/c/h')}>analytics</button>
-              <button className="sd-action" type="button" onClick={() => relatedTodos[0] && navigate(`/c/o?todoId=${encodeURIComponent(relatedTodos[0].id)}`)} disabled={!relatedTodos[0]}>run again</button>
-              <button className="sd-action" type="button" onClick={() => navigate('/c/j')}>review</button>
+              <button className="sd-action" type="button" onClick={() => project && navigate(`/projects/${encodeURIComponent(project.id)}`)} disabled={!project}>project</button>
+              <button className="sd-action" type="button" onClick={() => navigate('/review/usage')}>analytics</button>
+              <button className="sd-action" type="button" onClick={() => relatedTodos[0] && navigate(`/sessions/new?todoId=${encodeURIComponent(relatedTodos[0].id)}`)} disabled={!relatedTodos[0]}>run again</button>
+              <button className="sd-action" type="button" onClick={() => navigate('/review')}>review</button>
             </div>
           </div>
         </div>
@@ -145,17 +144,17 @@ export function ConceptG({ data }: { data: WBData; reload: () => void }) {
                 <span className="prompt">&gt;</span> actions
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <button className="sd-side-btn" type="button" onClick={() => project && navigate(`/c/k/${encodeURIComponent(project.id)}`)} disabled={!project}>open project</button>
-                <button className="sd-side-btn" type="button" onClick={() => navigate('/c/h')}>open analytics</button>
-                <button className="sd-side-btn" type="button" onClick={() => relatedTodos[0] && navigate(`/c/l/${encodeURIComponent(relatedTodos[0].id)}`)} disabled={!relatedTodos[0]}>open related todo</button>
-                <button className="sd-side-btn" type="button" onClick={() => navigate('/c/j')}>open weekly review</button>
+                <button className="sd-side-btn" type="button" onClick={() => project && navigate(`/projects/${encodeURIComponent(project.id)}`)} disabled={!project}>open project</button>
+                <button className="sd-side-btn" type="button" onClick={() => navigate('/review/usage')}>open analytics</button>
+                <button className="sd-side-btn" type="button" onClick={() => relatedTodos[0] && navigate(`/todos/${encodeURIComponent(relatedTodos[0].id)}`)} disabled={!relatedTodos[0]}>open related todo</button>
+                <button className="sd-side-btn" type="button" onClick={() => navigate('/review')}>open weekly review</button>
               </div>
             </div>
           </div>
         </div>
       </div>
 
-      <style>{conceptGStyles}</style>
+      <style>{sessionDetailStyles}</style>
     </div>
   );
 }
@@ -412,7 +411,7 @@ function pickPath(meta: Record<string, unknown>): string | undefined {
   return undefined;
 }
 
-const conceptGStyles = `
+const sessionDetailStyles = `
 .sd-head {
   background: var(--bg-glass);
   backdrop-filter: blur(20px);

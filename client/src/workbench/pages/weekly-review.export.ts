@@ -1,5 +1,5 @@
 import type { WeeklySnapshot, WorkItem } from '@stash/shared';
-import { nextIsoWeekRange } from './conceptJ.week';
+import { nextIsoWeekRange } from './weekly-review.week';
 
 export interface WeeklyReviewExportProject {
   id: string;

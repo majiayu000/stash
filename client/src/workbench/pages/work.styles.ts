@@ -1,9 +1,49 @@
-export const conceptEStyles = `
-.concept-e-home {
+export const workPageStyles = `
+.work-page {
   display: flex;
   flex-direction: column;
   min-height: calc(100vh - 7rem);
   overflow: visible;
+}
+.ce-board-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 270px;
+  gap: 1rem;
+  flex: 1 1 520px;
+  min-height: 0;
+}
+.ce-board-grid {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.85rem;
+  min-height: 0;
+}
+.ce-side-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-height: 0;
+}
+.ce-project-list {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  overflow-y: auto;
+}
+.work-scroll-region {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--text-muted) 45%, transparent) transparent;
+}
+.work-scroll-region::-webkit-scrollbar { width: 4px; height: 4px; }
+.work-scroll-region::-webkit-scrollbar-track { background: transparent; }
+.work-scroll-region::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-muted) 45%, transparent);
+}
+.work-scroll-region::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--text-muted) 70%, transparent);
 }
 .ce-topbar-stats .tb-stat:nth-child(1) .tb-stat-val { color: var(--semantic-inbox); }
 .ce-topbar-stats .tb-stat:nth-child(2) .tb-stat-val { color: var(--semantic-due); }
@@ -287,4 +327,28 @@ export const conceptEStyles = `
   cursor: pointer; transition: all 0.2s;
 }
 .proj-chip:hover { border-color: var(--border-glow); transform: translateX(2px); }
+
+@media (max-width: 1100px) {
+  .ce-board-shell { grid-template-columns: minmax(0, 1fr); }
+  .ce-board-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 720px) {
+  .capture-hero { padding: 0.85rem; }
+  .capture-row { gap: 0.5rem; padding: 0.75rem; }
+  .capture-real-input,
+  .capture-placeholder { font-size: 0.9rem; }
+  .capture-placeholder {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .capture-hints { gap: 0.5rem 0.75rem; }
+  .capture-hints > span:last-child { width: 100%; margin-left: 0 !important; }
+  .ce-board-shell { flex: none; min-height: auto; }
+  .ce-board-grid { grid-template-columns: minmax(0, 1fr); min-height: auto; }
+  .ce-side-rail { min-height: auto; }
+  .board-col { min-height: 220px; overflow: visible; }
+  .board-col-body { overflow-y: visible; }
+}
 `;

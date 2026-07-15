@@ -17,7 +17,7 @@ import { useWorkbenchDialog } from '../../components/ui/workbench-dialogs';
 import { reportAsyncError } from '../reportAsyncError';
 
 /**
- * Editable Knowledge sub-sections for Concept K. Extracted into its own file
+ * Editable project knowledge sections. Extracted into a focused file
  * to keep the parent component under U-16's 800-line cap.
  *
  * Convention: each editor owns its own API call(s). On success they invoke

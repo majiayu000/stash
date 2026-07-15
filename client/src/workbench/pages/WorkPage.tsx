@@ -12,12 +12,12 @@ import {
   moveInputForColumn,
   todayIso,
   type TodoBoardColumn,
-} from './conceptE.lifecycle';
-import { conceptEStyles } from './conceptE.styles';
+} from './work.lifecycle';
+import { workPageStyles } from './work.styles';
 
-const INSIGHTS_STORAGE_KEY = 'stash:concept-e:insights-open';
+const INSIGHTS_STORAGE_KEY = 'stash:work:insights-open';
 
-type ConceptEBoard = ReturnType<typeof groupTodosForBoard>;
+type WorkBoard = ReturnType<typeof groupTodosForBoard>;
 
 function readInsightsOpen(): boolean {
   if (typeof window === 'undefined') return false;
@@ -36,13 +36,8 @@ function persistInsightsOpen(open: boolean): void {
   }
 }
 
-/**
- * Concept E — Capture & Plan (todo-first).
- *
- * Default dashboard. Hero capture box at the top, 4-column board
- * (Inbox · Today · Doing · Later), right rail with projects + live agent strip.
- */
-export function ConceptE({ data, reload }: { data: WBData; reload: () => void }) {
+/** Default work surface: capture, triage, today, active work, and later. */
+export function WorkPage({ data, reload }: { data: WBData; reload: () => void }) {
   const { projects, todos, sessions } = data;
   const navigate = useNavigate();
   const [submitting, setSubmitting] = useState(false);
@@ -78,11 +73,11 @@ export function ConceptE({ data, reload }: { data: WBData; reload: () => void })
 
   return (
     <div className="dashboard-canvas">
-      <div className="inner concept-e-home">
+      <div className="inner work-page">
         <Topbar
           data={data}
           tag={`> ${openTodos} open todos · ${board.inbox.length} inbox · ${board.today.length} today`}
-          right={<ConceptETopbarStats board={board} todos={todos} />}
+          right={<WorkTopbarStats board={board} todos={todos} />}
         />
 
         {/* HERO — big capture */}
@@ -138,15 +133,15 @@ export function ConceptE({ data, reload }: { data: WBData; reload: () => void })
         )}
 
         {/* Main split: 4-column board + right rail */}
-        <div id="inbox-board" data-testid="concept-e-board-shell" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 270px', gap: '1rem', flex: '1 1 520px', minHeight: 0 }}>
-          <div style={{ minWidth: 0, display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.85rem', minHeight: 0 }}>
+        <div id="inbox-board" className="ce-board-shell" data-testid="work-board-shell">
+          <div className="ce-board-grid">
             <BoardCol icon="📥" name="inbox"  tone="inbox"   hint="ideas & quick captures"      items={board.inbox}  projects={projects} onFeedback={showFeedback} />
             <BoardCol icon="🌅" name="today"  tone="due"     hint="planned for today"           items={board.today}  projects={projects} onFeedback={showFeedback} />
             <BoardCol icon="🚧" name="doing"  tone="active"  hint="active or live-agent work"   items={board.doing}  projects={projects} live onFeedback={showFeedback} />
             <BoardCol icon="📅" name="later"  tone="someday" hint="planned · waiting · someday" items={board.later}  projects={projects} onFeedback={showFeedback} />
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', minHeight: 0 }}>
+          <div className="ce-side-rail">
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
               <div className="sec-head" style={{ marginBottom: 0, minWidth: 0, flex: 1 }}>
                 <span className="prompt">&gt;</span> projects <span className="count">— {projects.length}</span>
@@ -155,12 +150,12 @@ export function ConceptE({ data, reload }: { data: WBData; reload: () => void })
                 className="new-proj-btn"
                 type="button"
                 style={{ whiteSpace: 'nowrap', flexShrink: 0 }}
-                onClick={() => navigate('/c/f')}
+                onClick={() => navigate('/projects/new')}
               >
                 + new
               </button>
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', overflowY: 'auto', paddingRight: 4 }}>
+            <div className="ce-project-list work-scroll-region" data-testid="project-scroll-region">
               {projects.length === 0
                 ? <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)' }}>no projects yet — set <code>projectId</code> on work items</div>
                 : projects.map((p) => <ProjectChipRow key={p.id} p={p} />)}
@@ -178,7 +173,7 @@ export function ConceptE({ data, reload }: { data: WBData; reload: () => void })
                     key={s.id}
                     type="button"
                     className="live-session-link"
-                    onClick={() => navigate(`/c/g/${encodeURIComponent(s.id)}`)}
+                    onClick={() => navigate(`/sessions/${encodeURIComponent(s.id)}`)}
                   >
                     <span style={{ color: s.tool === 'codex' ? 'var(--neon-purple)' : 'var(--neon-cyan)' }}>
                       {s.tool === 'codex' ? '$' : '>'}
@@ -195,7 +190,7 @@ export function ConceptE({ data, reload }: { data: WBData; reload: () => void })
             <DoneDropZone items={board.done} projects={projects} onFeedback={showFeedback} />
           </div>
         </div>
-        <ConceptEInsights
+        <WorkInsights
           data={data}
           open={insightsOpen}
           onToggle={(open) => {
@@ -205,12 +200,12 @@ export function ConceptE({ data, reload }: { data: WBData; reload: () => void })
         />
       </div>
 
-      <style>{conceptEStyles}</style>
+      <style>{workPageStyles}</style>
     </div>
   );
 }
 
-function ConceptETopbarStats({ board, todos }: { board: ConceptEBoard; todos: WBTodo[] }) {
+function WorkTopbarStats({ board, todos }: { board: WorkBoard; todos: WBTodo[] }) {
   const openTodos = todos.filter((t) => !t.done);
   const urgent = openTodos.filter((t) => t.priority === 'p0' || t.priority === 'p1').length;
   return (
@@ -235,7 +230,7 @@ function ConceptETopbarStats({ board, todos }: { board: ConceptEBoard; todos: WB
   );
 }
 
-function ConceptEInsights({
+function WorkInsights({
   data,
   open,
   onToggle,
@@ -357,7 +352,7 @@ function BoardCol({
       </div>
       <div className="board-col-hint">{hint}</div>
       <div
-        className="board-col-body"
+        className="board-col-body work-scroll-region"
         onDragOver={onDragOver}
         onDragLeave={() => setDragOver(false)}
         onDrop={onDrop}
@@ -534,7 +529,7 @@ function DoneDropZone({
         <strong>{items.length}</strong>
       </div>
       <div className="done-drop-copy">Drop finished work here. Recent completions stay reviewable in Weekly Review.</div>
-      <div className="done-drop-list">
+      <div className="done-drop-list work-scroll-region">
         {items.slice(0, 3).map((todo) => (
           <TodoItem key={todo.id} t={todo} projects={projects} showProject={false} />
         ))}
@@ -550,7 +545,7 @@ function ProjectChipRow({ p }: { p: WBProject }) {
     <button
       type="button"
       className="proj-chip"
-      onClick={() => navigate(`/c/k/${encodeURIComponent(p.id)}`)}
+      onClick={() => navigate(`/projects/${encodeURIComponent(p.id)}`)}
       title={`Open project ${p.name}`}
     >
       <span style={{ fontSize: '1rem' }}>{p.emoji}</span>

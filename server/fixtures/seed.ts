@@ -136,7 +136,7 @@ for (const s of seedSkills) {
 }
 process.stderr.write(`[seed] created ${createdSkills} skills (${seedSkills.length} total)\n`);
 
-// Bind a couple of installed skills to the first area so Concept M / K have content.
+// Bind a couple of installed skills to the first area so Skills and Project Detail have content.
 const firstArea = areas.list()[0];
 if (firstArea && skills.listBindingsForProject(firstArea.id).length === 0) {
   const installedIds = seedSkills.filter((s) => s.installed).map((s) => s.id).slice(0, 3);

@@ -1,7 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { Area } from '@stash/shared';
 import type { Budget } from '@stash/shared';
-import { createArea, deleteArea, listAreas, updateArea } from '../../api/areas';
 import { createBudget, deleteBudget, listBudgets, updateBudget } from '../../api/budgets';
 import { getReminderPermission, requestReminderPermission } from '../ReminderTicker';
 import { ShinyText } from '../../components/effects';
@@ -23,212 +21,53 @@ const THEME_INFO: ThemeDescriptor[] = [
   { id: 'mono',      name: 'Mono · terminal',    desc: 'Pure black & white. Square frames, brutalist hard shadows, JetBrains Mono everywhere. State by weight + fill, not color.', hex: ['#000000', '#404040', '#909090', '#cccccc'] },
 ];
 
-/**
- * Concept N — Settings + integrations + theme picker.
- * Left rail (settings menu), right column with appearance grid, quick toggles,
- * paths/rates lookup, integrations grid.
- */
-export function ConceptN({ data, reload }: { data: WBData; reload: () => void }) {
+/** Settings backed by real application state. */
+export function SettingsPage({ data }: { data: WBData; reload: () => void }) {
   return (
     <div className="dashboard-canvas">
       <div className="inner" style={{ overflow: 'hidden', height: '100%' }}>
         <Topbar data={data} />
 
-        <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: '1.25rem', flex: 1, minHeight: 0 }}>
-          <div className="surface" style={{ padding: '0.75rem', overflowY: 'auto' }}>
+        <div className="settings-layout">
+          <nav className="surface settings-rail" aria-label="Settings sections">
             <div className="sec-head" style={{ marginBottom: '0.6rem', padding: '0 0.4rem' }}>
               <span className="prompt">&gt;</span> settings
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-              <SettingsRail item="🎨 appearance" active />
-              <SettingsRail item="📁 paths" />
-              <SettingsRail item="🤖 models · rates" />
-              <SettingsRail item="🔗 integrations" />
-              <SettingsRail item="🔔 notifications" />
-              <SettingsRail item="⌨ shortcuts" />
-              <SettingsRail item="💾 data · export" />
-              <SettingsRail item="ⓘ about" />
+              <SettingsRail item="🎨 appearance" target="settings-appearance" />
+              <SettingsRail item="🔔 notifications" target="settings-notifications" />
+              <SettingsRail item="💳 budgets" target="settings-budgets" />
             </div>
             <div style={{ marginTop: '1rem', padding: '0.7rem 0.6rem', background: 'rgba(0,255,242,0.04)', border: '1px dashed rgba(0,255,242,0.2)', borderRadius: 'var(--radius-md)', fontFamily: 'var(--font-mono)', fontSize: '0.66rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
               <span style={{ color: 'var(--neon-cyan)' }}>$</span> config at <br />
               <code style={{ color: 'var(--neon-green)' }}>~/.stash/config.toml</code>
             </div>
-          </div>
+          </nav>
 
-          <div style={{ minWidth: 0, overflowY: 'auto', paddingRight: '0.25rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-            <div>
+          <div className="settings-content">
+            <section id="settings-appearance">
               <h2 style={{ fontFamily: 'var(--font-mono)', fontSize: '1.4rem', fontWeight: 700, marginBottom: '0.25rem', margin: 0 }}>
                 <ShinyText>appearance</ShinyText>
               </h2>
               <p style={{ fontFamily: 'var(--font-body)', fontSize: '0.88rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>
                 Pick a theme. Each is a full token swap — backgrounds, neon spectrum, gradients, glows. The Mono and Paper themes also remap shadows, border-radius, and font families to match their structural aesthetic (see <code style={{ fontFamily: 'var(--font-mono)', color: 'var(--neon-green)', background: 'var(--bg-elevated)', padding: '1px 6px', borderRadius: 3, fontSize: '0.78rem' }}>themes.css</code>).
               </p>
-            </div>
+            </section>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: '1.25rem' }}>
+            <div className="settings-theme-grid">
               {THEME_INFO.map((t) => <ThemePreview key={t.id} t={t} />)}
-              <div className="theme-card add">
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', flexDirection: 'column', gap: '0.4rem', color: 'var(--text-muted)' }}>
-                  <span style={{ fontSize: '1.8rem' }}>+</span>
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem' }}>custom theme</span>
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.65rem', color: 'var(--text-muted)' }}>build your own</span>
-                </div>
-              </div>
             </div>
 
-            <div className="surface" style={{ padding: '1.2rem' }}>
-              <h3 style={{ fontFamily: 'var(--font-mono)', fontSize: '1rem', fontWeight: 600, marginBottom: '0.85rem', margin: 0 }}>quick toggles</h3>
-              <div className="qs-grid" style={{ marginTop: '0.85rem' }}>
-                <QuickToggle label="animated grid" on />
-                <QuickToggle label="floating orbs" on />
-                <QuickToggle label="cursor glow" on />
-                <QuickToggle label="particle fields" on />
-                <QuickToggle label="reduced motion" />
-                <QuickToggle label="dim at night" on />
-                <QuickToggle label="emoji-as-icons" on />
-              </div>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem' }}>
-              <NextSection icon="📁" title="paths" rows={[
-                ['claude code logs', '~/.claude/projects/'],
-                ['codex logs', '~/.codex/sessions/'],
-                ['notes vault',  '~/notes/stash'],
-                ['git roots',    '~/code, ~/Desktop/code/AI'],
-              ]} />
-              <NextSection icon="🤖" title="model rates" rows={[
-                ['sonnet-4.5 input',  '$3.00 / Mtok'],
-                ['sonnet-4.5 output', '$15.00 / Mtok'],
-                ['haiku-4.5 input',   '$0.80 / Mtok'],
-                ['haiku-4.5 output',  '$4.00 / Mtok'],
-                ['codex-1 input',     '$2.50 / Mtok'],
-                ['codex-1 output',    '$10.00 / Mtok'],
-              ]} />
-            </div>
-
-            <ProjectsPanel reload={reload} />
-
-            <NotificationsPanel />
-
-            <BudgetsPanel />
-
-            <div className="surface" style={{ padding: '1.2rem' }}>
-              <h3 style={{ fontFamily: 'var(--font-mono)', fontSize: '1rem', fontWeight: 600, marginBottom: '0.85rem', margin: 0 }}>🔗 integrations</h3>
-              <div className="int-grid" style={{ marginTop: '0.85rem' }}>
-                <Integration emoji="🐙" name="github"   sub="issues + PRs sync"     status="connected" />
-                <Integration emoji="📋" name="linear"   sub="bi-directional sync"   status="connect" />
-                <Integration emoji="💬" name="slack"    sub="notifications"          status="connected" />
-                <Integration emoji="🗓" name="calendar" sub="schedule todos"         status="connect" />
-                <Integration emoji="📓" name="obsidian" sub="read vault"             status="connected" />
-                <Integration emoji="💎" name="notion"   sub="export weekly review"   status="connect" />
-              </div>
-            </div>
+            <section id="settings-notifications"><NotificationsPanel /></section>
+            <section id="settings-budgets"><BudgetsPanel /></section>
           </div>
         </div>
       </div>
 
-      <style>{conceptNStyles}</style>
+      <style>{settingsPageStyles}</style>
     </div>
   );
 }
-
-function ProjectsPanel({ reload }: { reload: () => void }) {
-  const [areas, setAreas] = useState<Area[]>([]);
-  const [loading, setLoading] = useState(true);
-  const mounted = useRef(true);
-  const dialog = useWorkbenchDialog();
-
-  async function refresh() {
-    if (mounted.current) setLoading(true);
-    try {
-      const next = await listAreas();
-      if (mounted.current) setAreas(next);
-    } catch (error) {
-      if (mounted.current) reportAsyncError('load settings projects', error, refresh);
-    } finally {
-      if (mounted.current) setLoading(false);
-    }
-  }
-  useEffect(() => {
-    mounted.current = true;
-    void refresh();
-    return () => { mounted.current = false; };
-  }, []);
-
-  async function add() {
-    const name = await dialog.prompt({
-      title: 'project name',
-      label: 'name',
-      placeholder: 'aurora-api',
-      confirmLabel: 'create project',
-    });
-    if (!name?.trim()) return;
-    try { await createArea({ name: name.trim() }); await refresh(); reload(); }
-    catch (e) { await dialog.alert({ title: 'could not create project', description: e instanceof Error ? e.message : String(e), tone: 'danger' }); }
-  }
-  async function rename(a: Area) {
-    const next = await dialog.prompt({
-      title: 'rename project',
-      label: 'name',
-      defaultValue: a.name,
-      confirmLabel: 'rename',
-    });
-    if (!next?.trim() || next.trim() === a.name) return;
-    try { await updateArea(a.id, { name: next.trim() }); await refresh(); reload(); }
-    catch (e) { await dialog.alert({ title: 'could not rename project', description: e instanceof Error ? e.message : String(e), tone: 'danger' }); }
-  }
-  async function remove(a: Area) {
-    const ok = await dialog.confirm({
-      title: `delete ${a.name}?`,
-      description: 'All attached work items, knowledge, and skill bindings cascade.',
-      confirmLabel: 'delete project',
-      tone: 'danger',
-    });
-    if (!ok) return;
-    try { await deleteArea(a.id); await refresh(); reload(); }
-    catch (e) { await dialog.alert({ title: 'could not delete project', description: e instanceof Error ? e.message : String(e), tone: 'danger' }); }
-  }
-
-  return (
-    <div className="surface" style={{ padding: '1.2rem' }}>
-      <div style={{ display: 'flex', alignItems: 'center', marginBottom: '0.85rem' }}>
-        <h3 style={{ fontFamily: 'var(--font-mono)', fontSize: '1rem', fontWeight: 600, margin: 0 }}>📁 projects</h3>
-        <button
-          type="button"
-          onClick={add}
-          style={{
-            marginLeft: 'auto',
-            background: 'rgba(0,255,242,0.08)', border: '1px solid rgba(0,255,242,0.3)',
-            color: 'var(--neon-cyan)', fontFamily: 'var(--font-mono)', fontSize: '0.72rem',
-            padding: '3px 10px', borderRadius: 4, cursor: 'pointer',
-          }}
-        >+ new project</button>
-      </div>
-      {loading ? (
-        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)' }}>loading…</div>
-      ) : areas.length === 0 ? (
-        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)' }}>no projects yet. press <code>+ new project</code> to create one.</div>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          {areas.map((a) => (
-            <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-hair)', borderRadius: 4 }}>
-              <span style={{ flex: 1, fontFamily: 'var(--font-mono)', fontSize: '0.82rem', color: 'var(--text-primary)' }}>#{a.name}</span>
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.62rem', color: 'var(--text-muted)' }}>{a.reviewCadence}</span>
-              <button type="button" onClick={() => rename(a)} style={projectBtnStyle}>rename</button>
-              <button type="button" onClick={() => remove(a)} style={{ ...projectBtnStyle, color: 'var(--neon-pink)' }}>delete</button>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-const projectBtnStyle: React.CSSProperties = {
-  background: 'transparent', border: '1px solid var(--border-hair)',
-  color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: '0.66rem',
-  padding: '2px 8px', borderRadius: 3, cursor: 'pointer',
-};
 
 function BudgetsPanel() {
   const [budgets, setBudgets] = useState<Budget[]>([]);
@@ -338,20 +177,20 @@ function BudgetsPanel() {
         Each (scope, period) is unique. Scope <code style={{ color: 'var(--neon-cyan)' }}>all</code> tracks total spend; project names track the matching area's burn.
       </p>
       {loading ? (
-        <div style={projectHint}>loading…</div>
+        <div style={budgetHint}>loading…</div>
       ) : budgets.length === 0 ? (
-        <div style={projectHint}>no budgets yet. press <code>+ budget</code> to set one.</div>
+        <div style={budgetHint}>no budgets yet. press <code>+ budget</code> to set one.</div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           {budgets.map((b) => (
-            <div key={b.id} style={projectRowStyle}>
+            <div key={b.id} style={budgetRowStyle}>
               <span style={{ flex: 1, fontFamily: 'var(--font-mono)', fontSize: '0.82rem' }}>
                 <span style={{ color: 'var(--text-primary)' }}>{b.scope}</span>
                 <span style={{ color: 'var(--text-muted)' }}> · {b.period}</span>
               </span>
               <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', color: 'var(--neon-orange)' }}>${b.capUsd.toFixed(2)}</span>
-              <button type="button" onClick={() => edit(b)} style={projectBtnStyle}>edit</button>
-              <button type="button" onClick={() => remove(b)} style={{ ...projectBtnStyle, color: 'var(--neon-pink)' }}>delete</button>
+              <button type="button" onClick={() => edit(b)} style={budgetButtonStyle}>edit</button>
+              <button type="button" onClick={() => remove(b)} style={{ ...budgetButtonStyle, color: 'var(--neon-pink)' }}>delete</button>
             </div>
           ))}
         </div>
@@ -360,7 +199,7 @@ function BudgetsPanel() {
   );
 }
 
-const projectRowStyle: React.CSSProperties = {
+const budgetRowStyle: React.CSSProperties = {
   display: 'flex', alignItems: 'center', gap: 8,
   padding: '6px 8px',
   background: 'rgba(255,255,255,0.02)',
@@ -368,7 +207,18 @@ const projectRowStyle: React.CSSProperties = {
   borderRadius: 4,
 };
 
-const projectHint: React.CSSProperties = { fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)' };
+const budgetButtonStyle: React.CSSProperties = {
+  background: 'transparent',
+  border: '1px solid var(--border-hair)',
+  color: 'var(--text-muted)',
+  fontFamily: 'var(--font-mono)',
+  fontSize: '0.66rem',
+  padding: '2px 8px',
+  borderRadius: 3,
+  cursor: 'pointer',
+};
+
+const budgetHint: React.CSSProperties = { fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)' };
 
 function NotificationsPanel() {
   const [perm, setPerm] = useState<NotificationPermission | 'unsupported'>('default');
@@ -438,12 +288,12 @@ function NotificationsPanel() {
   );
 }
 
-function SettingsRail({ item, active }: { item: string; active?: boolean }) {
+function SettingsRail({ item, target }: { item: string; target: string }) {
   return (
-    <button className={`set-rail ${active ? 'active' : ''}`} type="button">
+    <a className="set-rail" href={`#${target}`}>
       <span>{item}</span>
-      {active && <span style={{ marginLeft: 'auto', color: 'var(--neon-cyan)', fontFamily: 'var(--font-mono)', fontSize: '0.7rem' }}>‹</span>}
-    </button>
+      <span aria-hidden style={{ marginLeft: 'auto', color: 'var(--text-muted)' }}>›</span>
+    </a>
   );
 }
 
@@ -458,7 +308,14 @@ function ThemePreview({ t }: { t: ThemeDescriptor }) {
   const swatchHex = (fromLib?.swatch ?? t.hex.slice(0, 3)) as readonly string[];
 
   return (
-    <div className={`theme-card ${isActive ? 'active' : ''}`} onClick={apply} style={{ cursor: 'pointer' }} data-testid={`theme-preview-${t.id}`}>
+    <button
+      type="button"
+      className={`theme-card ${isActive ? 'active' : ''}`}
+      onClick={apply}
+      aria-label={`Apply ${t.name} theme`}
+      aria-pressed={isActive}
+      data-testid={`theme-preview-${t.id}`}
+    >
       <div className={`theme-preview theme-${t.id}`}>
         <div className="tp-bg">
           <div className="tp-header">
@@ -486,8 +343,8 @@ function ThemePreview({ t }: { t: ThemeDescriptor }) {
             <span className="tp-prio">!!</span>
           </div>
           <div className="tp-btn-row">
-            <button className="tp-btn" type="button">▶ start session</button>
-            <button className="tp-btn ghost" type="button">+ new</button>
+            <span className="tp-btn">▶ start session</span>
+            <span className="tp-btn ghost">+ new</span>
           </div>
         </div>
       </div>
@@ -500,55 +357,40 @@ function ThemePreview({ t }: { t: ThemeDescriptor }) {
         <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
           {swatchHex.map((h) => <span key={h} className="theme-swatch" style={{ background: h, boxShadow: `0 0 8px ${h}` }} />)}
           <span style={{ flex: 1 }} />
-          {!isActive && <button className="np-btn ghost" type="button" style={{ padding: '0.3rem 0.7rem', fontSize: '0.7rem' }} onClick={(e) => { e.stopPropagation(); apply(); }}>apply</button>}
+          {!isActive && <span className="np-btn ghost" style={{ padding: '0.3rem 0.7rem', fontSize: '0.7rem' }}>apply</span>}
         </div>
       </div>
-    </div>
+    </button>
   );
 }
 
-function QuickToggle({ label, on }: { label: string; on?: boolean }) {
-  return (
-    <div className="qs-row">
-      <span className="qs-label">{label}</span>
-      <span className={`kw-skill-toggle ${on ? 'on' : ''}`}><span className="kw-skill-toggle-knob" /></span>
-    </div>
-  );
+const settingsPageStyles = `
+.settings-layout {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 1.25rem;
+  flex: 1;
+  min-height: 0;
 }
-
-function NextSection({ icon, title, rows }: { icon: string; title: string; rows: [string, string][] }) {
-  return (
-    <div className="surface" style={{ padding: '1.2rem' }}>
-      <h3 style={{ fontFamily: 'var(--font-mono)', fontSize: '1rem', fontWeight: 600, margin: 0, marginBottom: '0.85rem' }}>{icon} {title}</h3>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-        {rows.map(([k, v]) => (
-          <div key={k} style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '0.5rem', alignItems: 'center', padding: '0.45rem 0.6rem', background: 'var(--bg-glass)', border: '1px solid var(--border-hair)', borderRadius: 'var(--radius-sm)', fontFamily: 'var(--font-mono)', fontSize: '0.75rem' }}>
-            <span style={{ color: 'var(--text-secondary)' }}>{k}</span>
-            <span style={{ color: 'var(--neon-green)' }}>{v}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
+.settings-rail {
+  padding: 0.75rem;
+  overflow-y: auto;
+  align-self: start;
+  position: sticky;
+  top: 0;
 }
-
-function Integration({ emoji, name, sub, status }: { emoji: string; name: string; sub: string; status: 'connected' | 'connect' }) {
-  const isConnected = status === 'connected';
-  return (
-    <div className="int-card">
-      <span style={{ fontSize: '1.6rem' }}>{emoji}</span>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)' }}>{name}</div>
-        <div style={{ fontFamily: 'var(--font-body)', fontSize: '0.72rem', color: 'var(--text-muted)' }}>{sub}</div>
-      </div>
-      <button className={`int-btn ${isConnected ? 'connected' : ''}`} type="button">
-        {isConnected ? '● connected' : 'connect'}
-      </button>
-    </div>
-  );
+.settings-content {
+  min-width: 0;
+  padding-right: 0.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
 }
-
-const conceptNStyles = `
+.settings-theme-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.25rem;
+}
 .set-rail {
   display: flex; align-items: center; gap: 0.4rem;
   padding: 0.5rem 0.65rem;
@@ -562,6 +404,7 @@ const conceptNStyles = `
   transition: all var(--transition-fast, 0.2s);
   text-align: left;
   width: 100%;
+  text-decoration: none;
 }
 .set-rail:hover { background: rgba(255,255,255,0.03); border-color: var(--border-hair); }
 .set-rail.active {
@@ -572,6 +415,12 @@ const conceptNStyles = `
 }
 
 .theme-card {
+  appearance: none;
+  width: 100%;
+  padding: 0;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
   background: var(--bg-glass);
   backdrop-filter: blur(20px);
   border: 1px solid var(--border-subtle);
@@ -588,8 +437,10 @@ const conceptNStyles = `
   border-color: var(--neon-cyan);
   box-shadow: 0 0 25px rgba(0,255,242,0.18);
 }
-.theme-card.add { border-style: dashed; min-height: 280px; cursor: pointer; }
-.theme-card.add:hover { border-color: var(--neon-cyan); background: rgba(0,255,242,0.03); }
+.theme-card:focus-visible {
+  outline: 2px solid var(--neon-cyan);
+  outline-offset: 3px;
+}
 .theme-card-meta { padding: 0.85rem 1rem 1rem; }
 .theme-active-badge {
   font-family: var(--font-mono);
@@ -726,42 +577,24 @@ const conceptNStyles = `
   box-shadow: none;
 }
 
-.qs-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.4rem; }
-.qs-row {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 0.5rem 0.7rem;
-  background: var(--bg-glass);
-  border: 1px solid var(--border-hair);
-  border-radius: var(--radius-md);
+@media (max-width: 900px) {
+  .settings-layout { grid-template-columns: minmax(0, 1fr); }
+  .settings-rail {
+    position: static;
+    overflow: visible;
+  }
+  .settings-rail > div:last-of-type {
+    flex-direction: row !important;
+    overflow-x: auto;
+    padding-bottom: 0.25rem;
+  }
+  .set-rail { width: auto; min-width: max-content; }
 }
-.qs-label { font-family: var(--font-body); font-size: 0.82rem; color: var(--text-primary); }
 
-.int-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.6rem; }
-.int-card {
-  display: flex; align-items: center; gap: 0.7rem;
-  padding: 0.7rem 0.85rem;
-  background: var(--bg-glass);
-  border: 1px solid var(--border-hair);
-  border-radius: var(--radius-md);
+@media (max-width: 720px) {
+  .settings-theme-grid { grid-template-columns: minmax(0, 1fr); }
+  .settings-content { padding-right: 0; }
+  .theme-preview { height: 180px; }
 }
-.int-btn {
-  padding: 0.35rem 0.85rem;
-  border-radius: var(--radius-pill);
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
-  cursor: pointer;
-  border: 1px solid var(--neon-cyan);
-  color: var(--neon-cyan);
-  background: transparent;
-  transition: all var(--transition-fast, 0.2s);
-  white-space: nowrap;
-}
-.int-btn:hover { background: var(--neon-cyan); color: var(--bg-void); box-shadow: var(--shadow-neon); }
-.int-btn.connected {
-  border-color: rgba(48,209,88,0.4);
-  color: var(--neon-green);
-  background: rgba(48,209,88,0.08);
-  font-weight: 600;
-}
-.int-btn.connected:hover { background: rgba(48,209,88,0.18); }
+
 `;

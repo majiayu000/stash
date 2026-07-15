@@ -6,19 +6,19 @@ import * as workItemsApi from '../../api/work-items';
 import { CountUp, ParticleField, ShinyText } from '../../components/effects';
 import { fmt, type WBData, type WBProject } from '../data';
 import { LoadErrorPanel, SessionRow, Topbar, toError } from '../shared';
-import { todayIso } from './conceptE.lifecycle';
-import { buildWeeklyReviewMarkdown } from './conceptJ.export';
-import { dateInRange, isIsoWeekLabel, nextIsoWeekRange, shiftIsoWeek, type IsoWeekRange, type WeekdaySlot } from './conceptJ.week';
+import { todayIso } from './work.lifecycle';
+import { buildWeeklyReviewMarkdown } from './weekly-review.export';
+import { dateInRange, isIsoWeekLabel, nextIsoWeekRange, shiftIsoWeek, type IsoWeekRange, type WeekdaySlot } from './weekly-review.week';
 
 /**
- * Concept J — Weekly Review.
+ * Weekly review and next-week planning.
  * Hero AI narrative + KPI tiles, then 3 columns (done · features advanced ·
  * WoW comparison), then next-week planner strip.
  *
  * Data: real /api/analytics/weekly snapshot + /api/work-items?status=done for the
  * done-by-project grouping. Narrative is deterministic per SPEC §8 (LLM in v0.3).
  */
-export function ConceptJ({ data }: { data: WBData; reload: () => void }) {
+export function WeeklyReviewPage({ data }: { data: WBData; reload: () => void }) {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { projects, sessions } = data;
@@ -221,7 +221,7 @@ export function ConceptJ({ data }: { data: WBData; reload: () => void }) {
               {doneByProject.length === 0 ? (
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)' }}>(nothing completed yet this week)</div>
               ) : doneByProject.map((g) => (
-                <DoneGroup key={g.project.id} project={g.project} items={g.items} onOpen={(id) => navigate(`/c/l/${id}`)} />
+                <DoneGroup key={g.project.id} project={g.project} items={g.items} onOpen={(id) => navigate(`/todos/${id}`)} />
               ))}
             </div>
           </div>
@@ -264,7 +264,7 @@ export function ConceptJ({ data }: { data: WBData; reload: () => void }) {
                       days={daysSince(it.updatedAt)}
                       nextWeek={nextWeek}
                       disabled={mutatingId === it.id}
-                      onOpen={() => navigate(`/c/l/${it.id}`)}
+                      onOpen={() => navigate(`/todos/${it.id}`)}
                       onKeep={() => applyStaleAction(it, {}, 'stale item kept')}
                       onToday={() => applyStaleAction(it, { status: 'planned', todayPinned: true, scheduledFor: todayIso() }, 'stale item scheduled for today')}
                       onNextWeek={() => applyStaleAction(it, { status: 'planned', todayPinned: false, scheduledFor: nextWeek.days[0]!.isoDate }, 'stale item scheduled for next week')}
@@ -306,14 +306,14 @@ export function ConceptJ({ data }: { data: WBData; reload: () => void }) {
                 key={day.key}
                 day={day}
                 items={itemsForDate(nextWeekItems, day.isoDate)}
-                onOpen={(id) => navigate(`/c/l/${id}`)}
+                onOpen={(id) => navigate(`/todos/${id}`)}
               />
             ))}
           </div>
         </div>
       </div>
 
-      <style>{conceptJStyles}</style>
+      <style>{weeklyReviewStyles}</style>
     </div>
   );
 }
@@ -547,7 +547,7 @@ function downloadMarkdown(filename: string, markdown: string): void {
   URL.revokeObjectURL(url);
 }
 
-const conceptJStyles = `
+const weeklyReviewStyles = `
 .wr-head {
   display: flex; justify-content: space-between; align-items: center;
   margin-bottom: 1.25rem;

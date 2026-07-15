@@ -11,16 +11,16 @@ import {
 } from '../../api/skills';
 import { fmt, type WBData, type WBProject } from '../data';
 import { LoadErrorPanel, StatTile, Topbar, toError } from '../shared';
-import { slugify } from './conceptL.stubs';
-import { conceptMStyles } from './conceptM.styles';
+import { slugify } from './todo-detail.utils';
+import { skillsSettingsStyles } from './skills-settings.styles';
 
 /**
- * Concept M — Skills library. Search + tabs + 2-col grid of skill cards on
+ * Skills library. Search + tabs + 2-col grid of skill cards on
  * the left, detail panel (header, project bindings, recent uses) on the right.
  *
  * Data: real /api/skills + per-project bindings via /api/projects/:id/skills.
  */
-export function ConceptM({ data }: { data: WBData; reload: () => void }) {
+export function SkillsSettingsPage({ data }: { data: WBData; reload: () => void }) {
   const { projects } = data;
   const [skills, setSkills] = useState<Skill[]>([]);
   const [projectSkills, setProjectSkills] = useState<Record<string, string[]>>({});
@@ -204,7 +204,7 @@ export function ConceptM({ data }: { data: WBData; reload: () => void }) {
             onRetry={() => setRetryTick((t) => t + 1)}
           />
         </div>
-        <style>{conceptMStyles}</style>
+        <style>{skillsSettingsStyles}</style>
       </div>
     );
   }
@@ -276,7 +276,7 @@ export function ConceptM({ data }: { data: WBData; reload: () => void }) {
             onSubmit={handleCreateSkill}
           />
         )}
-        <style>{conceptMStyles}</style>
+        <style>{skillsSettingsStyles}</style>
       </div>
     );
   }
@@ -403,7 +403,7 @@ export function ConceptM({ data }: { data: WBData; reload: () => void }) {
         />
       )}
 
-      <style>{conceptMStyles}</style>
+      <style>{skillsSettingsStyles}</style>
     </div>
   );
 }
@@ -673,7 +673,7 @@ function SkillDetail({ s, bindings, allProjects, projectSkills, onToggleBinding,
             </div>
           ) : (
             bindings.map((p) => (
-              <button key={p.id} type="button" onClick={() => navigate(`/c/k/${encodeURIComponent(p.id)}`)} style={{ display: 'grid', gridTemplateColumns: 'auto 1fr auto', gap: 6, padding: '5px 8px', background: 'rgba(255,255,255,0.025)', border: '1px solid var(--border-hair)', borderRadius: 'var(--radius-sm)', fontFamily: 'var(--font-mono)', fontSize: '0.72rem', alignItems: 'center', cursor: 'pointer', textAlign: 'left' }}>
+              <button key={p.id} type="button" onClick={() => navigate(`/projects/${encodeURIComponent(p.id)}`)} style={{ display: 'grid', gridTemplateColumns: 'auto 1fr auto', gap: 6, padding: '5px 8px', background: 'rgba(255,255,255,0.025)', border: '1px solid var(--border-hair)', borderRadius: 'var(--radius-sm)', fontFamily: 'var(--font-mono)', fontSize: '0.72rem', alignItems: 'center', cursor: 'pointer', textAlign: 'left' }}>
                 <span style={{ fontSize: '0.95rem' }}>{p.emoji}</span>
                 <div style={{ minWidth: 0 }}>
                   <div style={{ color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</div>
