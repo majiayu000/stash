@@ -38,8 +38,9 @@ STASH_DB_PATH=/tmp/stash-demo.db CLAUDE_ROOT=/tmp/stash-rich-claude \
 bun run client:dev            # http://localhost:5173
 ```
 
-Open `http://localhost:5173`. The default top navigation follows the first-user
-path: Home -> Inbox/Todo -> Project -> Session/Evidence -> Settings.
+Open `http://localhost:5173`. The primary navigation exposes five stable product
+sections: Work, Projects, Sessions, Review, and Settings. Entity pages keep their
+own semantic URLs, such as `/todos/:id`, `/projects/:id`, and `/sessions/:id`.
 
 Try UI capture from the default page:
 
@@ -75,7 +76,7 @@ Triage:         j / k  to walk inbox, t/n/s/d for pin/plan/someday/drop
 Multi-select:   v to mark, V to mark all, action keys apply to all marked
 Find:           Cmd+K  search title/description/labels
 Smart lists:    `  toggles a chip row: overdue / today-pinned / p0 / etc
-Detail:         Enter on a row opens the modal; edit anything; ✓ done; Cmd+Z undo
+Detail:         Enter on a row opens its full page; edit anything; ✓ done; Cmd+Z undo
 Reminders:      Settings → enable browser notifications; reminderAt fires automatically
 Systems:        create with :system, open the 🔁 systems chip, Run system, complete the Run
 ```
