@@ -41,8 +41,16 @@ async function seedState(request: APIRequestContext): Promise<SeededState> {
   const stamp = Date.now();
   const projectId = await createArea(request, `e2e-navigation-${stamp}`);
   const workItemId = await createWorkItem(request, projectId, `e2e navigation item ${stamp}`);
+  await createSkill(request, stamp);
   const sessionId = await firstSessionId(request);
   return { projectId, workItemId, sessionId };
+}
+
+async function createSkill(request: APIRequestContext, stamp: number): Promise<void> {
+  const response = await request.post(`${API}/skills`, {
+    data: { id: `e2e-navigation-${stamp}`, name: `Navigation skill ${stamp}`, emoji: '🧭', installed: true },
+  });
+  expect(response.ok()).toBeTruthy();
 }
 
 async function createArea(request: APIRequestContext, name: string): Promise<string> {
@@ -154,6 +162,7 @@ test('project creation persists only durable fields and opens the created projec
   await page.getByTestId('cf-scaffold').click();
 
   await expect.poll(() => new URL(page.url()).pathname).toMatch(/^\/projects\//);
+  await expect(page.locator('.kw-name')).toHaveText(name, { timeout: 10_000 });
   await expect.poll(async () => {
     const response = await request.get(`${API}/areas`);
     const body = (await response.json()) as { data: Array<{ name: string; description?: string; reviewCadence: string }> };
@@ -162,7 +171,7 @@ test('project creation persists only durable fields and opens the created projec
 });
 
 test('connected work cards preserve task, project, session, and review context', async ({ page, request }) => {
-  await seedState(request);
+  const state = await seedState(request);
   await page.goto('/');
   await openWorkContext(page);
 
@@ -180,7 +189,10 @@ test('connected work cards preserve task, project, session, and review context',
   await expect(PAGE_MARKERS['project-detail'](page)).toBeVisible();
   await page.getByTestId('kw-open-skills').click();
   await expect.poll(() => new URL(page.url()).pathname).toBe('/settings/skills');
+  await expect.poll(() => new URL(page.url()).searchParams.get('projectId')).toBe(state.projectId);
   await expect(PAGE_MARKERS.skills(page)).toBeVisible();
+  await expect(page.getByTestId('skills-project-context')).toHaveAttribute('data-project-id', state.projectId, { timeout: 10_000 });
+  await expect(page.getByTestId(`skill-binding-${state.projectId}`).first()).toHaveAttribute('data-focused', 'true');
 
   await page.goto('/');
   await openWorkContext(page);

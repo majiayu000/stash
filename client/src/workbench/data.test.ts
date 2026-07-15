@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import type { AgentSession } from '@stash/shared';
+import type { AgentSession, Area } from '@stash/shared';
 import { adaptToWorkbenchData, estimateSessionActivity } from './data';
 
 const agentSession: AgentSession = {
@@ -14,6 +14,15 @@ const agentSession: AgentSession = {
   toolCount: 2,
   messageCount: 3,
   lastActiveAt: '2026-07-10T08:00:00.000Z',
+};
+
+const emptyArea: Area = {
+  id: 'empty-project',
+  name: 'Empty project',
+  emoji: '🪴',
+  reviewCadence: 'weekly',
+  createdAt: '2026-07-10T08:00:00.000Z',
+  updatedAt: '2026-07-10T08:00:00.000Z',
 };
 
 describe('workbench activity estimates', () => {
@@ -55,5 +64,29 @@ describe('workbench activity estimates', () => {
     expect(data.sessions[0]).not.toHaveProperty('duration');
     expect(data.stats).not.toHaveProperty('totalTokens24h');
     expect(data.stats).not.toHaveProperty('totalCost24h');
+  });
+
+  test('keeps durable areas visible before they receive a work item', () => {
+    const data = adaptToWorkbenchData({
+      items: [],
+      sessions: [],
+      sourceErrors: [],
+      workboardProjects: [],
+      areas: [emptyArea],
+    });
+
+    expect(data.projects).toEqual([
+      expect.objectContaining({
+        id: emptyArea.id,
+        name: emptyArea.name,
+        emoji: emptyArea.emoji,
+        progress: 0,
+        status: 'paused',
+        todoCount: 0,
+        todoDone: 0,
+        sessions: 0,
+      }),
+    ]);
+    expect(data.stats.projects).toBe(1);
   });
 });

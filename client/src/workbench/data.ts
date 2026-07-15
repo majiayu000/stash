@@ -155,15 +155,32 @@ export function adaptToWorkbenchData(input: AdaptInput): WBData {
   const today = todayIso();
   const areasById = new Map(input.areas.map((a) => [a.id, a]));
 
-  // Projects derived from workboard groups.
-  const projects: WBProject[] = input.workboardProjects.map((wb, idx) => {
+  // Areas are the durable project registry. Workboard groups only exist after a
+  // project receives its first work item, so append missing areas as empty
+  // summaries instead of making them disappear from project surfaces.
+  const workboardProjectIds = new Set(input.workboardProjects.map((project) => project.projectId));
+  const projectSummaries = [
+    ...input.workboardProjects,
+    ...input.areas
+      .filter((area) => !workboardProjectIds.has(area.id))
+      .map((area) => ({
+        projectId: area.id,
+        itemCount: 0,
+        activeCount: 0,
+        blockedCount: 0,
+        items: [] as WorkItem[],
+        sessions: [] as AgentSession[],
+      })),
+  ];
+
+  const projects: WBProject[] = projectSummaries.map((wb, idx) => {
     const done = wb.items.filter((i) => i.status === 'done').length;
     const total = wb.items.length;
     const progress = total > 0 ? Math.round((done / total) * 100) : 0;
     const doingItem = wb.items.find((i) => i.status === 'active');
     const status: WBProject['status'] =
       wb.activeCount > 0 ? 'active' :
-      wb.items.every((i) => i.status === 'done') ? 'shipping' :
+      total > 0 && wb.items.every((i) => i.status === 'done') ? 'shipping' :
       wb.items.some((i) => i.status === 'inbox') ? 'fresh' : 'paused';
     const estimatedTokens = wb.sessions.reduce(
       (total, session) => total + estimateSessionActivity(session.toolCount, session.messageCount).estimatedTokens,

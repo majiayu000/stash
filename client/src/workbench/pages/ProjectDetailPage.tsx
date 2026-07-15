@@ -49,7 +49,7 @@ export function ProjectDetailPage({ data }: { data: WBData; reload: () => void }
   const { projects, todos, sessions } = data;
   const { projectId } = useParams<{ projectId?: string }>();
   const navigate = useNavigate();
-  const p = projects.find((x) => x.id === projectId) ?? projects[0];
+  const p = projectId ? projects.find((x) => x.id === projectId) : undefined;
 
   const [kb, setKb] = useState<ProjectKnowledgeView | null>(null);
   const [mySkills, setMySkills] = useState<Skill[]>([]);
@@ -157,7 +157,7 @@ export function ProjectDetailPage({ data }: { data: WBData; reload: () => void }
       <div className="dashboard-canvas">
         <div className="inner" style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <div className="surface" style={{ padding: '2rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-            no projects available
+            Project not found. Return to Projects and choose an existing project.
           </div>
         </div>
       </div>

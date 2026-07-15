@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import type { Skill, SkillSource } from '@stash/shared';
 import {
   createSkill,
@@ -22,6 +22,18 @@ import { skillsSettingsStyles } from './skills-settings.styles';
  */
 export function SkillsSettingsPage({ data }: { data: WBData; reload: () => void }) {
   const { projects } = data;
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const requestedProjectId = searchParams.get('projectId');
+  const focusedProject = requestedProjectId
+    ? projects.find((project) => project.id === requestedProjectId)
+    : undefined;
+  const bindingProjects = useMemo(
+    () => focusedProject
+      ? [focusedProject, ...projects.filter((project) => project.id !== focusedProject.id)]
+      : projects,
+    [focusedProject, projects],
+  );
   const [skills, setSkills] = useState<Skill[]>([]);
   const [projectSkills, setProjectSkills] = useState<Record<string, string[]>>({});
   const [selectedId, setSelectedId] = useState<string>('');
@@ -214,6 +226,11 @@ export function SkillsSettingsPage({ data }: { data: WBData; reload: () => void 
       <div className="dashboard-canvas">
         <div className="inner" style={{ overflow: 'hidden', height: '100%' }}>
           <Topbar data={data} />
+          <SkillsProjectContext
+            focusedProject={focusedProject}
+            requestedProjectId={requestedProjectId}
+            onOpenProject={(project) => navigate(`/projects/${encodeURIComponent(project.id)}`)}
+          />
           <div className="sk-bar">
             <div className="sk-search">
               <span style={{ color: 'var(--neon-cyan)', fontFamily: 'var(--font-mono)', fontWeight: 700 }}>🔍</span>
@@ -286,6 +303,12 @@ export function SkillsSettingsPage({ data }: { data: WBData; reload: () => void 
     <div className="dashboard-canvas">
       <div className="inner" style={{ overflow: 'hidden', height: '100%' }}>
         <Topbar data={data} />
+
+        <SkillsProjectContext
+          focusedProject={focusedProject}
+          requestedProjectId={requestedProjectId}
+          onOpenProject={(project) => navigate(`/projects/${encodeURIComponent(project.id)}`)}
+        />
 
         {/* Search + tabs */}
         <div className="sk-bar">
@@ -372,7 +395,8 @@ export function SkillsSettingsPage({ data }: { data: WBData; reload: () => void 
             <SkillDetail
               s={selected}
               bindings={bindingsFor(selected.id)}
-              allProjects={projects}
+              allProjects={bindingProjects}
+              focusProjectId={focusedProject?.id}
               projectSkills={projectSkills}
               onToggleBinding={handleToggleBinding}
               onInstallToggle={handleInstallToggle}
@@ -406,6 +430,26 @@ export function SkillsSettingsPage({ data }: { data: WBData; reload: () => void 
       <style>{skillsSettingsStyles}</style>
     </div>
   );
+}
+
+function SkillsProjectContext({ focusedProject, requestedProjectId, onOpenProject }: {
+  focusedProject?: WBProject;
+  requestedProjectId: string | null;
+  onOpenProject: (project: WBProject) => void;
+}) {
+  if (focusedProject) {
+    return (
+      <div className="sk-project-context" data-testid="skills-project-context" data-project-id={focusedProject.id}>
+        <span>Binding skills for</span>
+        <strong>{focusedProject.emoji} {focusedProject.name}</strong>
+        <button type="button" onClick={() => onOpenProject(focusedProject)}>back to project</button>
+      </div>
+    );
+  }
+  if (requestedProjectId) {
+    return <div className="sk-project-context error" role="alert">Project context not found. Showing the full skills library.</div>;
+  }
+  return null;
 }
 
 interface SkillCreateForm {
@@ -572,10 +616,11 @@ function SkillCard({ s, selected, onClick, bindings }: { s: Skill; selected: boo
   );
 }
 
-function SkillDetail({ s, bindings, allProjects, projectSkills, onToggleBinding, onInstallToggle, onDelete, onNotice }: {
+function SkillDetail({ s, bindings, allProjects, focusProjectId, projectSkills, onToggleBinding, onInstallToggle, onDelete, onNotice }: {
   s: Skill;
   bindings: WBProject[];
   allProjects: WBProject[];
+  focusProjectId?: string;
   projectSkills: Record<string, string[]>;
   onToggleBinding: (projectId: string, skillId: string, enabled: boolean) => Promise<void>;
   onInstallToggle: (skill: Skill) => Promise<void>;
@@ -645,10 +690,12 @@ function SkillDetail({ s, bindings, allProjects, projectSkills, onToggleBinding,
             return (
               <button
                 key={p.id}
-                className="sk-binding-row"
+                className={`sk-binding-row${p.id === focusProjectId ? ' focused' : ''}`}
                 type="button"
                 onClick={() => { void onToggleBinding(p.id, s.id, !bound); }}
                 style={{ background: 'transparent', textAlign: 'left' }}
+                data-testid={`skill-binding-${p.id}`}
+                data-focused={p.id === focusProjectId ? 'true' : undefined}
               >
                 <span style={{ fontSize: '1.05rem' }}>{p.emoji}</span>
                 <span style={{ flex: 1, fontFamily: 'var(--font-mono)', fontSize: '0.8rem', color: bound ? 'var(--neon-cyan)' : 'var(--text-secondary)', fontWeight: bound ? 600 : 400 }}>{p.name}</span>

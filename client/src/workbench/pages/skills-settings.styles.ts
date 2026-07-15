@@ -136,6 +136,32 @@ export const skillsSettingsStyles = `
   transition: all var(--transition-fast, 0.2s);
 }
 .sk-binding-row:hover { border-color: var(--border-glow); }
+.sk-binding-row.focused {
+  border-color: var(--neon-cyan);
+  background: color-mix(in srgb, var(--neon-cyan) 7%, transparent) !important;
+}
+.sk-project-context {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--neon-cyan) 35%, var(--border-hair));
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--neon-cyan) 6%, var(--bg-elevated));
+  color: var(--text-muted);
+  font: 0.72rem/1.3 var(--font-mono);
+}
+.sk-project-context strong { color: var(--neon-cyan); }
+.sk-project-context button {
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  cursor: pointer;
+}
+.sk-project-context.error { border-color: var(--neon-pink); color: var(--neon-pink); }
 
 .install-cmd {
   display: flex; align-items: center; gap: 0.5rem;
