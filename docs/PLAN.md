@@ -2,11 +2,10 @@
 
 Phased rollout of `docs/SPEC_v0.2.md`. Each phase ends with verification commands before advancing. **No backwards-compat hacks**: delete the v0.1 GitHub-style code path entirely.
 
-Current hardening note: this is the historical v0.2 implementation plan. The
-current production-readiness plan is [`docs/PRODUCTION_READINESS.md`](./PRODUCTION_READINESS.md).
-The current canonical session-detail route is `/c/g/:sessionId`; provider-
-qualified session links are a production hardening item, not the current router
-contract.
+Archive note: this plan implemented the retired letter-based prototype. Its
+routes, switcher, and page names were removed on 2026-07-15 and must not be used
+as current implementation guidance. Current routes are documented in the root
+README.
 
 ---
 

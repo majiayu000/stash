@@ -35,11 +35,11 @@ Top-level workbench routes:
 
 | Route | Surface | Role |
 | --- | --- | --- |
-| `/` and `/c/e` | Capture and Plan | Default daily todo board. |
-| `/c/l/:workItemId` | Todo Detail | Full lifecycle editor for one todo. |
-| `/c/j` | Weekly Review | Week summary, stale digest, and next-week planning. |
-| `/c/k/:projectId` | Project Workbench | Project context projected from todos and evidence. |
-| `/c/o?todoId=...` | Session Dispatcher | Optional agent start from a selected todo. |
+| `/` | Work | Default daily todo board. |
+| `/todos/:workItemId` | Todo Detail | Full lifecycle editor for one todo. |
+| `/review` | Weekly Review | Week summary, stale digest, and next-week planning. |
+| `/projects/:projectId` | Project Detail | Project context projected from todos and evidence. |
+| `/sessions/new?todoId=...` | Start Session | Optional agent start from a selected todo. |
 
 The default screen stays work-focused and dense. No landing page, hero marketing,
 or decorative content should appear before the usable todo board.
@@ -146,7 +146,7 @@ The interface is a dense local workbench:
 
 ### 5.2 Capture and Plan Board
 
-Current owner: `client/src/workbench/concepts/ConceptE.tsx`.
+Current owner: `client/src/workbench/pages/WorkPage.tsx`.
 
 Required columns:
 
@@ -183,7 +183,7 @@ Implementation correctness:
 
 ### 5.3 Todo Detail Surface
 
-Current owner: `client/src/workbench/concepts/ConceptL.tsx`.
+Current owner: `client/src/workbench/pages/TodoDetailPage.tsx`.
 
 The detail view must answer five questions without leaving the modal:
 
@@ -211,7 +211,7 @@ Keyboard and accessibility:
 
 ### 5.4 Weekly Review / Life Review
 
-Current owner: `client/src/workbench/concepts/ConceptJ.tsx`.
+Current owner: `client/src/workbench/pages/WeeklyReviewPage.tsx`.
 
 Weekly review is a personal life/work reflection surface, not only an agent cost
 report. It should combine completed work, stale commitments, project movement,
@@ -233,7 +233,7 @@ Required interactions:
 
 - Navigate previous/next ISO week.
 - Export the review to Markdown.
-- Open a completed or stale todo in Concept L.
+- Open a completed or stale todo in the Todo Detail page.
 - Move stale items to Today, Someday, Dropped, or keep.
 - Drop or schedule next-week todos without losing the review context.
 
@@ -263,7 +263,7 @@ The frontend lifecycle depends on these server capabilities:
 | Subtasks | `GET /api/work-items/:id/subtasks` plus child work item create/update |
 | Journal | `GET/POST/DELETE /api/work-items/:id/journal` |
 | Linked sessions | `GET/POST/DELETE /api/work-items/:id/sessions` |
-| Pending evidence | evidence routes used by Concept L |
+| Pending evidence | evidence routes used by Todo Detail |
 | Stale digest | `GET /api/work-items/stale?days=N` |
 | Weekly snapshot | `GET /api/analytics/weekly?week=YYYY-WW` |
 
@@ -301,15 +301,15 @@ dependency order instead of stacking unrelated changes on `main`.
 
 These are the first mergeable slices after this spec:
 
-1. `ConceptE` canonical filters: Today uses the server Today contract; Inbox uses
-   `status=inbox`; add focused-row Enter -> `/c/l/:workItemId`.
+1. Work board canonical filters: Today uses the server Today contract; Inbox uses
+   `status=inbox`; add focused-row Enter -> `/todos/:workItemId`.
 2. Replace prompt/alert lifecycle controls in the Todo board and detail modal
    with in-app dialogs/toasts for add, drop, link session, journal, labels, and
    subtasks.
-3. Expand Concept L metadata editing for `kind`, `scheduledFor`, `startAt`,
+3. Expand Todo Detail metadata editing for `kind`, `scheduledFor`, `startAt`,
    `outcome`, `context`, `estimateMinutes`, `waitingOn`, `blockedBy`, `links`,
    and drop reason.
-4. Make Concept J operational: previous/next week, Markdown export, open todo
+4. Make Weekly Review operational: previous/next week, Markdown export, open todo
    links, stale triage actions, and persisted next-week planning.
 5. Add one lifecycle Playwright path:
    capture -> triage -> detail edit -> done -> weekly review opens the completed
@@ -334,6 +334,6 @@ bun run client:e2e
 Manual browser verification:
 
 - `/` capture and board drag/reorder.
-- `/c/l/:workItemId` detail edit, journal, checklist, linked sessions, recurrence.
-- `/c/j` weekly review loaded state, stale digest, next-week planner, and no-data
+- `/todos/:workItemId` detail edit, journal, checklist, linked sessions, recurrence.
+- `/review` weekly review loaded state, stale digest, next-week planner, and no-data
   states.

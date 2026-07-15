@@ -76,43 +76,41 @@ Multi-select:   v to mark, V to mark all, action keys apply to all marked
 Find:           Cmd+K  search title/description/labels
 Smart lists:    `  toggles a chip row: overdue / today-pinned / p0 / etc
 Detail:         Enter on a row opens the modal; edit anything; ✓ done; Cmd+Z undo
-Reminders:      ConceptN → enable browser notifications; reminderAt fires automatically
+Reminders:      Settings → enable browser notifications; reminderAt fires automatically
 Systems:        create with :system, open the 🔁 systems chip, Run system, complete the Run
 ```
 
 ## Mobile capture boundary
 
-MVP is desktop-first: there is no mobile or compact workbench UI. Off-computer
-capture should use the same capture API instead of a separate mobile surface:
+The workbench is desktop-first, with responsive navigation and readable compact
+layouts for checking work on a narrow screen. Off-computer capture can use the
+same capture API instead of a separate mobile product:
 `stash add "..."` when a shell is available, or `POST /api/work-items/capture`
 from a trusted local shortcut/automation pointed at the running server.
 
-## The 16 concept pages
+## Product navigation and routes
 
-stash renders the same data through 16 different lenses. Pick the one that
-matches what you're doing:
+The persistent application navigation has five destinations: Work, Projects,
+Sessions, Review, and Settings. Creation flows and entity details are entered
+from the object they act on, rather than appearing as unrelated destinations.
 
-| route | concept | when |
-|---|---|---|
-| `/`              | E — capture & board | default; daily triage |
-| `/c/a`           | A — card wall | project-first browse |
-| `/c/b`           | B — multi-project board | drag work across projects |
-| `/c/c`           | C — hero + stream | one project in focus, live agent feed on the right |
-| `/c/d`           | D — constellation | all projects as glowing nodes, click to inspect |
-| `/c/e`           | E — inbox & 4-col board | same as `/` |
-| `/c/f`           | F — file picker | jump by file path |
-| `/c/g/:sessionId` | G — session detail | what the agent did |
-| `/c/h`           | H — cost & burn | spend per project / model / day |
-| `/c/i`           | I — ⌘K palette | global search |
-| `/c/j`           | J — weekly review | what shipped, what's stale |
-| `/c/k/:projectId`| K — project workbench | intent / milestones / decisions / notes / lessons |
-| `/c/l/:workItemId`| L — todo detail | edit anything, link sessions |
-| `/c/m`           | M — skills library | install + bind skills to projects |
-| `/c/n`           | N — settings | themes, projects CRUD, notifications |
-| `/c/o`           | O — start session dispatcher | composes prompt + spawns claude / codex |
-| `/c/prd`         | PRD | product requirements |
+| route | purpose |
+|---|---|
+| `/` | capture, Inbox, Today, Doing, and Later |
+| `/todos/:workItemId` | edit one task, inspect evidence, or start a connected session |
+| `/projects` | find or create projects |
+| `/projects/new` | create a project |
+| `/projects/:projectId` | project intent, milestones, decisions, notes, lessons, tasks, and sessions |
+| `/projects/:projectId/settings` | edit or delete one project |
+| `/sessions` | live agents and session history |
+| `/sessions/new?todoId=...` | start a session from a specific task |
+| `/sessions/:sessionId` | transcript, tools, files, related task, and project context |
+| `/review` | weekly review and next-week planning |
+| `/review/usage` | token, cost, model, project, and budget review |
+| `/settings` | themes, notifications, and budgets |
+| `/settings/skills` | skill registry and project bindings |
 
-Use the floating switcher (top-right) to jump between concepts.
+`Cmd+K` searches globally; it is an action overlay, not a page.
 
 ## Capture token grammar
 
@@ -179,7 +177,7 @@ server/   Bun + Hono + bun:sqlite
           • web/         routes + Zod schemas + error mapper
           • db/          migrations 001…007
 client/   React + Vite + 7-theme system
-          • workbench/   the shell + concepts/ (16 files) + shared widgets
+          • workbench/   application shell + semantic pages + shared widgets
           • api/         one wrapper per backend domain
 tools/    stash CLI binary + install script (doctor probes /health; capture
           POSTs to /api/work-items/capture)
@@ -220,7 +218,7 @@ Claude/Codex JSONL roots: `CLAUDE_ROOT` (default `~/.claude`), `CODEX_ROOT`
 bun run typecheck        # server + client TypeScript
 bun run server:test      # server domain + route tests
 bun run client:test      # client unit/component tests
-bun run client:e2e       # Playwright golden paths + every README concept route
+bun run client:e2e       # Playwright golden paths + semantic route coverage
 bun run test:all
 bun run doctor           # local install / paths / port checks
 bun run doctor --strict  # fail on missing first-run state or unreachable dev servers
@@ -238,14 +236,14 @@ The current production plan is tracked in
 Current highest-priority gaps:
 - Background refresh for very large Claude/Codex histories is still deferred;
   current scans are bounded by route limits, singleflight, and per-file cache.
-- The canonical G route is `/c/g/:sessionId`; provider-qualified deep links are
+- The canonical session route is `/sessions/:sessionId`; provider-qualified deep links are
   a hardening target, not the current route contract.
 - Release packaging is still personal-use only; no public OSS license is granted.
 
 ## What ships vs what's deferred
 
 **Shipped today** (0.1.13):
-- All 16 concept pages render from real backend data
+- Five stable product sections plus semantic entity and action routes
 - Quick Capture + CLI capture with token grammar
 - Inbox triage keyboard layer with multi-select + undo + help overlay (`?`)
 - Global search (`Cmd+K`) + smart-lists chip row (`` ` ``)
@@ -262,11 +260,11 @@ Current highest-priority gaps:
   new-skill creation, delete with binding cleanup, install command copy
 - Session detail: real transcript / tool-call summary / files-touched
 - Decision candidate extraction from JSONL (accept/ignore inline)
-- Real ConceptO dispatcher: composes a prompt, spawns Claude / Codex subprocess
+- Connected session starter: composes a prompt and spawns Claude / Codex
 - Analytics: 30-day burn (daily spend / hourly heatmap / model mix / per-project)
   with Codex token-usage extracted from rollout JSONLs
 - Weekly review snapshot (WoW pairs, focus hours, done-by-project, stale digest)
-- Settings: 7 themes, project CRUD, notifications opt-in
+- Settings: 7 themes, notifications opt-in, budgets, and skills
 - Persisted budgets (scope × period uniqueness, 409 on conflict)
 
 **Deferred** (real new features, not wiring):
@@ -274,11 +272,11 @@ Current highest-priority gaps:
 - Browser extension / native global hotkey
 - Multi-device sync (CRDT or Tailscale)
 - Daily-plan generation a la Motion / Sunsama
-- Real "calendar" / "terminal feed" concepts (the current ConceptC/D are
-  hero+stream and constellation — repurpose or add new letters)
+- Calendar planning and a richer live activity feed
 
-See [`docs/SPEC_v0.3.md`](./docs/SPEC_v0.3.md) for the most recent SPEC and
-[`docs/SPEC_v0.2.md`](./docs/SPEC_v0.2.md) for the original workbench design.
+See [`docs/SPEC_v0.4.md`](./docs/SPEC_v0.4.md) for the current task lifecycle
+specification. [`docs/SPEC_v0.2.md`](./docs/SPEC_v0.2.md) records the superseded
+multi-lens design and is retained only as project history.
 
 ## Access, license, and launch boundary
 
