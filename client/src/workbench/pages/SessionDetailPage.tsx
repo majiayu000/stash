@@ -63,7 +63,7 @@ export function SessionDetailPage({ data }: { data: WBData; reload: () => void }
 
   return (
     <div className="dashboard-canvas">
-      <div className="inner" style={{ overflow: 'hidden', height: '100%' }}>
+      <div className="inner session-detail-inner">
         <Topbar data={data} />
 
         {/* Session header */}
@@ -75,7 +75,7 @@ export function SessionDetailPage({ data }: { data: WBData; reload: () => void }
             <span style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: '0.75rem' }}>&nbsp;/&nbsp;</span>
             <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', color: 'var(--text-primary)' }}>{session.id.slice(0, 8)}</span>
           </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem', marginTop: '0.4rem' }}>
+          <div className="sd-header-row">
             <div style={{ flex: 1, minWidth: 0 }}>
               <h2 style={{ fontFamily: 'var(--font-mono)', fontSize: '1.45rem', fontWeight: 700, color: 'var(--neon-cyan)', textShadow: '0 0 18px rgba(0,255,242,0.4)', lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', margin: 0 }}>
                 {session.title || '(untitled session)'}
@@ -91,7 +91,7 @@ export function SessionDetailPage({ data }: { data: WBData; reload: () => void }
                 </span>
               </div>
             </div>
-            <div style={{ display: 'flex', gap: '0.4rem' }}>
+            <div className="sd-header-actions">
               <button className="sd-action" type="button" onClick={() => project && navigate(`/projects/${encodeURIComponent(project.id)}`)} disabled={!project}>project</button>
               <button className="sd-action" type="button" onClick={() => navigate('/review/usage')}>analytics</button>
               <button className="sd-action" type="button" onClick={() => relatedTodos[0] && navigate(`/sessions/new?todoId=${encodeURIComponent(relatedTodos[0].id)}`)} disabled={!relatedTodos[0]}>run again</button>
@@ -101,7 +101,7 @@ export function SessionDetailPage({ data }: { data: WBData; reload: () => void }
         </div>
 
         {/* Body: transcript + side */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: '1.25rem', flex: 1, minHeight: 0 }}>
+        <div className="sd-layout" data-testid="session-detail-layout">
           {/* TRANSCRIPT */}
           <div className="transcript" style={{ minWidth: 0, overflowY: 'auto' }}>
             {eventsError ? (
@@ -122,7 +122,7 @@ export function SessionDetailPage({ data }: { data: WBData; reload: () => void }
           </div>
 
           {/* SIDE */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', minWidth: 0, overflowY: 'auto' }}>
+          <div className="sd-sidebar">
             <EstimatedSessionMetrics session={session} />
 
             <ToolCallSummary events={events} />
@@ -412,6 +412,7 @@ function pickPath(meta: Record<string, unknown>): string | undefined {
 }
 
 const sessionDetailStyles = `
+.session-detail-inner { overflow: hidden; height: 100%; }
 .sd-head {
   background: var(--bg-glass);
   backdrop-filter: blur(20px);
@@ -421,6 +422,28 @@ const sessionDetailStyles = `
   margin-bottom: 1rem;
 }
 .sd-crumb { display: flex; align-items: center; }
+.sd-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  margin-top: 0.4rem;
+}
+.sd-header-actions { display: flex; gap: 0.4rem; }
+.sd-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 1.25rem;
+  flex: 1;
+  min-height: 0;
+}
+.sd-sidebar {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  overflow-y: auto;
+}
 .sd-crumb-link {
   background: transparent;
   border: 0;
@@ -483,6 +506,23 @@ const sessionDetailStyles = `
   font-size: 0.82rem;
   line-height: 1.65;
   display: flex; flex-direction: column; gap: 0.85rem;
+}
+
+@media (max-width: 980px) {
+  .session-detail-inner {
+    height: auto;
+    overflow: visible;
+  }
+  .sd-layout { grid-template-columns: minmax(0, 1fr); }
+  .transcript,
+  .sd-sidebar { overflow-y: visible !important; }
+}
+
+@media (max-width: 720px) {
+  .sd-header-row { flex-direction: column; }
+  .sd-header-actions { flex-wrap: wrap; }
+  .sd-crumb { overflow-x: auto; }
+  .transcript { padding: 0.8rem; }
 }
 
 .td-turn {

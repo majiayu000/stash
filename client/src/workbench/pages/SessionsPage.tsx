@@ -68,6 +68,13 @@ const sessionsPageStyles = `
   gap: 2rem;
   padding: 1rem 0 1.5rem;
 }
+.sessions-page .page-eyebrow {
+  margin: 0 0 0.35rem;
+  color: var(--neon-cyan);
+  font: 700 0.72rem/1.2 var(--font-mono);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
 .sessions-page-header h1 {
   max-width: 32ch;
   margin: 0;

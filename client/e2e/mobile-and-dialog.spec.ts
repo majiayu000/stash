@@ -152,3 +152,30 @@ test('narrow home and settings keep primary cards readable without column overla
   expect((await theme.boundingBox())?.width).toBeGreaterThan(330);
   await expect(page.getByRole('navigation', { name: 'Settings sections' })).toBeVisible();
 });
+
+test('mobile session detail stacks the transcript before its context sidebar', async ({ page, request }) => {
+  const response = await request.get(`${API}/agent-sessions?provider=all`);
+  expect(response.ok()).toBeTruthy();
+  const body = (await response.json()) as { data: Array<{ id: string }> };
+  expect(body.data.length).toBeGreaterThan(0);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`/sessions/${body.data[0]!.id}`);
+  await expect(page.getByTestId('session-detail-layout')).toBeVisible({ timeout: 10_000 });
+
+  const geometry = await page.evaluate(() => {
+    const transcript = document.querySelector<HTMLElement>('.transcript')!.getBoundingClientRect();
+    const sidebar = document.querySelector<HTMLElement>('.sd-sidebar')!.getBoundingClientRect();
+    return {
+      documentFits: document.documentElement.scrollWidth <= window.innerWidth,
+      transcriptWidth: transcript.width,
+      sidebarBelowTranscript: sidebar.top >= transcript.bottom - 1,
+      aligned: Math.abs(sidebar.left - transcript.left) < 1,
+    };
+  });
+
+  expect(geometry.documentFits).toBe(true);
+  expect(geometry.transcriptWidth).toBeGreaterThan(330);
+  expect(geometry.sidebarBelowTranscript).toBe(true);
+  expect(geometry.aligned).toBe(true);
+});
