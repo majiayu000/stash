@@ -70,9 +70,9 @@ This replaces the looser "today" definition wherever it leaks.
 
 ### 3e. Inbox triage keyboard model
 
-Inbox view (`/c/e` and `/c/d`) supports single-key actions on the focused row:
+The Work inbox (`/`) supports single-key actions on the focused row:
 - `j` / `k` → next / prev row (cursor)
-- `Enter` → open detail (Concept L modal)
+- `Enter` → open Todo Detail
 - `t` → toggle `today_pinned`
 - `s` → set status `someday`
 - `n` → set status `planned` (Next/Anytime)
@@ -107,7 +107,7 @@ These use **regex first, LLM optional later**:
 
 **Decision candidates from sessions**: nightly batch (and on-demand endpoint `POST /api/decisions/extract?sessionId=X`) scans an agent session's JSONL for lines matching `(decided|chose|let's go with|going to use) <quoted thing>` and creates `confidence='pending'` decision rows. UI shows pending decisions with accept/reject.
 
-**Stale digest**: `GET /api/analytics/stale?days=30` returns items in `inbox` or `planned` status untouched ≥ N days, optionally grouped by area. UI surfaces in Concept J (weekly review).
+**Stale digest**: `GET /api/analytics/stale?days=30` returns items in `inbox` or `planned` status untouched ≥ N days, optionally grouped by area. The UI surfaces it in Weekly Review.
 
 ### 3i. Empty states (no fake data ever)
 
@@ -149,7 +149,7 @@ Numbered slices, each shippable green:
 9. **Frontend triage shortcuts** — `j/k/t/n/s/d/e/0/1/2/3` on inbox + workboard
 10. **Lessons surfacing** — detail modal pulls matching lessons
 11. **Decision extraction** — regex pass on JSONL + endpoint
-12. **Stale digest** — endpoint + Concept J integration
+12. **Stale digest** — endpoint + Weekly Review integration
 13. **Empty states + undo toast** — UI polish
 14. **Tests** — service tests for parser, recurrence, today query; e2e for capture flow + triage
 

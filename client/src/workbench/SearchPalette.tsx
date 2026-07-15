@@ -10,7 +10,7 @@ import { useDialogA11y } from './useDialogA11y';
  *
  * Triggers: `Cmd+K` / `Ctrl+K` anywhere, or `/` when no input has focus.
  * Server-side LIKE on title + description + labels via /api/work-items?q=...
- * Enter on a row → /c/l/:id (Concept L detail).
+ * Enter on a row opens the matching task detail.
  * j/k or ↑/↓ navigate.
  */
 export function SearchPalette() {
@@ -75,7 +75,7 @@ export function SearchPalette() {
 
   function pick(it: WorkItem) {
     setOpen(false);
-    navigate(`/c/l/${it.id}`);
+    navigate(`/todos/${it.id}`);
   }
 
   return !open ? null : (

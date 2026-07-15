@@ -1,7 +1,7 @@
 # stash — Todo + Agent Workboard SPEC (v0.1, historical)
 
 > ⚠️ **Superseded by [`docs/SPEC_v0.2.md`](./docs/SPEC_v0.2.md) + [`docs/PLAN.md`](./docs/PLAN.md).**
-> v0.1 described an 8-page GitHub-style UI that has been removed. v0.2 is the workbench-design-template port (15 concepts + PRD, 7 themes, with new skills/project-knowledge/analytics backend domains).
+> Archive: v0.1 and the later letter-based prototype have both been removed. Current product routes and navigation are documented in the root README.
 > This file is kept for historical context only.
 
 Source: `docs/reference/prd/PRD.md` (Claude-Code-Monitor PRD_TODO_AGENT_WORKBOARD).

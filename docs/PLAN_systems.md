@@ -23,7 +23,7 @@
 - System template 不能被标记 done。
 
 **下一步准备**:
-- 确认是否要独立 Concept（'s' 路由）还是先用 SmartLists + Concept L 增强。
+- 已决定不增加独立顶层页面；先用 SmartLists + Todo Detail 增强。
 
 ---
 
@@ -68,13 +68,13 @@
 **Touches**:
 - `client/src/api/work-items.ts`（加 runSystem）
 - `client/src/workbench/SmartLists.tsx`（内置 systems chip）
-- `client/src/workbench/concepts/ConceptL.tsx`（System 详情显示 “▶ Run system” 按钮）
+- `client/src/workbench/pages/TodoDetailPage.tsx`（System 详情显示 “▶ Run system” 按钮）
 - 相关 hooks / tests
 
 **步骤**:
 1. 实现 `runSystem(templateId, opts)` API wrapper。
 2. 在 SmartLists 增加默认 chip `{ id: 'systems', label: '🔁 systems', filter: { kind: 'system' } }`。
-3. 在 Concept L 的详情页，当 `item.kind === 'system'` 时显示 Run 按钮，点击后调用 API 并跳转到新 Run。
+3. 在 Todo Detail 页面，当 `item.kind === 'system'` 时显示 Run 按钮，点击后调用 API 并跳转到新 Run。
 4. Run 详情页复用现有 ChecklistPanel + Journal（无需大改）。
 5. 在 System 模板详情显示历史 Run 列表（日期、状态、完成进度）。
 6. e2e：增加测试验证 Run 按钮创建、跳转、勾 checklist、Done、返回历史。
@@ -95,7 +95,7 @@
 **状态**: 已完成。
 
 **Touches**:
-- `client/src/workbench/concepts/ConceptL.tsx`（增强历史列表）
+- `client/src/workbench/pages/TodoDetailPage.tsx`（增强历史列表）
 - `client/src/workbench/QuickCapture.tsx` 或 capture parser（支持创建 system）
 - `server/fixtures/seed*.ts`
 - `README.md`
@@ -123,7 +123,7 @@
 
 ## Phase 4 — 增强 & 未来（Post-MVP）
 
-- 专用 Systems 视图（可选新 Concept 's'）
+- Work 内的 Systems 保存视图（不增加顶层导航）
 - Run 统计（平均用时、完成率）
 - AI Coach 针对 System 模板的优化建议（MVP 已支持 checklist proposal → 用户确认 → 应用）
 - CLI 专用 `stash system "xxx"`
@@ -159,7 +159,7 @@
 - PRD 已校准为 v1.1。
 - GitHub Issues 已创建：#85-#97。
 - Phase 1 基础闭环已完成：`kind=system`、`instantiateSystem`、`POST /work-items/:id/run`、fail-closed kind filter、System template 禁止 done。
-- Phase 2 基础入口已完成：SmartLists systems chip、Concept L `Run system` 按钮、Run 跳转。
+- Phase 2 基础入口已完成：SmartLists systems chip、Todo Detail `Run system` 按钮、Run 跳转。
 - Phase 3 MVP 收尾已完成：`:system` / `kind:system` 创建入口、历史 Runs 面板、e2e、seed、README。
 
 下一步：合并前跑完整 verify；Post-MVP 再拆专用 Systems 视图、统计、CLI `stash system` 和更丰富的 Run → 模板改进流。

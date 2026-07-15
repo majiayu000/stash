@@ -1,14 +1,24 @@
-import { useEffect } from 'react';
-import { Link, useLocation, useParams } from 'react-router-dom';
+import { useEffect, type ReactNode } from 'react';
+import { Link, useLocation } from 'react-router-dom';
 import './styles/brand.css';
 import './styles/dashboard.css';
 import { ThemeSwitcher } from '../components/ThemeSwitcher';
 import { ApiError } from '../api/client';
 import { AsyncErrorHost } from './AsyncErrorHost';
+import { AppNavigation } from './AppNavigation';
 import { useWorkbenchData } from './useWorkbenchData';
-import { findConcept } from './concepts/registry';
-import { renderConcept } from './concepts/render';
-import { ConceptSwitcher } from './ConceptSwitcher';
+import { WorkPage } from './pages/WorkPage';
+import { ProjectFormPage } from './pages/ProjectFormPage';
+import { SessionDetailPage } from './pages/SessionDetailPage';
+import { UsageReviewPage } from './pages/UsageReviewPage';
+import { WeeklyReviewPage } from './pages/WeeklyReviewPage';
+import { ProjectDetailPage } from './pages/ProjectDetailPage';
+import { TodoDetailPage } from './pages/TodoDetailPage';
+import { SkillsSettingsPage } from './pages/SkillsSettingsPage';
+import { SettingsPage } from './pages/SettingsPage';
+import { SessionStartPage } from './pages/SessionStartPage';
+import { ProjectsPage } from './pages/ProjectsPage';
+import { SessionsPage } from './pages/SessionsPage';
 import { DecisionInbox } from './DecisionInbox';
 import { InboxTriage } from './InboxTriage';
 import { ReminderTicker } from './ReminderTicker';
@@ -17,41 +27,50 @@ import { SearchPalette } from './SearchPalette';
 import { SmartLists } from './SmartLists';
 import { SourceHealthBanner } from './SourceHealthBanner';
 import { TodayTriage } from './TodayTriage';
+import type { WBData } from './data';
 
-type WorkbenchRouteParams = {
-  detailId?: string;
-  projectId?: string;
-  sessionId?: string;
-  workItemId?: string;
-};
+export type WorkbenchPage =
+  | 'work'
+  | 'todo-detail'
+  | 'projects'
+  | 'project-form'
+  | 'project-detail'
+  | 'sessions'
+  | 'session-start'
+  | 'session-detail'
+  | 'review'
+  | 'review-usage'
+  | 'settings'
+  | 'settings-skills';
 
-function conceptIdFromParams(params: WorkbenchRouteParams): string {
-  if (params.projectId) return 'k';
-  if (params.sessionId) return 'g';
-  if (params.workItemId) return 'l';
-  return params.detailId ?? 'e';
+function renderPage(page: WorkbenchPage, data: WBData, reload: () => void): ReactNode {
+  const props = { data, reload };
+  switch (page) {
+    case 'work': return <WorkPage {...props} />;
+    case 'todo-detail': return <TodoDetailPage {...props} />;
+    case 'projects': return <ProjectsPage {...props} />;
+    case 'project-form': return <ProjectFormPage {...props} />;
+    case 'project-detail': return <ProjectDetailPage {...props} />;
+    case 'sessions': return <SessionsPage {...props} />;
+    case 'session-start': return <SessionStartPage {...props} />;
+    case 'session-detail': return <SessionDetailPage {...props} />;
+    case 'review': return <WeeklyReviewPage {...props} />;
+    case 'review-usage': return <UsageReviewPage {...props} />;
+    case 'settings': return <SettingsPage {...props} />;
+    case 'settings-skills': return <SkillsSettingsPage {...props} />;
+  }
 }
 
-export function Workbench() {
+export function Workbench({ page }: { page: WorkbenchPage }) {
   const { data, loading, error, reload } = useWorkbenchData();
-  const params = useParams<WorkbenchRouteParams>();
   const location = useLocation();
-  const routeConceptId = conceptIdFromParams(params);
-  const entry = findConcept(routeConceptId);
 
-  // SPEC v0.3 — refresh data after Quick Capture submits.
   useEffect(() => {
     function onCaptured() { reload(); }
     window.addEventListener('stash:captured', onCaptured);
     return () => window.removeEventListener('stash:captured', onCaptured);
   }, [reload]);
 
-  // Live refresh — new JSONL files from a dispatched agent should show up
-  // without a manual reload. Three triggers, ordered cheapest first:
-  //   1. window focus (user came back from another window)
-  //   2. document visibilitychange → visible (tab becomes active)
-  //   3. 60s heartbeat while the tab is visible
-  // No fetch while hidden — keeps idle tabs cheap.
   useEffect(() => {
     let pendingFocusReload = false;
     function onFocus() {
@@ -77,37 +96,31 @@ export function Workbench() {
 
   if (loading && !data) {
     return (
-      <div style={{ display: 'grid', placeItems: 'center', minHeight: '100vh', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-        loading workbench…
+      <div className="app-loading" role="status">
+        Loading your workbench…
       </div>
     );
   }
   if (error) {
     const api = error instanceof ApiError ? ` (${error.status || 'network'} ${error.code})` : '';
     return (
-      <div style={{ padding: '2rem', color: 'var(--neon-pink)', fontFamily: 'var(--font-mono)', display: 'grid', gap: '12px', justifyItems: 'start' }}>
-        <div>Failed to load data{api}: {error.message}</div>
-        <button
-          type="button"
-          onClick={reload}
-          style={{ border: '1px solid var(--neon-pink)', background: 'transparent', color: 'var(--neon-pink)', borderRadius: 6, padding: '6px 10px', font: 'inherit', cursor: 'pointer' }}
-        >
-          Retry
-        </button>
+      <div className="app-load-error" role="alert">
+        <h1>We couldn't load your workbench{api}.</h1>
+        <p>{error.message}</p>
+        <button type="button" onClick={reload}>Try again</button>
       </div>
     );
   }
-  if (!entry) return <UnknownConceptState conceptId={routeConceptId} />;
   if (!data) return null;
-
-  const content = renderConcept(entry.id, data, reload);
 
   return (
     <div className="workbench-shell">
-      <div className="workbench-floating" data-testid="workbench-floating">
-        <ConceptSwitcher />
+      <a className="skip-link" href="#main-content">Skip to main content</a>
+      <AppNavigation />
+      <div className="app-theme-picker" aria-label="Theme">
         <ThemeSwitcher />
       </div>
+
       <QuickCapture />
       <InboxTriage />
       <DecisionInbox reload={reload} />
@@ -117,94 +130,142 @@ export function Workbench() {
       <TodayTriage />
       <SourceHealthBanner errors={data.sourceErrors} onRetry={reload} />
       <AsyncErrorHost key={`${location.pathname}${location.search}`} />
-      {content}
 
-      <style>{`
-        .workbench-shell {
-          min-height: 100vh;
-          /* extra bottom padding keeps page content clear of the fixed
-             bottom overlays (AI drafts pill, capture fab) */
-          padding: 1.5rem 1.5rem 5.5rem;
-          position: relative;
-        }
-        /* reserve the top-right corner for the fixed switcher stack so it
-           never covers the topbar stats */
-        .workbench-shell .topbar {
-          padding-right: 200px;
-        }
-        .workbench-floating {
-          position: fixed;
-          top: 16px;
-          right: 24px;
-          z-index: 50;
-          display: flex;
-          flex-direction: column;
-          align-items: flex-end;
-          gap: 8px;
-        }
-        .dashboard-canvas {
-          min-height: calc(100vh - 7rem);
-          height: auto;
-        }
-        .dashboard-canvas .inner {
-          height: auto !important;
-          min-height: calc(100vh - 7rem);
-          display: flex;
-          flex-direction: column;
-        }
-      `}</style>
+      <main id="main-content" className="workbench-main">
+        <SectionNavigation page={page} />
+        {renderPage(page, data, reload)}
+      </main>
+
+      <style>{workbenchStyles}</style>
     </div>
   );
 }
 
-function UnknownConceptState({ conceptId }: { conceptId: string }) {
+function SectionNavigation({ page }: { page: WorkbenchPage }) {
+  const { pathname } = useLocation();
+  const items = page === 'review' || page === 'review-usage'
+    ? [
+      { to: '/review', label: 'Weekly review' },
+      { to: '/review/usage', label: 'Usage & cost' },
+    ]
+    : page === 'settings' || page === 'settings-skills'
+      ? [
+        { to: '/settings', label: 'Preferences' },
+        { to: '/settings/skills', label: 'Skills' },
+      ]
+      : null;
+
+  if (!items) return null;
   return (
-    <div className="workbench-shell">
-      <div className="workbench-floating">
-        <ConceptSwitcher />
-        <ThemeSwitcher />
-      </div>
-      <div className="dashboard-canvas">
-        <div className="inner" style={{ minHeight: 'calc(100vh - 3rem)', display: 'grid', placeItems: 'center' }}>
-          <div
-            className="surface"
-            data-testid="unknown-concept-state"
-            style={{
-              width: 'min(560px, 100%)',
-              padding: '1.5rem',
-              borderColor: 'rgba(255,159,10,0.35)',
-              fontFamily: 'var(--font-mono)',
-            }}
-          >
-            <div style={{ color: 'var(--neon-orange)', fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>
-              unknown concept
-            </div>
-            <h1 style={{ margin: 0, fontSize: '1.2rem', lineHeight: 1.3, color: 'var(--text-primary)' }}>
-              /c/{conceptId} is not a valid workbench page
-            </h1>
-            <p style={{ margin: '0.8rem 0 1.2rem', color: 'var(--text-muted)', lineHeight: 1.6, fontSize: '0.82rem' }}>
-              Choose a concept from the switcher or return to the default workbench.
-            </p>
-            <Link
-              to="/"
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                padding: '0.5rem 0.75rem',
-                color: 'var(--bg-void)',
-                background: 'var(--neon-cyan)',
-                border: '1px solid var(--neon-cyan)',
-                borderRadius: 'var(--radius-sm)',
-                textDecoration: 'none',
-                fontWeight: 700,
-                fontSize: '0.76rem',
-              }}
-            >
-              open default
-            </Link>
-          </div>
-        </div>
-      </div>
-    </div>
+    <nav className="section-navigation" aria-label={page.startsWith('review') ? 'Review pages' : 'Settings pages'}>
+      {items.map((item) => {
+        const active = pathname === item.to;
+        return (
+          <Link key={item.to} to={item.to} className={active ? 'active' : ''} aria-current={active ? 'page' : undefined}>
+            {item.label}
+          </Link>
+        );
+      })}
+    </nav>
   );
 }
+
+const workbenchStyles = `
+.workbench-shell {
+  min-height: 100vh;
+  padding: 1rem 1rem 5.5rem 13.5rem;
+  position: relative;
+}
+.workbench-main { min-width: 0; }
+.section-navigation {
+  display: flex;
+  gap: 0.25rem;
+  margin: 0 0 0.75rem;
+  padding: 0.25rem;
+  border: 1px solid var(--border-hair);
+  border-radius: var(--radius-md);
+  background: var(--bg-glass);
+  width: fit-content;
+}
+.section-navigation a {
+  min-height: 2.25rem;
+  display: inline-flex;
+  align-items: center;
+  padding: 0.4rem 0.7rem;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  text-decoration: none;
+  font: 700 0.72rem/1 var(--font-mono);
+}
+.section-navigation a:hover { color: var(--text-primary); }
+.section-navigation a.active { background: var(--bg-elevated); color: var(--neon-cyan); }
+.section-navigation a:focus-visible { outline: 2px solid var(--neon-cyan); outline-offset: 2px; }
+.workbench-shell .topbar { padding-right: 6.5rem; }
+.app-theme-picker {
+  position: fixed;
+  top: 1.45rem;
+  right: 1.5rem;
+  z-index: 65;
+}
+.skip-link {
+  position: fixed;
+  top: 0.5rem;
+  left: 0.5rem;
+  z-index: 1000;
+  transform: translateY(-160%);
+  padding: 0.55rem 0.75rem;
+  border-radius: var(--radius-md);
+  background: var(--neon-cyan);
+  color: var(--bg-void);
+  font-weight: 700;
+}
+.skip-link:focus { transform: translateY(0); }
+.dashboard-canvas {
+  min-height: calc(100vh - 7.5rem);
+  height: auto;
+}
+.dashboard-canvas .inner {
+  height: auto !important;
+  min-height: calc(100vh - 7.5rem);
+  display: flex;
+  flex-direction: column;
+}
+.app-loading,
+.app-load-error {
+  min-height: 100vh;
+  display: grid;
+  place-content: center;
+  gap: 0.75rem;
+  padding: 2rem;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+.app-load-error { justify-items: start; color: var(--text-secondary); }
+.app-load-error h1,
+.app-load-error p { margin: 0; }
+.app-load-error button {
+  min-height: 2.75rem;
+  padding: 0.55rem 0.85rem;
+  border: 1px solid var(--neon-cyan);
+  border-radius: var(--radius-md);
+  background: var(--neon-cyan);
+  color: var(--bg-void);
+  font: inherit;
+  font-weight: 700;
+}
+@media (max-width: 1100px) {
+  .workbench-shell { padding: 5.25rem 0.75rem 5.5rem; }
+  .app-theme-picker { top: 1.15rem; right: 1.15rem; }
+  .workbench-shell .topbar { padding-right: 1rem; }
+}
+@media (max-width: 720px) {
+  .workbench-shell { padding: 0.75rem 0.75rem 6rem; }
+  .app-theme-picker { top: 0.65rem; right: 0.75rem; }
+  .workbench-shell .topbar { padding: 3.5rem 1rem 1rem; }
+  .dashboard-canvas,
+  .dashboard-canvas .inner { min-height: calc(100vh - 7rem); }
+  .dashboard-canvas > .inner { padding: 0.75rem; }
+  .section-navigation { width: 100%; }
+  .section-navigation a { flex: 1; justify-content: center; }
+}
+`;

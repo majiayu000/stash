@@ -12,7 +12,7 @@ import { reportAsyncError } from './reportAsyncError';
  *
  * Trigger: `\`` (backtick) toggles the strip. Stays open so you can click chips.
  * Chips render counts. Click → opens a result drawer using the same row design
- * as SearchPalette. Click a row → /c/l/:id (Concept L).
+ * as SearchPalette. Clicking a row opens task detail.
  */
 
 const STORAGE_KEY = 'stash.smartLists.v1';
@@ -120,7 +120,7 @@ export function SmartLists() {
 
   function pick(it: WorkItem) {
     setOpen(false); setActive(null);
-    navigate(`/c/l/${it.id}`);
+    navigate(`/todos/${it.id}`);
   }
 
   async function addCustom() {

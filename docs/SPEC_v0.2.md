@@ -2,10 +2,9 @@
 
 Supersedes the v0.1 8-page architecture in `/SPEC.md`. v0.2 ports the full **workbench design template** (15 concepts + PRD page) faithfully — design, colors, and behaviors — onto the existing stash backend, extending it where new domains are required.
 
-Current hardening note: this is a historical design spec. The current production
-readiness plan lives in [`docs/PRODUCTION_READINESS.md`](./PRODUCTION_READINESS.md).
-The current canonical session-detail route is `/c/g/:sessionId`; the older
-provider-qualified route is tracked as a route-contract hardening item.
+Archive note: this document describes the retired letter-based prototype. Its
+routes, switcher, and page names were removed on 2026-07-15 and must not be used
+as implementation guidance. Current routes are documented in the root README.
 
 Authoritative reference: `docs/reference/workbench-explore/` (read-only). Visual fidelity across all 7 themes (Cyber, Matrix, Synthwave, Amber, Glacier, Paper, Mono) is non-negotiable per user feedback.
 

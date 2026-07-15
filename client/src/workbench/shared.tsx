@@ -22,7 +22,7 @@ export function FeatureRow({ f }: { f: Feature }) {
 
 export function ProjectCardFull({ p, onClick }: { p: WBProject; onClick?: () => void }) {
   const navigate = useNavigate();
-  const openProject = onClick ?? (() => navigate(`/c/k/${pathPart(p.id)}`));
+  const openProject = onClick ?? (() => navigate(`/projects/${pathPart(p.id)}`));
   return (
     <div
       className="pcard"
@@ -84,7 +84,7 @@ export function StatTile({ label, value, foot, tone, format }: { label: string; 
   );
 }
 
-/** Compact key-value tile used in Concept K hero + Concept H KPIs. */
+/** Compact key-value tile used in project detail and review KPIs. */
 export function Tile({ k, v, c }: { k: string; v: string; c?: string }) {
   return (
     <div style={{ padding: '0.75rem 0.9rem', background: 'var(--bg-glass)', border: '1px solid var(--border-hair)', borderRadius: 'var(--radius-md)' }}>
@@ -291,7 +291,7 @@ export function SessionRow({
   const proj = projects.find((p) => p.id === s.project);
   const icon = s.tool === 'codex' ? '$' : '>';
   const navigate = useNavigate();
-  const openSession = onClick ?? (() => navigate(`/c/g/${pathPart(s.id)}`));
+  const openSession = onClick ?? (() => navigate(`/sessions/${pathPart(s.id)}`));
   return (
     <div
       className={`sess ${s.state}`}
@@ -376,7 +376,7 @@ export function TodoItem({ t, projects, showProject = true }: { t: WBTodo; proje
 
   function openDetail(e: React.MouseEvent | React.KeyboardEvent) {
     e.stopPropagation();
-    navigate(`/c/l/${t.id}`);
+    navigate(`/todos/${t.id}`);
   }
 
   return (

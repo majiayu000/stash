@@ -8,7 +8,7 @@ Scope: single-user desktop/local deployment of stash
 
 The product is already useful as a local workbench:
 
-- 16 concept pages render through the concept switcher.
+- Five stable product sections render through persistent navigation.
 - Quick Capture, CLI capture, inbox triage, Today, recurrence, reminders,
   project knowledge, skills, session detail, dispatcher, analytics, weekly
   review, settings, and budgets are wired to real backend data.
@@ -17,8 +17,8 @@ The product is already useful as a local workbench:
   - `bun run client:build` passed with only the Vite chunk-size warning.
   - `bun run test:all` passed: 204 server tests and 2 client tests.
   - `bun run client:e2e` passed: 9 Playwright tests.
-  - Browser smoke verified `/`, `/c/a` through `/c/prd`,
-    `/c/k/:projectId`, `/c/l/:workItemId`, and `/c/g/:sessionId`.
+  - Browser smoke verifies Work, Projects, Sessions, Review, Settings, and the
+    task, project, and session detail routes.
 
 This is enough for dogfooding. It is not enough to call the app production-grade.
 
@@ -85,8 +85,8 @@ Done when:
 Tracking issue: [#1](https://github.com/majiayu000/stash/issues/1)
 
 Problem:
-The current app supports `/c/g/:sessionId`, while older specs planned
-`/c/g/:provider/:sessionId`. Provider-qualified session links should either
+The current app supports `/sessions/:sessionId`. Provider-qualified session
+links should either
 work or disappear from docs and UI.
 
 Target:
@@ -94,16 +94,16 @@ All documented routes work exactly as documented.
 
 Plan:
 
-1. Keep `/c/g/:sessionId` as the current canonical route.
-2. Add `/c/g/:provider/:sessionId` only if the UI needs provider disambiguation.
-3. If provider-qualified links are added, update `ConceptG` to read both
+1. Keep `/sessions/:sessionId` as the current canonical route.
+2. Add `/sessions/:provider/:sessionId` only if the UI needs provider disambiguation.
+3. If provider-qualified links are added, update `SessionDetailPage` to read both
    parameters and resolve the session by provider + id.
 4. Add Playwright coverage for both canonical and compatibility session links.
 
 Done when:
 
 - README, PRD, specs, router, and generated UI links agree.
-- Unknown concept routes show a clear not-found state instead of redirecting
+- Unknown routes show a clear not-found state instead of redirecting
   silently to `/`.
 
 ### 3. Replace Silent Catch Blocks With User-Visible Error States
@@ -171,25 +171,23 @@ Done when:
 
 ## P2: Coverage and UX Polish
 
-### 6. Full Concept Golden Paths
+### 6. Full Workflow Golden Paths
 
 Tracking issue: [#5](https://github.com/majiayu000/stash/issues/5)
 
-Current e2e covers the highest-value flows, but not every concept page has a
-dedicated test.
+Current e2e covers the highest-value flows and every stable product section.
 
 Add Playwright tests for:
 
-- A/B/C/D/F/I/N/PRD smoke and main interaction.
-- G deep link and provider-qualified compatibility route if implemented.
-- H analytics loaded state from cached usage aggregates.
-- J weekly loaded state from cached weekly aggregates.
-- Concept switcher click-through across all 16 entries.
+- All five primary navigation entries.
+- Task, project, and session deep links.
+- Usage analytics loaded state from cached usage aggregates.
+- Weekly review loaded state from cached weekly aggregates.
+- Context flow from task to session and back to related entities.
 
 Done when:
 
-- `bun run client:e2e` proves every concept page opens from the switcher and
-  every deep link in README resolves.
+- `bun run client:e2e` proves every primary section and README deep link resolves.
 
 ### 7. Install and Release Path
 
@@ -217,7 +215,7 @@ Done when:
 - Browser extension or native global hotkey.
 - Multi-device sync.
 - Daily planning automation.
-- Calendar or terminal-feed concepts.
+- Calendar or terminal-feed surfaces.
 
 These are product expansion items. They should not block the production
 hardening work above.

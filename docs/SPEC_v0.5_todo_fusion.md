@@ -26,7 +26,7 @@ This spec consolidates the strongest ideas from the local todo prototypes:
 
 | Prototype | Keep | Do not keep |
 | --- | --- | --- |
-| `stash` | Main product shell, SQLite, CLI capture, workbench routes, project/session/evidence linkage, work item lifecycle. | The previous concept-sprawl should not make the default todo loop heavier. |
+| `stash` | Main product shell, SQLite, CLI capture, workbench routes, project/session/evidence linkage, work item lifecycle. | The previous page sprawl should not make the default todo loop heavier. |
 | `AI/tools/todo/demo` (`Spark`) | Idea-native todo framing, AI decomposition, task-level coach chat, summarize-to-description, Chinese quick-add parsing. | Browser-only globals, localStorage as source of truth, API key in browser storage. |
 | `AI/tool/rtodo` | Fast local utility expectations, explicit persistence failure handling, calm desktop-oriented todo UX. | Separate RUI app implementation. |
 | `work/infra/todo` | Meeting-to-task draft inbox, human `adopt` / `reject` / `edit-adopt`, source traceability. | Team/workspace approval system in the default personal todo view. |
@@ -332,7 +332,7 @@ the title and `rawInput` is preserved.
 
 ### 7.2 Idea Decomposition Dialog
 
-Owner surface: `ConceptL` detail for `kind=idea`.
+Owner surface: Todo Detail for `kind=idea`.
 
 Dialog layout:
 
@@ -355,7 +355,7 @@ All failures render inline in the dialog. No browser-native alert.
 
 ### 7.3 Task Coach Panel
 
-Owner surface: `ConceptL` detail for any `task`, `bug`, `chore`, or `research`
+Owner surface: Todo Detail for any `task`, `bug`, `chore`, or `research`
 item.
 
 Panel behavior:

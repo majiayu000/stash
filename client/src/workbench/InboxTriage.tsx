@@ -246,7 +246,7 @@ export function InboxTriage() {
       if (e.key === 'Enter') {
         if (!cursorId) return;
         e.preventDefault();
-        navigate(`/c/l/${encodeURIComponent(cursorId)}`);
+        navigate(`/todos/${encodeURIComponent(cursorId)}`);
         return;
       }
 

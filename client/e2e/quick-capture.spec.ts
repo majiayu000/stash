@@ -5,7 +5,7 @@ const API = process.env.STASH_E2E_API_URL ?? 'http://localhost:4174/api';
 /**
  * SPEC v0.3 §3f — Quick Capture modal end-to-end.
  *
- * 1. Open `/` (Concept E).
+ * 1. Open Work at `/`.
  * 2. Press `c` — modal opens.
  * 3. Type a token-rich title.
  * 4. See token preview chips.

@@ -1,6 +1,6 @@
 # Stash Skills UX SPEC
 
-Status: active for Concept M
+Status: active for Skills settings
 
 ## Goal
 
@@ -38,7 +38,7 @@ Project binding fields:
 - `enabled`
 - `boundAt`
 
-## Concepts
+## Domain Terms
 
 ### Availability
 
@@ -183,11 +183,11 @@ Required backend additions:
 
 Before closing a Skills UX change:
 
-1. `rg -n "window\\.(prompt|alert|confirm)" client/src/workbench/concepts/ConceptM.tsx client/src/workbench/concepts/conceptM.styles.ts`
+1. `rg -n "window\\.(prompt|alert|confirm)" client/src/workbench/pages/SkillsSettingsPage.tsx client/src/workbench/pages/skills-settings.styles.ts`
 2. `bun run client:typecheck`
 3. `bun run client:test`
 4. `bun run client:build`
-5. Browser smoke on `/skills`:
+5. Browser smoke on `/settings/skills`:
    - Empty state does not mention `POST /api/skills`.
    - Create opens in-app dialog.
    - Create succeeds with no native browser dialog.

@@ -301,12 +301,12 @@ const decisionInboxStyles = `
     gap: 10px;
     padding: 8px 10px;
     border-radius: 6px;
-    border: 1px solid rgba(0, 255, 242, 0.35);
-    background: rgba(5, 9, 20, 0.92);
+    border: 1px solid var(--border-glow);
+    background: var(--bg-secondary);
     color: var(--text-primary);
     font: 700 0.72rem var(--font-mono);
     cursor: pointer;
-    box-shadow: var(--glow-cyan);
+    box-shadow: var(--shadow-neon);
   }
   .decision-inbox-affordance strong {
     min-width: 22px;
@@ -317,6 +317,12 @@ const decisionInboxStyles = `
     background: var(--neon-cyan);
     color: var(--bg-void);
   }
+  @media (max-width: 720px) {
+    .decision-inbox-affordance {
+      left: 0.75rem;
+      bottom: calc(4.75rem + env(safe-area-inset-bottom));
+    }
+  }
   .decision-inbox-overlay {
     position: fixed;
     inset: 0;
@@ -324,7 +330,7 @@ const decisionInboxStyles = `
     display: grid;
     place-items: center;
     padding: 24px;
-    background: rgba(1, 4, 12, 0.72);
+    background: color-mix(in srgb, var(--bg-void) 72%, transparent);
     backdrop-filter: blur(12px);
   }
   .decision-inbox-panel {
@@ -332,10 +338,10 @@ const decisionInboxStyles = `
     max-height: min(760px, calc(100vh - 32px));
     display: flex;
     flex-direction: column;
-    border: 1px solid rgba(0, 255, 242, 0.22);
+    border: 1px solid var(--border-glow);
     border-radius: 8px;
-    background: rgba(5, 9, 20, 0.96);
-    box-shadow: var(--glow-purple);
+    background: var(--bg-primary);
+    box-shadow: var(--shadow-deep);
     color: var(--text-primary);
     overflow: hidden;
   }
@@ -367,7 +373,7 @@ const decisionInboxStyles = `
   .decision-inbox-actions button {
     border: 1px solid var(--border-subtle);
     border-radius: 6px;
-    background: rgba(255,255,255,0.03);
+    background: var(--bg-elevated);
     color: var(--text-primary);
     font: 700 0.72rem var(--font-mono);
     padding: 7px 10px;
@@ -407,7 +413,7 @@ const decisionInboxStyles = `
     resize: vertical;
     border: 1px solid var(--border-hair);
     border-radius: 6px;
-    background: rgba(0,0,0,0.18);
+    background: var(--bg-secondary);
     color: var(--text-primary);
     padding: 8px 10px;
     font: 0.78rem var(--font-body);
@@ -415,7 +421,7 @@ const decisionInboxStyles = `
   .meeting-import button {
     border: 1px solid var(--border-subtle);
     border-radius: 6px;
-    background: rgba(255,255,255,0.03);
+    background: var(--bg-elevated);
     color: var(--text-primary);
     font: 700 0.72rem var(--font-mono);
     padding: 8px 10px;
@@ -424,7 +430,7 @@ const decisionInboxStyles = `
   .decision-draft-card {
     border: 1px solid var(--border-hair);
     border-radius: 8px;
-    background: rgba(255,255,255,0.025);
+    background: var(--bg-secondary);
     padding: 10px;
     display: grid;
     gap: 8px;
@@ -445,7 +451,7 @@ const decisionInboxStyles = `
     min-width: 0;
     border: 1px solid var(--border-hair);
     border-radius: 6px;
-    background: rgba(0,0,0,0.18);
+    background: var(--bg-primary);
     color: var(--text-primary);
     font: 0.78rem var(--font-mono);
     padding: 7px 8px;

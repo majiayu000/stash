@@ -16,7 +16,7 @@ import { AsyncErrorHost } from './AsyncErrorHost';
 import { InboxTriage } from './InboxTriage';
 import { ReminderTicker, requestReminderPermission } from './ReminderTicker';
 import { TodayTriage } from './TodayTriage';
-import { KnowledgeMilestonesEditor } from './concepts/conceptK.knowledge';
+import { KnowledgeMilestonesEditor } from './pages/project-detail.knowledge';
 
 vi.mock('../api/work-items', () => ({
   listToday: vi.fn(),
@@ -127,7 +127,7 @@ describe('secondary Workbench async failures', () => {
     await waitFor(() => expect(screen.queryByText('reminder poll unavailable')).not.toBeInTheDocument());
   });
 
-  test('Concept K idempotent milestone update failure is visible and retryable', async () => {
+  test('Project milestone idempotent update failure is visible and retryable', async () => {
     const onChange = vi.fn();
     vi.mocked(updateMilestone)
       .mockRejectedValueOnce(new Error('milestone update unavailable'))
@@ -148,7 +148,7 @@ describe('secondary Workbench async failures', () => {
     await waitFor(() => expect(screen.queryByText('milestone update unavailable')).not.toBeInTheDocument());
   });
 
-  test('Concept K create failure is visible without an unsafe automatic retry', async () => {
+  test('Project milestone create failure is visible without an unsafe automatic retry', async () => {
     vi.mocked(createMilestone).mockRejectedValueOnce(new Error('milestone create uncertain'));
 
     renderWithErrors(

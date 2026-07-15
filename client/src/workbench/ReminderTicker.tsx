@@ -7,7 +7,7 @@ import { reportAsyncError } from './reportAsyncError';
  * v0.6 — fire browser notifications for reminders that fell due in the last
  * tick window. Tick every 60s.
  *
- * Permission must be requested by user gesture (ConceptN has a button).
+ * Permission must be requested by user gesture from Settings.
  * The ticker does no work if permission isn't `granted`. We dedupe
  * notifications per item via the Notification tag.
  *
@@ -67,7 +67,7 @@ export function ReminderTicker() {
               body: it.description?.slice(0, 200) ?? '(no description)',
               tag: 'stash-reminder:' + it.id,
             });
-            n.onclick = () => { window.focus(); navigate(`/c/l/${it.id}`); };
+            n.onclick = () => { window.focus(); navigate(`/todos/${it.id}`); };
             fired.add(it.id + ':' + it.reminderAt);
           }
         }

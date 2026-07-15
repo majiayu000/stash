@@ -34,7 +34,7 @@ export function ConnectedFlow({ data }: { data: WBData }) {
         detail={activeProject?.doing ?? 'no project selected'}
         disabled={!activeProject}
         testId="flow-project"
-        onClick={() => activeProject && navigate(`/c/k/${encodeURIComponent(activeProject.id)}`)}
+        onClick={() => activeProject && navigate(`/projects/${encodeURIComponent(activeProject.id)}`)}
       />
       <FlowCard
         tone="green"
@@ -44,7 +44,7 @@ export function ConnectedFlow({ data }: { data: WBData }) {
         detail={nextTodo ? (nextTodo.status === 'active' ? 'active work' : nextTodo.todayPinned ? 'today' : nextTodo.status) : 'capture from the prompt'}
         disabled={!nextTodo}
         testId="flow-todo"
-        onClick={() => nextTodo && navigate(`/c/l/${encodeURIComponent(nextTodo.id)}`)}
+        onClick={() => nextTodo && navigate(`/todos/${encodeURIComponent(nextTodo.id)}`)}
       />
       <FlowCard
         tone="purple"
@@ -54,7 +54,7 @@ export function ConnectedFlow({ data }: { data: WBData }) {
         detail={recentSession ? <SessionMeta session={recentSession} /> : 'agent trace will appear here'}
         disabled={!recentSession}
         testId="flow-session"
-        onClick={() => recentSession && navigate(`/c/g/${encodeURIComponent(recentSession.id)}`)}
+        onClick={() => recentSession && navigate(`/sessions/${encodeURIComponent(recentSession.id)}`)}
       />
       <FlowCard
         tone="orange"
@@ -63,7 +63,7 @@ export function ConnectedFlow({ data }: { data: WBData }) {
         meta={`${data.stats.todosOpen} open · ${data.stats.todosDone} done`}
         detail="weekly progress"
         testId="flow-review"
-        onClick={() => navigate('/c/j')}
+        onClick={() => navigate('/review')}
       />
       <FlowCard
         tone="pink"
@@ -72,7 +72,7 @@ export function ConnectedFlow({ data }: { data: WBData }) {
         meta={`${fmt.k(data.stats.totalEstimatedTokens)} estimated tokens`}
         detail="derived from session activity counts"
         testId="flow-burn"
-        onClick={() => navigate('/c/h')}
+        onClick={() => navigate('/review/usage')}
       />
       <style>{connectedFlowStyles}</style>
     </section>

@@ -194,27 +194,20 @@ data.
 
 | Route | Purpose | Required proof |
 |---|---|---|
-| `/` | Default Capture and Plan view | Workbench loads and capture is visible. |
-| `/c/a` | Card wall | Page renders without console errors. |
-| `/c/b` | Mission control | Page renders without console errors. |
-| `/c/c` | Hero and stream | Page renders without console errors. |
-| `/c/d` | Constellation | Page renders without console errors. |
-| `/c/e` | Capture and board | Same data surface as `/`. |
-| `/c/f` | Project edit | Page renders or shows an intentional empty state. |
-| `/c/unknown` | Unknown concept recovery | Shows a recoverable invalid-concept state, not a blank page. |
-| `/c/g` | Session detail default | Shows a fixture or local session when available. |
-| `/c/g/:sessionId` | Session detail deep link | Opens the requested session. |
-| `/c/h` | Cost and burn analytics | Charts render or show a real error state. |
-| `/c/i` | Command palette concept | Page renders or shows an intentional empty state. |
-| `/c/j` | Weekly review | Page renders or shows an intentional empty state. |
-| `/c/k` | Project workbench default | Shows a project or intentional empty state. |
-| `/c/k/:projectId` | Project workbench deep link | Opens the requested project. |
-| `/c/l` | Todo detail default | Shows a todo or intentional empty state. |
-| `/c/l/:workItemId` | Todo detail deep link | Opens the requested todo. |
-| `/c/m` | Skills library | Skills list renders. |
-| `/c/n` | Settings | Page renders without console errors. |
-| `/c/o` | Session dispatcher | Prompt composer renders. |
-| `/c/prd` | Product requirements | PRD page renders. |
+| `/` | Work | Capture and the task board render. |
+| `/todos/:workItemId` | Task detail | Opens the requested task with its persisted data. |
+| `/projects` | Projects | Project search, empty state, and create action render. |
+| `/projects/new` | Create project | Durable project fields render and save. |
+| `/projects/:projectId` | Project detail | Opens the requested project's knowledge and related work. |
+| `/projects/:projectId/settings` | Project settings | Edits only the requested project. |
+| `/sessions` | Sessions | Live and recent sessions render truthfully. |
+| `/sessions/new?todoId=...` | Start session | Composes context for the requested task. |
+| `/sessions/:sessionId` | Session detail | Opens the requested transcript and evidence. |
+| `/review` | Weekly review | Review and next-week planning render or show an explicit error. |
+| `/review/usage` | Usage and cost | Analytics render or show a truthful empty/error state. |
+| `/settings` | Preferences | Themes, notifications, and budgets render. |
+| `/settings/skills` | Skills | Skill registry and project bindings render. |
+| any unknown route | Not found | Shows an explicit not-found state with a Return to Work link. |
 
 Blocking route warnings:
 
@@ -287,8 +280,8 @@ bun run client:e2e
 bun run test:all
 ```
 
-`bun run client:e2e` must cover every README concept route, all ConceptSwitcher
-entries, and the documented G/K/L deep links.
+`bun run client:e2e` must cover every README route, all five primary navigation
+entries, and the documented task, project, and session deep links.
 
 Record results:
 

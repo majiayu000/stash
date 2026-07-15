@@ -26,7 +26,7 @@ export default defineConfig({
       output: {
         manualChunks(id) {
           if (id.includes('node_modules')) return 'vendor';
-          if (id.includes('/src/workbench/concepts/')) return 'concepts';
+          if (id.includes('/src/workbench/pages/')) return 'pages';
           return undefined;
         },
       },

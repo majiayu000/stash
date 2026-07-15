@@ -309,6 +309,7 @@
 .theme-paper .proj-chip,
 .theme-paper .ss-prompt,
 .theme-paper .ss-budget,
+.theme-paper .td-page,
 .theme-paper .td-modal,
 .theme-paper .cp-modal,
 .theme-paper .np-modal {
@@ -491,6 +492,7 @@
 .theme-mono .proj-chip,
 .theme-mono .ss-prompt,
 .theme-mono .ss-budget,
+.theme-mono .td-page,
 .theme-mono .td-modal,
 .theme-mono .cp-modal,
 .theme-mono .np-modal,

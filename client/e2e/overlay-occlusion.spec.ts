@@ -2,9 +2,8 @@ import { test, expect, type Locator } from '@playwright/test';
 
 /**
  * GH #102 — fixed overlays must not cover page content.
- * The concept/theme switcher stack sits over the topbar stats, and the
- * AI-drafts affordance sits over the bottom of the board columns unless
- * the shell reserves space for them.
+ * Persistent application chrome and the AI-drafts affordance must not cover
+ * task content.
  */
 
 async function box(locator: Locator) {
@@ -19,11 +18,11 @@ function intersects(a: { x: number; y: number; width: number; height: number }, 
 
 test.use({ viewport: { width: 1440, height: 900 } });
 
-test('floating switcher stack does not cover topbar stats', async ({ page }) => {
+test('primary navigation does not cover topbar stats', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByTestId('board-col-inbox')).toBeVisible({ timeout: 10_000 });
 
-  const floating = await box(page.getByTestId('workbench-floating'));
+  const floating = await box(page.getByRole('navigation', { name: 'Primary navigation' }));
   const stats = await box(page.getByTestId('topbar-stats'));
 
   expect(intersects(floating, stats)).toBe(false);

@@ -3,12 +3,12 @@ import { test, expect } from '@playwright/test';
 const API = process.env.STASH_E2E_API_URL ?? 'http://localhost:4174/api';
 
 /**
- * v1.1 — Concept O dispatch button composes a real prompt through
+ * v1.1 — the session starter composes a real prompt through
  * /api/sessions/start while Playwright runs the server with agent spawning
  * disabled. The assertion proves the result modal renders without launching
  * a local Claude/Codex CLI.
  */
-test('Concept O dispatch composes a prompt from a real todo', async ({ page, request }) => {
+test('Session starter composes a prompt from a real task', async ({ page, request }) => {
   const stamp = Date.now();
   const create = await request.post(`${API}/work-items`, {
     data: { title: `e2e-dispatch-${stamp}`, description: 'do the thing.' },
@@ -16,7 +16,7 @@ test('Concept O dispatch composes a prompt from a real todo', async ({ page, req
   expect(create.ok()).toBeTruthy();
   const id = ((await create.json()) as { data: { id: string } }).data.id;
 
-  await page.goto(`/c/o?todoId=${id}`);
+  await page.goto(`/sessions/new?todoId=${id}`);
 
   const promptPreview = page.getByTestId('ss-prompt');
   await expect(promptPreview).toContainText(`e2e-dispatch-${stamp}`, { timeout: 10_000 });

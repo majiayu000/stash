@@ -35,7 +35,7 @@ test('Systems: run template, complete run, and return to history', async ({ page
   expect(create.ok()).toBeTruthy();
   const system = ((await create.json()) as { data: { id: string; title: string } }).data;
 
-  await page.goto(`/c/l/${system.id}`);
+  await page.goto(`/todos/${system.id}`);
   await expect(page.getByTestId('td-title')).toHaveValue(system.title, { timeout: 10_000 });
   await expect(page.getByTestId('td-done')).toBeDisabled();
   await expect(page.getByTestId('td-done')).toHaveText(/template only/);
@@ -56,7 +56,7 @@ test('Systems: run template, complete run, and return to history', async ({ page
     } : undefined;
   }, { timeout: 5000 }).toEqual({ kind: 'chore', status: 'active', unchecked: true });
 
-  await expect(page).toHaveURL(new RegExp(`/c/l/${runId}`));
+  await expect(page).toHaveURL(new RegExp(`/todos/${runId}`));
 
   const runRes = await request.get(`${API}/work-items/${runId}`);
   const run = ((await runRes.json()) as { data: { checklist: Array<{ id: string }> } }).data;
@@ -72,7 +72,7 @@ test('Systems: run template, complete run, and return to history', async ({ page
     };
   }, { timeout: 5000 }).toEqual({ status: 'done', firstDone: true });
 
-  await page.goto(`/c/l/${system.id}`);
+  await page.goto(`/todos/${system.id}`);
   await expect(page.getByTestId('system-history-run')).toContainText('done');
 });
 
@@ -112,7 +112,7 @@ test('Systems: disables Run while creating and ignores a rapid second click', as
     await route.continue();
   });
 
-  await page.goto(`/c/l/${system.id}`);
+  await page.goto(`/todos/${system.id}`);
   const runButton = page.getByTestId('system-run-button');
   await expect(runButton).toBeVisible({ timeout: 10_000 });
   await page.waitForLoadState('networkidle');
@@ -127,7 +127,7 @@ test('Systems: disables Run while creating and ignores a rapid second click', as
   await expect(runButton).toBeDisabled();
   releaseRequest();
 
-  await expect(page).toHaveURL(/\/c\/l\/.+/, { timeout: 10_000 });
+  await expect(page).toHaveURL(/\/todos\/.+/, { timeout: 10_000 });
   await expect.poll(async () => {
     const res = await request.get(`${API}/work-items?parentId=${system.id}&includeDropped=true`);
     const json = (await res.json()) as { data: Array<{ parentId?: string }> };
@@ -158,12 +158,12 @@ test('Systems: clears template actions while a newly routed Run is loading', asy
     await route.continue();
   });
 
-  await page.goto(`/c/l/${system.id}`);
+  await page.goto(`/todos/${system.id}`);
   await expect(page.getByTestId('system-run-button')).toBeVisible({ timeout: 10_000 });
   await page.getByTestId('system-run-button').click();
 
   await expect.poll(() => runId).not.toBe('');
-  await expect(page).toHaveURL(new RegExp(`/c/l/${runId}`));
+  await expect(page).toHaveURL(new RegExp(`/todos/${runId}`));
   await expect(page.getByTestId('system-run-button')).toHaveCount(0);
   await expect(page.getByTestId('system-history')).toHaveCount(0);
   await expect(page.getByTestId('td-done')).toBeDisabled();
@@ -190,15 +190,15 @@ test('Systems: Escape during Run loading resolves its parent, then closes to wor
     await route.continue();
   });
 
-  await page.goto(`/c/l/${run.id}`);
+  await page.goto(`/todos/${run.id}`);
   await expect.poll(() => detailRequests).toBeGreaterThan(0);
   await expect(page.getByRole('button', { name: 'Close detail' })).toBeVisible();
   await page.keyboard.press('Escape');
   const urlBeforeDetailRelease = page.url();
   releaseDetail();
 
-  expect(urlBeforeDetailRelease).toMatch(new RegExp(`/c/l/${run.id}$`));
-  await expect(page).toHaveURL(new RegExp(`/c/l/${system.id}$`));
+  expect(urlBeforeDetailRelease).toMatch(new RegExp(`/todos/${run.id}$`));
+  await expect(page).toHaveURL(new RegExp(`/todos/${system.id}$`));
   await expect(page.getByTestId('td-title')).toHaveValue(system.title, { timeout: 10_000 });
   await page.getByRole('button', { name: 'Close detail' }).click();
   await expect(page).toHaveURL(/\/$/);
