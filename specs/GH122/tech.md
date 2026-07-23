@@ -7,7 +7,7 @@
 - PR tier: `heavy`
 
 <!-- specrail-planned-changes
-{"issue":122,"complete":true,"paths":["specs/GH122/product.md","specs/GH122/tech.md","specs/GH122/tasks.md","server/src/adapters/aggregator.ts","server/src/adapters/aggregator.test.ts","server/src/adapters/session-cache.ts","server/src/adapters/session-cache.test.ts","server/src/adapters/session-scan-worker.ts","server/src/adapters/session-scan-worker-entry.ts","server/src/adapters/session-scan-worker.test.ts","server/src/domain/analytics/burn.ts","server/src/domain/analytics/burn.test.ts","server/src/web/app-factory.ts","server/src/__tests__/integration/burn-performance.int.test.ts","server/src/__tests__/integration/weekly-performance.int.test.ts","docs/PRODUCTION_READINESS.md"],"spec_refs":["specs/GH122/product.md#产品不变量","specs/GH122/product.md#验收标准","specs/GH122/tasks.md"]}
+{"issue":122,"complete":true,"paths":["specs/GH122/product.md","specs/GH122/tech.md","specs/GH122/tasks.md","server/src/adapters/aggregator.ts","server/src/adapters/aggregator.test.ts","server/src/adapters/session-cache.ts","server/src/adapters/session-cache.test.ts","server/src/adapters/session-scan-worker.ts","server/src/adapters/session-scan-worker-entry.ts","server/src/adapters/session-scan-worker.test.ts","server/src/adapters/claude/scanner.ts","server/src/adapters/claude/scanner.test.ts","server/src/adapters/codex/scanner.ts","server/src/adapters/codex/scanner.test.ts","server/src/domain/analytics/burn.ts","server/src/domain/analytics/burn.test.ts","server/src/web/app-factory.ts","server/src/__tests__/integration/burn-performance.int.test.ts","server/src/__tests__/integration/weekly-performance.int.test.ts","docs/PRODUCTION_READINESS.md"],"spec_refs":["specs/GH122/product.md#产品不变量","specs/GH122/product.md#验收标准","specs/GH122/tasks.md"]}
 -->
 
 ## Codebase context
@@ -29,7 +29,7 @@
 以审计分支 `14a54fc` 已验证的 `SessionScanWorker` 为基础，将 Worker protocol 建模为可辨识 request/response：
 
 - `scan` request：保留 full/activity session scan；
-- `burn` request：携带 `[startMs,endMs)`、`days` 与完整 model rates；
+- `burn` request：携带 `startMs`、可选 `beforeMs`、`days` 与完整 model rates；rolling `days` 的 `beforeMs` 为空，精确范围使用 `[startMs,beforeMs)`；
 - 每个 request 使用唯一 id；response 只能是对应的 compact result 或 error；
 - singleflight key 包含 request kind、窗口和 rates fingerprint；
 - Worker crash、`onmessageerror`、post failure 时拒绝并清空全部 pending。
@@ -50,12 +50,12 @@
 
 ### 3. Worker 内有界聚合
 
-Burn request 首先以 `modifiedSinceMs=startMs` 扫描 session metadata；mtime 只作为候选过滤，事件归属仍使用 usage `ts`。
+Burn request 首先执行无 `modifiedSinceMs` 的 metadata-only scan，发现全部文件并通过 `getFreshSession()` 或 changed-file parser 得到轻量 session metadata。然后以 session `lastActiveAt >= startMs` 筛选 usage 候选。这样保留当前 Burn 语义：被恢复、复制或 mtime 异常的文件不会仅因 mtime 较旧而丢失。
 
 Worker 对每个候选 session：
 
 1. 读取一个 session 的 usage；
-2. 验证并过滤 `[startMs,endMs)`；
+2. 验证并过滤 `ts >= startMs`，并只在 `beforeMs` 存在时应用 `ts < beforeMs`；
 3. 立即更新 totals、daily、hourly、model 与 project accumulators；
 4. 用 source-path set 完成全局/project session 去重；
 5. 丢弃本 session 的 usage array，再处理下一条。
@@ -69,7 +69,7 @@ response 只包含内部 `BurnAggregate`：
 - `{projectId,tokens,cost,sessions}`；
 - cache/scan telemetry。
 
-share 与 project display name 在主线程根据 compact totals 和 `AreaService` 补齐。Worker 计算费用时使用 request 中传入的 rates；rates 必须是可序列化闭集数据。
+share 与 project display name 在主线程根据 compact totals 和 `AreaService` 补齐。Worker 计算费用时使用 request 中传入的 rates；rates 必须是可序列化闭集数据。rolling Burn 的 daily buckets 仍只有 `days` 个，因此未来事件保持现有行为：会进入 totals/model/project/hourly，但不会进入超出数组范围的 daily bucket；测试固定这一兼容边界。
 
 ### 4. 兼容同步测试路径
 
@@ -92,12 +92,12 @@ RSS 断言与结构断言组合：测试必须同时证明 response 无 raw even
 
 | Behavior invariant | Implementation area | Verification |
 | --- | --- | --- |
-| B-001 | shared accumulator + `BurnService` compact finalize | `bun test server/src/domain/analytics/burn.test.ts` 精确 totals/buckets/share/boundary |
-| B-002 | Worker burn scan options + per-session usage loop | integration spy/fixture：窗口外 usage getter 调用数为 0 |
+| B-001 | shared accumulator + `BurnService` compact finalize | `bun test server/src/domain/analytics/burn.test.ts` 精确 totals/buckets/share、rolling future event 与 exact range half-open boundary |
+| B-002 | metadata-only full scan + `lastActiveAt` prefilter + per-session usage loop | fixture：旧 mtime 但窗口内 metadata 仍计入；窗口外 usage getter 调用数为 0 |
 | B-003 | `AgentSessionCache.getFreshSession()` + scanners | cache/scanner test：损坏 `usage_json` 不影响 metadata-only lookup，且 usage parse spy 为 0 |
 | B-004 | Worker request/response schema + accumulator | Worker test 断言 response JSON 不含 raw events；main-thread `getUsage` spy 为 0 |
 | B-005 | production Worker wiring | Burn benchmark 并发 `/health` ≤250 ms；检查 server timeout 未改 |
-| B-006 | cache validation + Worker error response | cache corruption/invalid usage integration test 返回显式 5xx |
+| B-006 | cache session/usage validation + Worker error response | cache session corruption/invalid cached usage integration test 返回显式 5xx；既有 tolerant parser test 保持不变 |
 | B-007 | aggregator/worker singleflight | concurrent same-key test=1 request；不同 window/rates=不同 request |
 | B-008 | Worker rates payload | custom rates deterministic cost test |
 | B-009 | accumulator initialization | empty/missing/window-outside unit tests |

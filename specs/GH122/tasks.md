@@ -5,13 +5,13 @@
 - Owner：backend implementation lane
 - Dependencies：规格 PR 已合并
 - Covers: B-003, B-007, B-010, B-012
-- Files：`server/src/adapters/aggregator.ts`、`session-cache.ts`、`session-scan-worker*.ts`、`app-factory.ts` 及测试
+- Files：`server/src/adapters/aggregator.ts`、`session-cache.ts`、`session-scan-worker*.ts`、`claude/scanner.ts`、`codex/scanner.ts`、`app-factory.ts` 及对应测试
 - Done when：
   - 现有 full/activity scan 可通过一个 `SessionScanWorker` executor 执行；
   - cache metadata lookup 不读取 `usage_json`；
   - Worker lifecycle 与 same-key singleflight 的成功/失败路径完整测试；
   - 不包含审计分支中的无关 ProjectDetail 改动。
-- Verify：`cd server && bun test src/adapters/aggregator.test.ts src/adapters/session-cache.test.ts src/adapters/session-scan-worker.test.ts`
+- Verify：`cd server && bun test src/adapters/aggregator.test.ts src/adapters/session-cache.test.ts src/adapters/session-scan-worker.test.ts src/adapters/claude/scanner.test.ts src/adapters/codex/scanner.test.ts`
 
 ## SP122-T2 — Worker 内 Burn accumulator
 
@@ -20,10 +20,11 @@
 - Covers: B-001, B-002, B-004, B-006, B-008, B-009
 - Files：`server/src/domain/analytics/burn.ts`、Worker protocol/entry 与测试
 - Done when：
-  - Burn request 携带窗口与 rates；
+  - Burn request 携带 `startMs`、可选 `beforeMs` 与 rates；rolling 路径保持无上界，exact range 保持半开上界；
+  - 全量 metadata scan 后按 `lastActiveAt` 筛选 usage，不用 mtime 改写公开语义；
   - usage 逐 session 聚合，compact response 不含 raw events；
   - 主线程只补 share 与 project display name；
-  - exact totals、custom rates、empty、边界、坏 cache/error 全部有确定性测试。
+  - exact totals、custom rates、empty、future event、半开边界、坏 cache session/usage 全部有确定性测试。
 - Verify：`cd server && bun test src/domain/analytics/burn.test.ts src/adapters/session-scan-worker.test.ts`
 
 ## SP122-T3 — 真实规模性能与内存门禁
