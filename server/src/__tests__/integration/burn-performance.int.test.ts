@@ -15,6 +15,7 @@ const RECENT_CANDIDATES = 6_000;
 const USAGE_EVENTS = 50_000;
 const BURN_BUDGET_MS = 1_000;
 const HEALTH_BUDGET_MS = 250;
+const WORKER_HEAP_BUDGET_BYTES = 32 * 1024 * 1024;
 const RSS_BUDGET_BYTES = 250 * 1024 * 1024;
 const NOW = '2026-05-14T12:00:00.000Z';
 const CHILD_FLAG = 'STASH_BURN_PERFORMANCE_CHILD';
@@ -185,7 +186,7 @@ describe('GET /api/analytics/burn bounded worker performance', () => {
       expect(Math.max(...elapsedSeries)).toBeLessThanOrEqual(BURN_BUDGET_MS);
       expect(healthMs).toBeLessThanOrEqual(HEALTH_BUDGET_MS);
       expect(eventLoopTailLagMs).toBeLessThanOrEqual(HEALTH_BUDGET_MS);
-      expect(isStrictlyIncreasing(workerHeapSeries)).toBe(false);
+      expect(Math.max(...workerHeapSeries)).toBeLessThanOrEqual(WORKER_HEAP_BUDGET_BYTES);
       expect(rssSeries.at(-1)! - rssBaseline).toBeLessThanOrEqual(RSS_BUDGET_BYTES);
 
     } finally {
@@ -288,10 +289,6 @@ function cachedUsageJson(
       'select usage_json from agent_session_cache where source_path = ?',
     )
     .get(sourcePath)?.usage_json;
-}
-
-function isStrictlyIncreasing(values: number[]): boolean {
-  return values.length > 1 && values.every((value, index) => index === 0 || value > values[index - 1]!);
 }
 
 function roundMs(value: number): number {

@@ -86,9 +86,9 @@ share 与 project display name 在主线程根据 compact totals 和 `AreaServic
 - 同时发 `/health`；
 - 记录 elapsed、Worker post-GC JSC heap series、进程 RSS baseline/series/final delta 与 result checksum。
 
-内存门禁在干净 Bun 子进程运行。Worker 的 `runBurnAggregation()` 返回 compact result 后先执行 GC，再通过官方 `bun:jsc` `heapSize()` 记录 live JSC heap。三次 warm Worker heap 不得严格单调增长；进程 RSS 保留完整 series 作为诊断，并继续约束末次相对基线增量 ≤250 MiB。结构断言同时证明 response 无 raw events、主线程无 `getUsage` 和 full scan 无 usage parse。
+内存门禁在干净 Bun 子进程运行。Worker 的 `runBurnAggregation()` 返回 compact result 后先执行 GC，再通过官方 `bun:jsc` `heapSize()` 记录 live JSC heap。三次 warm Worker heap 每次必须 ≤32 MiB；进程 RSS 保留完整 series 作为诊断，并继续约束末次相对基线增量 ≤250 MiB。结构断言同时证明 response 无 raw events、主线程无 `getUsage` 和 full scan 无 usage parse。
 
-干净子进程重复实验显示：Worker post-GC heap 已稳定时，进程 RSS 仍会因 Bun 使用的 mimalloc page commitment 偶发增加约 1–4 MiB；额外主线程 GC、idle turn、`Bun.shrink()` 与关闭 macOS nano allocator 均不能稳定改变该现象。因此严格趋势使用 Worker 自身 post-GC JSC heap，process RSS 只承担有界总增量门禁，避免把 allocator page commitment 误判为 Worker 对象泄漏。
+干净子进程重复实验显示：Worker post-GC heap 会因 Bun/JSC 的回收时机在约 4 MiB 与 22 MiB 两个状态间切换，稳定状态下也可能出现几十字节至数 KiB 的运行时记账增长；进程 RSS 同时会因 mimalloc page commitment 偶发增加约 1–4 MiB。三点严格单调性既会把微小运行时记账误判为泄漏，也会因一次回收掩盖真实的高水位。门禁因此直接约束每次 Worker live heap ≤32 MiB，并保留 process RSS 最终增量 ≤250 MiB，分别覆盖 JSC 对象保留和进程总内存边界。
 
 ## Product-to-test mapping
 
@@ -104,13 +104,13 @@ share 与 project display name 在主线程根据 compact totals 和 `AreaServic
 | B-008 | Worker rates payload | custom rates deterministic cost test |
 | B-009 | accumulator initialization | empty/missing/window-outside unit tests |
 | B-010 | Worker pending lifecycle | post failure/crash/message error/unopenable DB tests |
-| B-011 | real-scale benchmark | 16k/6k/50k warm latency + Worker post-GC heap trend + process RSS final-delta assertions |
+| B-011 | real-scale benchmark | 16k/6k/50k warm latency + Worker post-GC heap ceiling + process RSS final-delta assertions |
 | B-012 | existing routes and Weekly | `bun run verify:ci` 与 Weekly performance integration unchanged |
 
 ## 风险
 
 - **Worker structured clone**：Map/Set 不作为 response 合同，统一转换为普通数组/对象。
-- **allocator page commitment**：mimalloc 的 process RSS page commitment 不等同于 Worker live heap；使用连续 Worker post-GC JSC heap 判断对象保留趋势，process RSS series 用于诊断并以最终 delta 约束总边界。
+- **allocator page commitment**：mimalloc 的 process RSS page commitment 不等同于 Worker live heap；直接约束连续 Worker post-GC JSC heap 的绝对上限，process RSS series 用于诊断并以最终 delta 约束总边界。
 - **rates 漂移**：rates 纳入 request 和 singleflight key，禁止 Worker 使用隐式默认值覆盖 caller。
 - **SQLite 并发**：Worker 使用独立只读/读写连接并沿用 WAL；不共享 `Database` 对象。
 - **基础提交依赖**：实现 PR 必须包含或基于审计分支的 Worker foundation，但不得混入无关 ProjectDetail 改动。
