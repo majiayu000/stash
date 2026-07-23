@@ -78,16 +78,18 @@ async function request<T>(
   const controller = new AbortController();
   const timeoutMs = options.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
   let abortReason: 'timeout' | 'caller' | undefined;
-  const onCallerAbort = () => {
-    abortReason = 'caller';
-    controller.abort(options.signal?.reason);
+  let timeout: number | undefined;
+  const initiateAbort = (reason: 'timeout' | 'caller') => {
+    if (abortReason) return;
+    abortReason = reason;
+    if (reason === 'caller' && timeout !== undefined) window.clearTimeout(timeout);
+    if (reason === 'timeout') options.signal?.removeEventListener('abort', onCallerAbort);
+    controller.abort(reason === 'caller' ? options.signal?.reason : undefined);
   };
+  const onCallerAbort = () => initiateAbort('caller');
   if (options.signal?.aborted) onCallerAbort();
   else options.signal?.addEventListener('abort', onCallerAbort, { once: true });
-  const timeout = window.setTimeout(() => {
-    abortReason = 'timeout';
-    controller.abort();
-  }, timeoutMs);
+  if (!abortReason) timeout = window.setTimeout(() => initiateAbort('timeout'), timeoutMs);
 
   try {
     return await parseResponse<T>(await fetch(`${API_BASE}${path}`, {
@@ -113,7 +115,7 @@ async function request<T>(
       error instanceof Error ? error.message : String(error),
     );
   } finally {
-    window.clearTimeout(timeout);
+    if (timeout !== undefined) window.clearTimeout(timeout);
     options.signal?.removeEventListener('abort', onCallerAbort);
   }
 }

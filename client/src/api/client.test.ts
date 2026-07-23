@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test, vi } from 'vitest';
-import { apiGet, DEFAULT_REQUEST_TIMEOUT_MS } from './client';
+import { apiGet } from './client';
 
 afterEach(() => {
   vi.useRealTimers();
@@ -63,46 +63,55 @@ describe('api client errors', () => {
     });
   });
 
-  test('classifies timeout separately from network failures', async () => {
+  test('keeps timeout classification when caller aborts before delayed fetch rejection', async () => {
     vi.useFakeTimers();
     vi.stubGlobal('fetch', vi.fn((_input: RequestInfo | URL, init?: RequestInit) =>
       new Promise<Response>((_resolve, reject) => {
         init?.signal?.addEventListener('abort', () => {
-          reject(new DOMException('aborted', 'AbortError'));
+          window.setTimeout(() => reject(new DOMException('aborted', 'AbortError')), 100);
         }, { once: true });
       })));
 
-    const request = apiGet('/overview');
+    const caller = new AbortController();
+    const request = apiGet('/overview', undefined, {
+      signal: caller.signal,
+      timeoutMs: 25,
+    });
     const assertion = expect(request).rejects.toMatchObject({
       name: 'ApiError',
       status: 0,
       code: 'REQUEST_TIMEOUT',
-      details: { timeoutMs: DEFAULT_REQUEST_TIMEOUT_MS },
+      details: { timeoutMs: 25 },
     });
-    await vi.advanceTimersByTimeAsync(DEFAULT_REQUEST_TIMEOUT_MS);
+    await vi.advanceTimersByTimeAsync(25);
+    caller.abort();
+    await vi.advanceTimersByTimeAsync(100);
 
     await assertion;
   });
 
-  test('classifies caller cancellation separately from timeout', async () => {
+  test('keeps caller classification when timeout would precede delayed fetch rejection', async () => {
+    vi.useFakeTimers();
     const caller = new AbortController();
     vi.stubGlobal('fetch', vi.fn((_input: RequestInfo | URL, init?: RequestInit) =>
       new Promise<Response>((_resolve, reject) => {
         init?.signal?.addEventListener('abort', () => {
-          reject(new DOMException('aborted', 'AbortError'));
+          window.setTimeout(() => reject(new DOMException('aborted', 'AbortError')), 100);
         }, { once: true });
       })));
 
     const request = apiGet('/overview', undefined, {
       signal: caller.signal,
-      timeoutMs: 1_000,
+      timeoutMs: 25,
     });
-    caller.abort();
-
-    await expect(request).rejects.toMatchObject({
+    const assertion = expect(request).rejects.toMatchObject({
       name: 'ApiError',
       status: 0,
       code: 'REQUEST_ABORTED',
     });
+    caller.abort();
+    await vi.advanceTimersByTimeAsync(125);
+
+    await assertion;
   });
 });
