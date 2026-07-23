@@ -59,7 +59,8 @@ export class AgentSessionCache {
     if (!row) return undefined;
 
     try {
-      return parseCachedUsage(JSON.parse(row.usage_json));
+      const parsed = JSON.parse(row.usage_json) as unknown;
+      return parsed === null ? undefined : parseCachedUsage(parsed);
     } catch (e) {
       this.invalidate(provider, sourcePath);
       throw new Error(
@@ -70,11 +71,10 @@ export class AgentSessionCache {
     }
   }
 
-  upsert(
+  upsertSession(
     provider: AgentProvider,
     file: SessionFileFingerprint,
     session: AgentSession,
-    usage: UsageEvent[],
     indexedAt: string,
   ): void {
     this.db
@@ -95,9 +95,20 @@ export class AgentSessionCache {
         file.mtimeMs,
         file.sizeBytes,
         JSON.stringify(session),
-        JSON.stringify(usage),
+        'null',
         indexedAt,
       );
+  }
+
+  storeUsage(provider: AgentProvider, sourcePath: string, usage: UsageEvent[]): boolean {
+    const result = this.db
+      .prepare(
+        `update agent_session_cache
+            set usage_json = ?
+          where provider = ? and source_path = ?`,
+      )
+      .run(JSON.stringify(usage), provider, sourcePath);
+    return result.changes > 0;
   }
 
   invalidate(provider: AgentProvider, sourcePath: string): void {

@@ -50,17 +50,21 @@ describe('ClaudeSource.scan', () => {
 
   test('indexes changed files and reuses unchanged cache rows', () => {
     const root = mkdtempSync(join(tmpdir(), 'stash-claude-cache-'));
+    const db = freshDb();
     try {
       const projectDir = join(root, 'projects', '-Users-test-cache');
       mkdirSync(projectDir, { recursive: true });
       const file = join(projectDir, 'session.jsonl');
       writeClaudeFixture(file, 'first cache title', '2026-05-14T08:00:00.000Z');
 
-      const source = new ClaudeSource(new AgentSessionCache(freshDb()));
+      const source = new ClaudeSource(new AgentSessionCache(db));
       const first = source.scan({ root });
       expect(first.sessions[0]?.title).toBe('first cache title');
       expect(first.cache?.filesIndexed).toBe(1);
       expect(first.cache?.filesReused).toBe(0);
+      expect(cachedUsageJson(db, file)).toBe('null');
+      expect(source.getUsage(file)[0]?.inputTokens).toBe(12);
+      expect(cachedUsageJson(db, file)).not.toBe('null');
 
       const second = source.scan({ root });
       expect(second.sessions[0]?.title).toBe('first cache title');
@@ -75,8 +79,10 @@ describe('ClaudeSource.scan', () => {
       expect(third.sessions[0]?.title).toBe('second cache title');
       expect(third.cache?.filesIndexed).toBe(1);
       expect(third.cache?.filesReused).toBe(0);
+      expect(cachedUsageJson(db, file)).toBe('null');
       expect(source.getUsage(file)[0]?.inputTokens).toBe(12);
     } finally {
+      db.close();
       rmSync(root, { recursive: true, force: true });
     }
   });
@@ -226,4 +232,15 @@ function claudeFixtureText(title: string, ts: string): string {
     },
   };
   return `${JSON.stringify(user)}\n${JSON.stringify(assistant)}\n`;
+}
+
+function cachedUsageJson(
+  db: ReturnType<typeof freshDb>,
+  sourcePath: string,
+): string | undefined {
+  return db
+    .query<{ usage_json: string }, [string]>(
+      'select usage_json from agent_session_cache where source_path = ?',
+    )
+    .get(sourcePath)?.usage_json;
 }

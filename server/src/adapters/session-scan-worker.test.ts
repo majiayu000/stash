@@ -218,6 +218,55 @@ describe('SessionScanWorker', () => {
       globalThis.Worker = originalWorker;
     }
   });
+
+  test('ignores late failure events from a terminated Worker generation', async () => {
+    const originalWorker = globalThis.Worker;
+    const instances: GenerationWorker[] = [];
+    class GenerationWorker {
+      onmessage: ((event: MessageEvent) => void) | null = null;
+      onerror: ((event: ErrorEvent) => void) | null = null;
+      onmessageerror: ((event: MessageEvent) => void) | null = null;
+      readonly requests: Array<{ id: number }> = [];
+
+      constructor() {
+        instances.push(this);
+      }
+      unref(): void {}
+      terminate(): void {}
+      postMessage(request: { id: number }): void {
+        this.requests.push(request);
+      }
+      crash(message: string): void {
+        this.onerror?.({ message, preventDefault: () => {} } as ErrorEvent);
+      }
+      respondToLatest(): void {
+        const id = this.requests.at(-1)?.id;
+        this.onmessage?.(new MessageEvent('message', {
+          data: { id, kind: 'scan', result: emptyScanResult() },
+        }));
+      }
+    }
+
+    try {
+      globalThis.Worker = GenerationWorker as unknown as typeof Worker;
+      const scanner = new SessionScanWorker({ roots: {} });
+      const first = scanner.scan('full', {});
+      const workerA = instances[0]!;
+      workerA.crash('generation A failed');
+      await expect(first).rejects.toThrow('generation A failed');
+
+      const second = scanner.scan('full', {});
+      const workerB = instances[1]!;
+      workerA.onmessage?.(new MessageEvent('message', { data: { invalid: true } }));
+      workerA.onmessageerror?.(new MessageEvent('messageerror'));
+      workerA.crash('late generation A failure');
+      workerB.respondToLatest();
+
+      await expect(second).resolves.toEqual(emptyScanResult());
+    } finally {
+      globalThis.Worker = originalWorker;
+    }
+  });
 });
 
 function writeClaudeFixture(
@@ -244,4 +293,20 @@ function writeClaudeFixture(
     },
   };
   writeFileSync(sourcePath, `${JSON.stringify(user)}\n${JSON.stringify(assistant)}\n`);
+}
+
+function emptyScanResult() {
+  return {
+    sessions: [],
+    errors: [],
+    cache: {
+      refreshState: 'fresh' as const,
+      generatedAt: '2026-05-14T00:00:00.000Z',
+      filesDiscovered: 0,
+      filesSeen: 0,
+      filesIndexed: 0,
+      filesReused: 0,
+      sources: [],
+    },
+  };
 }

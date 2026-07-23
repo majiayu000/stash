@@ -9,6 +9,7 @@ import { fixedClock } from '@stash/shared';
 import { createApp } from '../../web/app-factory.js';
 
 const CACHE_ROWS = 16_384;
+const COLD_METADATA_ROWS = 2;
 const RECENT_CANDIDATES = 6_000;
 const USAGE_EVENTS = 50_000;
 const BURN_BUDGET_MS = 1_000;
@@ -53,6 +54,8 @@ describe('GET /api/analytics/burn bounded worker performance', () => {
 
     try {
       seedCacheFixture(db, projectDir);
+      const coldMetadata = seedColdMetadataFixtures(projectDir);
+      expect(cacheRowCount(db)).toBe(CACHE_ROWS);
       const app = createApp({
         db,
         clock: fixedClock(NOW),
@@ -107,10 +110,13 @@ describe('GET /api/analytics/burn bounded worker performance', () => {
       expect(last?.data.modelMix[0]?.cost).toBeCloseTo(5.25, 10);
       expect(last?.data.perProjectLeaderboard).toHaveLength(4);
       expect(last?.cache).toMatchObject({
-        filesDiscovered: CACHE_ROWS,
-        filesSeen: CACHE_ROWS,
-        filesReused: CACHE_ROWS,
+        filesDiscovered: CACHE_ROWS + COLD_METADATA_ROWS,
+        filesSeen: CACHE_ROWS + COLD_METADATA_ROWS,
+        filesReused: CACHE_ROWS + COLD_METADATA_ROWS,
       });
+      expect(cacheRowCount(db)).toBe(CACHE_ROWS + COLD_METADATA_ROWS);
+      expect(cachedUsageJson(db, coldMetadata.outsideWindow)).toBe('null');
+      expect(cachedUsageJson(db, coldMetadata.recentEmpty)).toBe('[]');
       console.info(JSON.stringify({
         benchmark: 'burn-worker-16384-6000-50000',
         elapsedMs: elapsedSeries.map(roundMs),
@@ -189,6 +195,44 @@ function seedCacheFixture(db: ReturnType<typeof openDatabaseMigrated>, projectDi
     expect(emitted).toBe(USAGE_EVENTS);
   });
   seed();
+}
+
+function seedColdMetadataFixtures(projectDir: string): {
+  outsideWindow: string;
+  recentEmpty: string;
+} {
+  const outsideWindow = join(projectDir, 'cold-outside-window.jsonl');
+  const recentEmpty = join(projectDir, 'cold-recent-empty.jsonl');
+  writeMetadataOnlyClaudeFixture(outsideWindow, 'cold-outside', '2026-01-01T08:00:00.000Z');
+  writeMetadataOnlyClaudeFixture(recentEmpty, 'cold-recent', '2026-05-14T08:00:00.000Z');
+  return { outsideWindow, recentEmpty };
+}
+
+function writeMetadataOnlyClaudeFixture(sourcePath: string, sessionId: string, timestamp: string): void {
+  writeFileSync(sourcePath, `${JSON.stringify({
+    type: 'user',
+    timestamp,
+    sessionId,
+    cwd: '/tmp/cold-metadata',
+    message: { role: 'user', content: 'metadata only' },
+  })}\n`);
+}
+
+function cacheRowCount(db: ReturnType<typeof openDatabaseMigrated>): number {
+  return db.query<{ count: number }, []>(
+    'select count(*) as count from agent_session_cache',
+  ).get()?.count ?? 0;
+}
+
+function cachedUsageJson(
+  db: ReturnType<typeof openDatabaseMigrated>,
+  sourcePath: string,
+): string | undefined {
+  return db
+    .query<{ usage_json: string }, [string]>(
+      'select usage_json from agent_session_cache where source_path = ?',
+    )
+    .get(sourcePath)?.usage_json;
 }
 
 function isStrictlyIncreasing(values: number[]): boolean {

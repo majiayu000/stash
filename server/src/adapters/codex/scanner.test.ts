@@ -80,6 +80,33 @@ describe('CodexSource.scan', () => {
     expect(Array.isArray(usage)).toBe(true);
   });
 
+  test('cold and changed metadata scans defer usage parsing until getUsage', () => {
+    const root = mkdtempSync(join(tmpdir(), 'stash-codex-lazy-usage-'));
+    const db = freshDb();
+    try {
+      const sessionsDir = join(root, 'sessions', '2026', '07', '08');
+      mkdirSync(sessionsDir, { recursive: true });
+      const file = join(sessionsDir, 'rollout-lazy.jsonl');
+      writeCodexUsageFixture(file);
+      const source = new CodexSource(new AgentSessionCache(db));
+
+      expect(source.scan({ root }).cache).toMatchObject({ filesIndexed: 1, filesReused: 0 });
+      expect(cachedUsageJson(db, file)).toBe('null');
+      expect(source.getUsage(file)[0]?.inputTokens).toBe(2_300);
+      expect(cachedUsageJson(db, file)).not.toBe('null');
+
+      writeFileSync(file, codexUsageFixtureText().replace('"input_tokens":2300', '"input_tokens":2400'));
+      const changedMtime = new Date(Date.now() + 30_000);
+      utimesSync(file, changedMtime, changedMtime);
+      expect(source.scan({ root }).cache).toMatchObject({ filesIndexed: 1, filesReused: 0 });
+      expect(cachedUsageJson(db, file)).toBe('null');
+      expect(source.getUsage(file)[0]?.inputTokens).toBe(2_400);
+    } finally {
+      db.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test('filters old append-only histories before cache lookup and parsing', () => {
     const root = mkdtempSync(join(tmpdir(), 'stash-codex-window-'));
     try {
@@ -373,4 +400,15 @@ function codexUsageFixtureText(): string {
     token('2026-07-08T08:00:00.000Z', 2_300, 350),
   ];
   return `${lines.map((line) => JSON.stringify(line)).join('\n')}\n`;
+}
+
+function cachedUsageJson(
+  db: ReturnType<typeof freshDb>,
+  sourcePath: string,
+): string | undefined {
+  return db
+    .query<{ usage_json: string }, [string]>(
+      'select usage_json from agent_session_cache where source_path = ?',
+    )
+    .get(sourcePath)?.usage_json;
 }

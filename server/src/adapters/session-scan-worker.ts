@@ -112,7 +112,7 @@ export class SessionScanWorker implements SessionScanExecutor {
     worker.onmessage = (event: MessageEvent<unknown>) => {
       const response = decodeWorkerResponse(event.data);
       if (!response) {
-        this.failWorker(new Error('session scan worker returned an unreadable response'));
+        this.failWorker(worker, new Error('session scan worker returned an unreadable response'));
         return;
       }
       const pending = this.pending.get(response.id);
@@ -130,17 +130,18 @@ export class SessionScanWorker implements SessionScanExecutor {
     };
     worker.onerror = (event: ErrorEvent) => {
       event.preventDefault();
-      this.failWorker(new Error(`session scan worker crashed: ${event.message}`));
+      this.failWorker(worker, new Error(`session scan worker crashed: ${event.message}`));
     };
     worker.onmessageerror = () => {
-      this.failWorker(new Error('session scan worker returned an unreadable response'));
+      this.failWorker(worker, new Error('session scan worker returned an unreadable response'));
     };
     this.worker = worker;
     return worker;
   }
 
-  private failWorker(error: Error): void {
-    const failed = this.worker;
+  private failWorker(expectedWorker: Worker, error: Error): void {
+    if (this.worker !== expectedWorker) return;
+    const failed = expectedWorker;
     this.worker = undefined;
     failed?.terminate();
     for (const pending of this.pending.values()) pending.reject(error);

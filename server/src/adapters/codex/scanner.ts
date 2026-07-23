@@ -120,8 +120,7 @@ export class CodexSource implements AgentSource {
         const session = parseCodexSession({ sourcePath: entry.sourcePath });
         sessions.push(session);
         if (this.cache) {
-          const usage = parseCodexUsage(entry.sourcePath);
-          this.cache.upsert('codex', entry, session, usage, new Date().toISOString());
+          this.cache.upsertSession('codex', entry, session, new Date().toISOString());
           filesIndexed++;
         }
       } catch (e) {
@@ -233,7 +232,9 @@ export class CodexSource implements AgentSource {
   getUsage(sourcePath: string): UsageEvent[] {
     const cached = this.cache?.getUsage('codex', sourcePath);
     if (cached) return cached;
-    return parseCodexUsage(sourcePath);
+    const usage = parseCodexUsage(sourcePath);
+    this.cache?.storeUsage('codex', sourcePath, usage);
+    return usage;
   }
 }
 

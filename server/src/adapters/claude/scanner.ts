@@ -61,8 +61,7 @@ export class ClaudeSource implements AgentSource {
         const session = parseClaudeSession({ sourcePath: entry.sourcePath });
         sessions.push(session);
         if (this.cache) {
-          const usage = parseClaudeUsage(entry.sourcePath);
-          this.cache.upsert('claude', entry, session, usage, new Date().toISOString());
+          this.cache.upsertSession('claude', entry, session, new Date().toISOString());
           filesIndexed++;
         }
       } catch (e) {
@@ -159,7 +158,9 @@ export class ClaudeSource implements AgentSource {
   getUsage(sourcePath: string): UsageEvent[] {
     const cached = this.cache?.getUsage('claude', sourcePath);
     if (cached) return cached;
-    return parseClaudeUsage(sourcePath);
+    const usage = parseClaudeUsage(sourcePath);
+    this.cache?.storeUsage('claude', sourcePath, usage);
+    return usage;
   }
 }
 
