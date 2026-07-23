@@ -231,23 +231,18 @@ export interface CodexAnalyticsData {
 }
 
 /**
- * Reads a Codex rollout backwards until it has all cumulative token counters
- * needed to derive exact deltas at and after `activeSinceMs`, plus one prior
- * counter and model context as the baseline. Large tool output earlier in the
- * session stays off the weekly request path.
+ * Strict Weekly parser. It validates every complete record while reading
+ * backwards, then restores physical append order before deriving cumulative
+ * token deltas. Event timestamps select buckets but never reorder counters.
  */
 export function parseCodexAnalytics(
   sourcePath: string,
-  activeSinceMs: number,
+  _activeSinceMs: number,
   sourceSizeBytes?: number,
 ): CodexAnalyticsData {
   const reverseRecords: RawRecord[] = [];
   let lastActiveAt: string | undefined;
-  let foundAfterBoundaryToken = false;
-  let foundBaselineToken = false;
-  let foundModelBeforeOldestAfterBoundaryToken = false;
-  let trailingPartial = false;
-  let newerTimestampMs = Number.POSITIVE_INFINITY;
+  let lastActiveMs = Number.NEGATIVE_INFINITY;
 
   for (const line of readJsonlLinesReverse(sourcePath, undefined, sourceSizeBytes)) {
     if (!line.text.trim()) continue;
@@ -257,7 +252,6 @@ export function parseCodexAnalytics(
       rec = JSON.parse(line.text);
     } catch {
       if (!line.terminated && isClearlyIncompleteJsonlTail(line.text)) {
-        trailingPartial = true;
         continue;
       }
       throw new Error(`Codex session contains malformed complete JSONL: ${sourcePath}`);
@@ -268,16 +262,9 @@ export function parseCodexAnalytics(
       if (Number.isNaN(timestampMs)) {
         throw new Error(`Codex analytics record has an invalid timestamp: ${sourcePath}`);
       }
-      if (timestampMs > newerTimestampMs) {
-        throw new Error(`Codex analytics timestamps are not append-ordered: ${sourcePath}`);
-      }
-      newerTimestampMs = timestampMs;
-      const isLastAppendedTimestamp = lastActiveAt === undefined;
-      if (isLastAppendedTimestamp) {
+      if (timestampMs > lastActiveMs) {
+        lastActiveMs = timestampMs;
         lastActiveAt = rec.timestamp;
-      }
-      if (isLastAppendedTimestamp && !trailingPartial && timestampMs < activeSinceMs) {
-        return { lastActiveAt: rec.timestamp, usage: [] };
       }
     }
 
@@ -288,28 +275,6 @@ export function parseCodexAnalytics(
     }
     if (!isToken && !isModel) continue;
     reverseRecords.push(rec);
-
-    if (isToken && rec.timestamp) {
-      const timestampMs = Date.parse(rec.timestamp);
-      if (!Number.isNaN(timestampMs)) {
-        if (timestampMs >= activeSinceMs) {
-          foundAfterBoundaryToken = true;
-          // A model already seen while walking backwards is newer than this
-          // token, so it cannot provide the initial context for this now-oldest
-          // in-window sample.
-          foundModelBeforeOldestAfterBoundaryToken = false;
-        } else {
-          foundBaselineToken = true;
-        }
-      }
-    } else if (isModel && foundAfterBoundaryToken) {
-      foundModelBeforeOldestAfterBoundaryToken = true;
-    }
-
-    if (
-      foundBaselineToken
-      && (!foundAfterBoundaryToken || foundModelBeforeOldestAfterBoundaryToken)
-    ) break;
   }
 
   if (lastActiveAt === undefined) {

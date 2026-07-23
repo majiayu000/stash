@@ -1,6 +1,6 @@
 import { readFileSync } from 'fs';
 import type { AgentSession, AgentSessionEvent, AgentSessionStatus, UsageEvent } from '@stash/shared';
-import { isClearlyIncompleteJsonlTail, readJsonlLinesReverse } from '../jsonl-tail.js';
+import { isClearlyIncompleteJsonlTail } from '../jsonl-tail.js';
 
 interface RawUsage {
   input_tokens?: number;
@@ -204,35 +204,29 @@ export interface ClaudeAnalyticsData {
 }
 
 /**
- * Weekly-only fast path. Append-ordered histories whose final timestamp is
- * before the analytics window never need a full-file usage parse. Relevant
- * histories are read exactly once and still aggregate every usage event.
+ * Strict Weekly parser. Event timestamps are independent of physical append
+ * order, so every complete candidate record must be validated before the
+ * maximum activity timestamp and exact usage buckets are known.
  */
 export function parseClaudeAnalytics(
   sourcePath: string,
-  activeSinceMs: number,
-  sourceSizeBytes?: number,
+  _activeSinceMs: number,
+  _sourceSizeBytes?: number,
 ): ClaudeAnalyticsData {
-  const tail = lastClaudeTimestamp(sourcePath, sourceSizeBytes);
-  if (!tail.trailingPartial && Date.parse(tail.timestamp) < activeSinceMs) {
-    return { lastActiveAt: tail.timestamp, usage: [] };
-  }
-
   const raw = readFileSync(sourcePath, 'utf8');
   const usage: UsageEvent[] = [];
   let lastActiveAt: string | undefined;
-  let previousTimestampMs = Number.NEGATIVE_INFINITY;
+  let lastActiveMs = Number.NEGATIVE_INFINITY;
   for (const rec of parseClaudeAnalyticsRecords(raw, sourcePath)) {
     if (rec.timestamp) {
       const timestampMs = Date.parse(rec.timestamp);
       if (Number.isNaN(timestampMs)) {
         throw new Error(`Claude analytics record has an invalid timestamp: ${sourcePath}`);
       }
-      if (timestampMs < previousTimestampMs) {
-        throw new Error(`Claude analytics timestamps are not append-ordered: ${sourcePath}`);
+      if (timestampMs > lastActiveMs) {
+        lastActiveMs = timestampMs;
+        lastActiveAt = rec.timestamp;
       }
-      previousTimestampMs = timestampMs;
-      lastActiveAt = rec.timestamp;
     }
     const event = claudeUsageEvent(rec, sourcePath);
     if (event) {
@@ -244,36 +238,6 @@ export function parseClaudeAnalytics(
   }
   if (!lastActiveAt) throw new Error(`Claude session has no valid timestamped records: ${sourcePath}`);
   return { lastActiveAt, usage };
-}
-
-function lastClaudeTimestamp(sourcePath: string, sourceSizeBytes?: number): {
-  timestamp: string;
-  trailingPartial: boolean;
-} {
-  let trailingPartial = false;
-  for (const line of readJsonlLinesReverse(sourcePath, undefined, sourceSizeBytes)) {
-    if (!line.text.trim()) continue;
-    let rec: RawRecord;
-    try {
-      rec = JSON.parse(line.text);
-    } catch {
-      if (!line.terminated && isClearlyIncompleteJsonlTail(line.text)) {
-        trailingPartial = true;
-        continue;
-      }
-      throw new Error(`Claude session contains malformed complete JSONL: ${sourcePath}`);
-    }
-    if (claudeUsageEvent(rec, sourcePath) && !rec.timestamp) {
-      throw new Error(`Claude usage record has no timestamp: ${sourcePath}`);
-    }
-    if (rec.timestamp) {
-      if (Number.isNaN(Date.parse(rec.timestamp))) {
-        throw new Error(`Claude analytics record has an invalid timestamp: ${sourcePath}`);
-      }
-      return { timestamp: rec.timestamp, trailingPartial };
-    }
-  }
-  throw new Error(`Claude session has no valid timestamped records: ${sourcePath}`);
 }
 
 function parseClaudeAnalyticsRecords(raw: string, sourcePath: string): RawRecord[] {

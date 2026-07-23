@@ -309,6 +309,7 @@ describe('CodexSource.scan', () => {
       mkdirSync(sessionsDir, { recursive: true });
       const malformed = join(sessionsDir, 'rollout-malformed.jsonl');
       const missingTimestamp = join(sessionsDir, 'rollout-missing-timestamp.jsonl');
+      const invalidTimestamp = join(sessionsDir, 'rollout-invalid-timestamp.jsonl');
       const partial = join(sessionsDir, 'rollout-partial.jsonl');
       const completeNoNewline = join(sessionsDir, 'rollout-complete-no-newline.jsonl');
       writeCodexUsageFixture(malformed);
@@ -318,6 +319,11 @@ describe('CodexSource.scan', () => {
       delete token.timestamp;
       missingLines[missingLines.length - 1] = JSON.stringify(token);
       writeFileSync(missingTimestamp, `${missingLines.join('\n')}\n`);
+      const invalidLines = codexUsageFixtureText().trim().split('\n');
+      const invalidToken = JSON.parse(invalidLines.at(-1)!) as Record<string, unknown>;
+      invalidToken.timestamp = 'not-a-timestamp';
+      invalidLines[invalidLines.length - 1] = JSON.stringify(invalidToken);
+      writeFileSync(invalidTimestamp, `${invalidLines.join('\n')}\n`);
       writeCodexUsageFixture(partial);
       appendFileSync(partial, '{"timestamp":');
       writeFileSync(completeNoNewline, codexUsageFixtureText().trimEnd());
@@ -332,28 +338,41 @@ describe('CodexSource.scan', () => {
       );
       expect(result.usageBySource?.get(partial)).toHaveLength(3);
       expect(result.usageBySource?.get(completeNoNewline)).toHaveLength(3);
-      expect(result.errors).toHaveLength(2);
+      expect(result.errors).toHaveLength(3);
       expect(result.errors.find((error) => error.sourcePath === malformed)?.message)
         .toContain('malformed complete JSONL');
       expect(result.errors.find((error) => error.sourcePath === missingTimestamp)?.message)
         .toContain('token_count record has no timestamp');
+      expect(result.errors.find((error) => error.sourcePath === invalidTimestamp)?.message)
+        .toContain('invalid timestamp');
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
   });
 
-  test('analytics scan enforces the monotonic append-timestamp source invariant', () => {
+  test('analytics scan preserves physical deltas when the physical tail timestamp is old', () => {
     const root = mkdtempSync(join(tmpdir(), 'stash-codex-order-'));
     try {
       const sessionsDir = join(root, 'sessions', '2026', '07', '08');
       mkdirSync(sessionsDir, { recursive: true });
       const file = join(sessionsDir, 'rollout-out-of-order.jsonl');
       const lines = [
-        { timestamp: '2026-07-09T08:00:00.000Z', type: 'session_meta', payload: { id: 'out-of-order', cwd: '/tmp' } },
+        { timestamp: '2026-07-09T07:00:00.000Z', type: 'session_meta', payload: { id: 'out-of-order', cwd: '/tmp' } },
+        { timestamp: '2026-07-08T07:30:00.000Z', type: 'turn_context', payload: { model: 'gpt-5' } },
         {
           timestamp: '2026-07-08T08:00:00.000Z',
           type: 'event_msg',
-          payload: { type: 'token_count', info: { total_token_usage: { input_tokens: 10, output_tokens: 5 } } },
+          payload: { type: 'token_count', info: { total_token_usage: { input_tokens: 100, output_tokens: 10 } } },
+        },
+        {
+          timestamp: '2026-07-01T08:00:00.000Z',
+          type: 'event_msg',
+          payload: { type: 'token_count', info: { total_token_usage: { input_tokens: 150, output_tokens: 20 } } },
+        },
+        {
+          timestamp: '2026-06-20T08:00:00.000Z',
+          type: 'event_msg',
+          payload: { type: 'token_count', info: { total_token_usage: { input_tokens: 220, output_tokens: 30 } } },
         },
       ];
       writeFileSync(file, `${lines.map((line) => JSON.stringify(line)).join('\n')}\n`);
@@ -363,8 +382,18 @@ describe('CodexSource.scan', () => {
         modifiedSinceMs: Date.parse('2026-06-29T00:00:00.000Z'),
       });
 
-      expect(result.sessions).toEqual([]);
-      expect(result.errors[0]?.message).toContain('timestamps are not append-ordered');
+      expect(result.errors).toEqual([]);
+      expect(result.sessions[0]?.lastActiveAt).toBe('2026-07-09T07:00:00.000Z');
+      expect(result.usageBySource?.get(file)?.map((event) => [
+        event.ts,
+        event.model,
+        event.inputTokens,
+        event.outputTokens,
+      ])).toEqual([
+        ['2026-07-08T08:00:00.000Z', 'gpt-5', 100, 10],
+        ['2026-07-01T08:00:00.000Z', 'gpt-5', 50, 10],
+        ['2026-06-20T08:00:00.000Z', 'gpt-5', 70, 10],
+      ]);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

@@ -169,6 +169,7 @@ describe('ClaudeSource.scan', () => {
       mkdirSync(projectDir, { recursive: true });
       const malformed = join(projectDir, 'malformed.jsonl');
       const missingTimestamp = join(projectDir, 'missing-timestamp.jsonl');
+      const invalidTimestamp = join(projectDir, 'invalid-timestamp.jsonl');
       const partial = join(projectDir, 'partial.jsonl');
       const completeNoNewline = join(projectDir, 'complete-no-newline.jsonl');
       writeClaudeFixture(malformed, 'malformed', '2026-07-08T08:00:00.000Z');
@@ -180,6 +181,14 @@ describe('ClaudeSource.scan', () => {
       const assistant = JSON.parse(assistantLine!) as Record<string, unknown>;
       delete assistant.timestamp;
       writeFileSync(missingTimestamp, `${userLine}\n${JSON.stringify(assistant)}\n`);
+      const invalidLines = claudeFixtureText(
+        'invalid timestamp',
+        '2026-07-08T08:00:00.000Z',
+      ).trim().split('\n');
+      const invalidAssistant = JSON.parse(invalidLines[1]!) as Record<string, unknown>;
+      invalidAssistant.timestamp = 'not-a-timestamp';
+      invalidLines[1] = JSON.stringify(invalidAssistant);
+      writeFileSync(invalidTimestamp, `${invalidLines.join('\n')}\n`);
       writeClaudeFixture(partial, 'partial', '2026-07-08T08:00:00.000Z');
       appendFileSync(partial, '{"type":"assistant"');
       writeFileSync(
@@ -189,7 +198,7 @@ describe('ClaudeSource.scan', () => {
 
       const source = new ClaudeSource(new AgentSessionCache(db));
       const publicScan = source.scan({ root });
-      expect(publicScan.cache).toMatchObject({ filesIndexed: 4, filesReused: 0 });
+      expect(publicScan.cache).toMatchObject({ filesIndexed: 5, filesReused: 0 });
       const result = source.scanActivity({
         root,
         modifiedSinceMs: Date.parse('2026-06-29T00:00:00.000Z'),
@@ -200,18 +209,20 @@ describe('ClaudeSource.scan', () => {
       );
       expect(result.usageBySource?.get(partial)).toHaveLength(1);
       expect(result.usageBySource?.get(completeNoNewline)).toHaveLength(1);
-      expect(result.errors).toHaveLength(2);
+      expect(result.errors).toHaveLength(3);
       expect(result.errors.find((error) => error.sourcePath === malformed)?.message)
         .toContain('malformed complete JSONL');
       expect(result.errors.find((error) => error.sourcePath === missingTimestamp)?.message)
         .toContain('usage record has no timestamp');
+      expect(result.errors.find((error) => error.sourcePath === invalidTimestamp)?.message)
+        .toContain('invalid timestamp');
     } finally {
       db.close();
       rmSync(root, { recursive: true, force: true });
     }
   });
 
-  test('analytics scan enforces the monotonic append-timestamp source invariant', () => {
+  test('analytics scan keeps exact event timestamps and max activity when the physical tail is old', () => {
     const root = mkdtempSync(join(tmpdir(), 'stash-claude-order-'));
     try {
       const projectDir = join(root, 'projects', '-Users-test-order');
@@ -220,7 +231,7 @@ describe('ClaudeSource.scan', () => {
       writeFileSync(
         file,
         claudeFixtureText('out of order', '2026-07-09T08:00:00.000Z')
-          + claudeFixtureText('older append', '2026-07-08T08:00:00.000Z'),
+          + claudeFixtureText('older append', '2026-06-20T08:00:00.000Z'),
       );
 
       const result = new ClaudeSource().scanActivity({
@@ -228,8 +239,17 @@ describe('ClaudeSource.scan', () => {
         modifiedSinceMs: Date.parse('2026-06-29T00:00:00.000Z'),
       });
 
-      expect(result.sessions).toEqual([]);
-      expect(result.errors[0]?.message).toContain('timestamps are not append-ordered');
+      expect(result.errors).toEqual([]);
+      expect(result.sessions).toHaveLength(1);
+      expect(result.sessions[0]?.lastActiveAt).toBe('2026-07-09T08:00:00.000Z');
+      expect(result.usageBySource?.get(file)?.map((event) => [
+        event.ts,
+        event.inputTokens,
+        event.outputTokens,
+      ])).toEqual([
+        ['2026-07-09T08:00:00.000Z', 12, 3],
+        ['2026-06-20T08:00:00.000Z', 12, 3],
+      ]);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
