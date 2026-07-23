@@ -168,6 +168,28 @@ describe('BurnService', () => {
     expect(snap.totals.tokens).toBe(0);
   });
 
+  test('rolling totals preserve future events while fixed daily buckets stay in range', () => {
+    const sourcePath = '/future.jsonl';
+    const session = makeSession({
+      id: 'future',
+      sourcePath,
+      lastActiveAt: '2026-05-15T08:00:00.000Z',
+    });
+    const snap = build([session], {
+      [sourcePath]: [{
+        ts: '2026-05-15T08:00:00.000Z',
+        model: 'claude-sonnet-4-6',
+        inputTokens: 100,
+        outputTokens: 50,
+        sourcePath,
+      }],
+    }).snapshot({ days: 1 });
+
+    expect(snap.totals).toMatchObject({ tokens: 150, sessions: 1 });
+    expect(snap.dailySpend).toEqual([{ date: '2026-05-14', tokens: 0, cost: 0 }]);
+    expect(snap.modelMix[0]?.tokens).toBe(150);
+  });
+
   test('totalsBetween uses exact half-open boundaries', () => {
     const s = makeSession({
       id: 'range',

@@ -1,16 +1,19 @@
 import {
   DEFAULT_MODEL_RATES,
   eventCost,
+  type AgentSession,
   type BurnSnapshot,
+  type Clock,
   type DailySpendBucket,
-  type ModelMixItem,
   type ModelRate,
-  type ProjectBurnRow,
   type UsageEvent,
   systemClock,
-  type Clock,
 } from '@stash/shared';
-import type { AgentSourceAggregator, AggregateResult } from '../../adapters/aggregator.js';
+import type {
+  AgentSourceAggregator,
+  AggregateResult,
+  AggregateScanCacheStats,
+} from '../../adapters/aggregator.js';
 import type { AreaService } from '../area/service.js';
 
 export interface BurnServiceDeps {
@@ -22,6 +25,41 @@ export interface BurnServiceDeps {
 
 export interface BurnQuery {
   days?: number;
+}
+
+export interface BurnAggregationRequest {
+  startMs: number;
+  beforeMs?: number;
+  days: number;
+  rates: ModelRate[];
+}
+
+interface CompactModelBurn {
+  model: string;
+  tokens: number;
+  cost: number;
+}
+
+interface CompactProjectBurn {
+  projectId: string;
+  tokens: number;
+  cost: number;
+  sessions: number;
+}
+
+export interface BurnAggregate {
+  totals: BurnSnapshot['totals'];
+  dailySpend: DailySpendBucket[];
+  hourlyHeatmap: number[][];
+  modelMix: CompactModelBurn[];
+  perProjectLeaderboard: CompactProjectBurn[];
+  cache: AggregateScanCacheStats;
+}
+
+interface MutableProjectBurn {
+  tokens: number;
+  cost: number;
+  sources: Set<string>;
 }
 
 export class BurnService {
@@ -38,23 +76,16 @@ export class BurnService {
   }
 
   snapshot(q: BurnQuery = {}, scanResult?: AggregateResult): BurnSnapshot {
-    const days = clampDays(q.days);
-    const startMs = startOfDayUtcMs(new Date(this.clock.now())) - (days - 1) * 86_400_000;
-    const startIso = new Date(startMs).toISOString();
-
-    const events = this.collectEvents(startIso, scanResult);
-    const totals = this.computeTotals(events);
-    const dailySpend = this.bucketDaily(events, startMs, days);
-    const hourlyHeatmap = this.bucketHourly(events);
-    const modelMix = this.modelMix(events, totals.tokens);
-    const perProjectLeaderboard = this.projectLeaderboard(events, totals.tokens);
-
-    return { totals, dailySpend, hourlyHeatmap, modelMix, perProjectLeaderboard };
+    const request = this.rollingRequest(q);
+    const scan = scanResult ?? this.aggregator.scan({});
+    return this.finalize(aggregateBurnFromScan(this.aggregator, scan, request));
   }
 
-  async snapshotAsync(q: BurnQuery = {}): Promise<{ data: BurnSnapshot; cache: AggregateResult['cache'] }> {
-    const scan = await this.aggregator.scanAsync({});
-    return { data: this.snapshot(q, scan), cache: scan.cache };
+  async snapshotAsync(
+    q: BurnQuery = {},
+  ): Promise<{ data: BurnSnapshot; cache: AggregateScanCacheStats }> {
+    const aggregate = await this.aggregator.aggregateBurnAsync(this.rollingRequest(q));
+    return { data: this.finalize(aggregate), cache: aggregate.cache };
   }
 
   /**
@@ -67,139 +98,162 @@ export class BurnService {
     endMs: number,
     scanResult?: AggregateResult,
   ): BurnSnapshot['totals'] {
-    const startIso = new Date(startMs).toISOString();
-    const endIso = new Date(endMs).toISOString();
-    return this.computeTotals(this.collectEvents(startIso, scanResult, endIso));
+    const scan = scanResult ?? this.aggregator.scan({});
+    return aggregateBurnFromScan(this.aggregator, scan, {
+      startMs,
+      beforeMs: endMs,
+      days: 1,
+      rates: this.rates,
+    }).totals;
   }
 
-  // ─── pipeline ───────────────────────────────────────────────────────────
-
-  private collectEvents(
-    sinceIso: string,
-    scanResult?: AggregateResult,
-    beforeIso?: string,
-  ): UsageEvent[] {
-    const out: UsageEvent[] = [];
-    const sinceMs = Date.parse(sinceIso);
-    const { sessions } = scanResult ?? this.aggregator.scan({});
-    for (const s of sessions) {
-      const lastActiveMs = Date.parse(s.lastActiveAt);
-      if (!Number.isNaN(sinceMs) && !Number.isNaN(lastActiveMs) && lastActiveMs < sinceMs) {
-        continue;
-      }
-      for (const e of this.aggregator.getUsageForScan(scanResult, s.provider, s.sourcePath)) {
-        if (e.ts < sinceIso) continue;
-        if (beforeIso !== undefined && e.ts >= beforeIso) continue;
-        out.push({ ...e, projectId: s.projectId });
-      }
-    }
-    return out;
+  private rollingRequest(q: BurnQuery): BurnAggregationRequest {
+    const days = clampDays(q.days);
+    return {
+      startMs: startOfDayUtcMs(new Date(this.clock.now())) - (days - 1) * 86_400_000,
+      days,
+      rates: this.rates,
+    };
   }
 
-  private computeTotals(events: UsageEvent[]): { tokens: number; cost: number; sessions: number } {
-    const sources = new Set<string>();
-    let tokens = 0;
-    let cost = 0;
-    for (const e of events) {
-      tokens += e.inputTokens + e.outputTokens;
-      cost += eventCost(e, this.rates);
-      sources.add(e.sourcePath);
-    }
-    return { tokens, cost, sessions: sources.size };
-  }
-
-  private bucketDaily(events: UsageEvent[], startMs: number, days: number): DailySpendBucket[] {
-    const buckets: DailySpendBucket[] = [];
-    for (let i = 0; i < days; i++) {
-      buckets.push({ date: isoDate(startMs + i * 86_400_000), tokens: 0, cost: 0 });
-    }
-    const dayMs = 86_400_000;
-    for (const e of events) {
-      const idx = Math.floor((Date.parse(e.ts) - startMs) / dayMs);
-      if (idx < 0 || idx >= days) continue;
-      const bucket = buckets[idx];
-      if (!bucket) continue;
-      bucket.tokens += e.inputTokens + e.outputTokens;
-      bucket.cost += eventCost(e, this.rates);
-    }
-    return buckets;
-  }
-
-  private bucketHourly(events: UsageEvent[]): number[][] {
-    const grid: number[][] = Array.from({ length: 7 }, () => Array<number>(24).fill(0));
-    for (const e of events) {
-      const d = new Date(e.ts);
-      if (Number.isNaN(d.getTime())) continue;
-      const dow = (d.getUTCDay() + 6) % 7; // 0 = Monday
-      const hour = d.getUTCHours();
-      const row = grid[dow];
-      if (!row) continue;
-      row[hour] = (row[hour] ?? 0) + e.inputTokens + e.outputTokens;
-    }
-    return grid;
-  }
-
-  private modelMix(events: UsageEvent[], totalTokens: number): ModelMixItem[] {
-    const byModel = new Map<string, { tokens: number; cost: number }>();
-    for (const e of events) {
-      const cur = byModel.get(e.model) ?? { tokens: 0, cost: 0 };
-      cur.tokens += e.inputTokens + e.outputTokens;
-      cur.cost += eventCost(e, this.rates);
-      byModel.set(e.model, cur);
-    }
-    const out: ModelMixItem[] = [];
-    for (const [model, agg] of byModel) {
-      out.push({
-        model,
-        tokens: agg.tokens,
-        cost: agg.cost,
-        share: totalTokens > 0 ? agg.tokens / totalTokens : 0,
-      });
-    }
-    out.sort((a, b) => b.tokens - a.tokens);
-    return out;
-  }
-
-  private projectLeaderboard(events: UsageEvent[], totalTokens: number): ProjectBurnRow[] {
-    const byProject = new Map<string, { tokens: number; cost: number; sources: Set<string> }>();
-    for (const e of events) {
-      const key = e.projectId ?? '__unlinked__';
-      const cur = byProject.get(key) ?? { tokens: 0, cost: 0, sources: new Set<string>() };
-      cur.tokens += e.inputTokens + e.outputTokens;
-      cur.cost += eventCost(e, this.rates);
-      cur.sources.add(e.sourcePath);
-      byProject.set(key, cur);
-    }
-    const out: ProjectBurnRow[] = [];
-    for (const [projectId, agg] of byProject) {
-      const name = projectId === '__unlinked__' ? 'unlinked' : this.areaName(projectId);
-      out.push({
-        projectId,
-        projectName: name,
-        tokens: agg.tokens,
-        cost: agg.cost,
-        sessions: agg.sources.size,
-        share: totalTokens > 0 ? agg.tokens / totalTokens : 0,
-      });
-    }
-    out.sort((a, b) => b.tokens - a.tokens);
-    return out;
-  }
-
-  private areaName(id: string): string {
-    return this.areaService.get(id)?.name ?? id;
+  private finalize(aggregate: BurnAggregate): BurnSnapshot {
+    const totalTokens = aggregate.totals.tokens;
+    return {
+      totals: aggregate.totals,
+      dailySpend: aggregate.dailySpend,
+      hourlyHeatmap: aggregate.hourlyHeatmap,
+      modelMix: aggregate.modelMix.map((item) => ({
+        ...item,
+        share: totalTokens > 0 ? item.tokens / totalTokens : 0,
+      })),
+      perProjectLeaderboard: aggregate.perProjectLeaderboard.map((item) => ({
+        ...item,
+        projectName: item.projectId === '__unlinked__'
+          ? 'unlinked'
+          : this.areaService.get(item.projectId)?.name ?? item.projectId,
+        share: totalTokens > 0 ? item.tokens / totalTokens : 0,
+      })),
+    };
   }
 }
 
-function clampDays(d: number | undefined): number {
-  if (d === undefined || !Number.isFinite(d)) return 30;
-  if (d < 1) return 1;
-  if (d > 365) return 365;
-  return Math.floor(d);
+/**
+ * Shared bounded aggregation path used by the Worker and synchronous tests.
+ * At most one session's usage array is retained by the caller at a time.
+ */
+export function aggregateBurnFromScan(
+  aggregator: AgentSourceAggregator,
+  scan: AggregateResult,
+  request: BurnAggregationRequest,
+): BurnAggregate {
+  if (scan.errors.length > 0) {
+    const details = scan.errors
+      .map((error) => `${error.provider}:${error.sourcePath}: ${error.message}`)
+      .join('; ');
+    throw new Error(`burn metadata scan failed: ${details}`);
+  }
+
+  const accumulator = new BurnAccumulator(request);
+  for (const session of scan.sessions) {
+    const lastActiveMs = Date.parse(session.lastActiveAt);
+    if (!Number.isNaN(lastActiveMs) && lastActiveMs < request.startMs) continue;
+    accumulator.addSession(
+      session,
+      aggregator.getUsageForScan(scan, session.provider, session.sourcePath),
+    );
+  }
+  return accumulator.finish(scan.cache);
 }
 
-function startOfDayUtcMs(d: Date): number {
-  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+class BurnAccumulator {
+  private readonly totals = { tokens: 0, cost: 0, sessions: 0 };
+  private readonly dailySpend: DailySpendBucket[];
+  private readonly hourlyHeatmap: number[][] =
+    Array.from({ length: 7 }, () => Array<number>(24).fill(0));
+  private readonly models = new Map<string, { tokens: number; cost: number }>();
+  private readonly projects = new Map<string, MutableProjectBurn>();
+  private readonly sources = new Set<string>();
+
+  constructor(private readonly request: BurnAggregationRequest) {
+    this.dailySpend = Array.from({ length: request.days }, (_, index) => ({
+      date: isoDate(request.startMs + index * 86_400_000),
+      tokens: 0,
+      cost: 0,
+    }));
+  }
+
+  addSession(session: AgentSession, usage: UsageEvent[]): void {
+    for (const event of usage) {
+      const eventMs = Date.parse(event.ts);
+      if (Number.isNaN(eventMs) || eventMs < this.request.startMs) continue;
+      if (this.request.beforeMs !== undefined && eventMs >= this.request.beforeMs) continue;
+
+      const tokens = event.inputTokens + event.outputTokens;
+      const cost = eventCost(event, this.request.rates);
+      this.totals.tokens += tokens;
+      this.totals.cost += cost;
+      this.sources.add(event.sourcePath);
+
+      const dailyIndex = Math.floor((eventMs - this.request.startMs) / 86_400_000);
+      const daily = this.dailySpend[dailyIndex];
+      if (daily) {
+        daily.tokens += tokens;
+        daily.cost += cost;
+      }
+
+      const date = new Date(eventMs);
+      const weekday = (date.getUTCDay() + 6) % 7;
+      const hourly = this.hourlyHeatmap[weekday];
+      if (hourly) hourly[date.getUTCHours()] = (hourly[date.getUTCHours()] ?? 0) + tokens;
+
+      const model = this.models.get(event.model) ?? { tokens: 0, cost: 0 };
+      model.tokens += tokens;
+      model.cost += cost;
+      this.models.set(event.model, model);
+
+      const projectId = session.projectId ?? '__unlinked__';
+      const project = this.projects.get(projectId) ?? {
+        tokens: 0,
+        cost: 0,
+        sources: new Set<string>(),
+      };
+      project.tokens += tokens;
+      project.cost += cost;
+      project.sources.add(event.sourcePath);
+      this.projects.set(projectId, project);
+    }
+  }
+
+  finish(cache: AggregateScanCacheStats): BurnAggregate {
+    this.totals.sessions = this.sources.size;
+    const modelMix = Array.from(this.models, ([model, value]) => ({ model, ...value }))
+      .sort((a, b) => b.tokens - a.tokens);
+    const perProjectLeaderboard = Array.from(this.projects, ([projectId, value]) => ({
+      projectId,
+      tokens: value.tokens,
+      cost: value.cost,
+      sessions: value.sources.size,
+    })).sort((a, b) => b.tokens - a.tokens);
+    return {
+      totals: this.totals,
+      dailySpend: this.dailySpend,
+      hourlyHeatmap: this.hourlyHeatmap,
+      modelMix,
+      perProjectLeaderboard,
+      cache,
+    };
+  }
+}
+
+function clampDays(days: number | undefined): number {
+  if (days === undefined || !Number.isFinite(days)) return 30;
+  if (days < 1) return 1;
+  if (days > 365) return 365;
+  return Math.floor(days);
+}
+
+function startOfDayUtcMs(date: Date): number {
+  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
 }
 
 function isoDate(ms: number): string {

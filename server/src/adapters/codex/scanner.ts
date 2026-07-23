@@ -101,7 +101,7 @@ export class CodexSource implements AgentSource {
     for (const entry of limited) {
       if (this.cache) {
         try {
-          const cached = this.cache.getFresh('codex', entry);
+          const cached = this.cache.getFreshSession('codex', entry);
           if (cached) {
             sessions.push(cached.session);
             filesReused++;

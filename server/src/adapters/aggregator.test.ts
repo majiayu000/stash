@@ -2,9 +2,12 @@ import { describe, expect, test } from 'bun:test';
 import type {
   AgentProvider,
   AgentSessionEvent,
+  ModelRate,
   UsageEvent,
 } from '@stash/shared';
-import { AgentSourceAggregator } from './aggregator.js';
+import type { BurnAggregate, BurnAggregationRequest } from '../domain/analytics/burn.js';
+import { AgentSourceAggregator, type AggregateResult } from './aggregator.js';
+import type { SessionScanExecutor, SessionScanMode } from './session-scan-worker.js';
 import type { AgentSource, ScanOptions, SourceScanResult } from './source.js';
 
 class CountingSource implements AgentSource {
@@ -31,6 +34,20 @@ class CountingSource implements AgentSource {
 
   getUsage(_sourcePath: string): UsageEvent[] {
     return [];
+  }
+}
+
+class CountingExecutor implements SessionScanExecutor {
+  burnRequests: BurnAggregationRequest[] = [];
+
+  scan(_mode: SessionScanMode, _options: ScanOptions): Promise<AggregateResult> {
+    throw new Error('scan should not be called');
+  }
+
+  async aggregateBurn(request: BurnAggregationRequest): Promise<BurnAggregate> {
+    this.burnRequests.push(request);
+    await Promise.resolve();
+    return emptyBurnAggregate();
   }
 }
 
@@ -84,4 +101,67 @@ describe('AgentSourceAggregator.scanAsync', () => {
     expect(source.scanCount).toBe(1);
     expect(source.activityScanCount).toBe(1);
   });
+
+  test('shares Burn work only when window and complete rates match', async () => {
+    const executor = new CountingExecutor();
+    const aggregator = new AgentSourceAggregator(new Map(), executor);
+    const rates: ModelRate[] = [{
+      model: 'custom',
+      inputPerM: 1,
+      outputPerM: 2,
+      cacheReadPerM: 3,
+      cacheWritePerM: 4,
+    }];
+    const request: BurnAggregationRequest = { startMs: 100, days: 30, rates };
+
+    const first = aggregator.aggregateBurnAsync(request);
+    const same = aggregator.aggregateBurnAsync({ ...request, rates: [...rates] });
+    const differentWindow = aggregator.aggregateBurnAsync({ ...request, startMs: 200 });
+    const differentRates = aggregator.aggregateBurnAsync({
+      ...request,
+      rates: [{ ...rates[0]!, outputPerM: 20 }],
+    });
+
+    expect(first).toBe(same);
+    expect(first).not.toBe(differentWindow);
+    expect(first).not.toBe(differentRates);
+    await Promise.all([first, same, differentWindow, differentRates]);
+    expect(executor.burnRequests).toHaveLength(3);
+  });
+
+  test('clears failed Burn singleflight entries so callers can retry', async () => {
+    let attempts = 0;
+    const executor: SessionScanExecutor = {
+      scan: () => Promise.reject(new Error('unused')),
+      aggregateBurn: async () => {
+        attempts++;
+        throw new Error('burn failed');
+      },
+    };
+    const aggregator = new AgentSourceAggregator(new Map(), executor);
+    const request: BurnAggregationRequest = { startMs: 100, days: 30, rates: [] };
+
+    await expect(aggregator.aggregateBurnAsync(request)).rejects.toThrow('burn failed');
+    await expect(aggregator.aggregateBurnAsync(request)).rejects.toThrow('burn failed');
+    expect(attempts).toBe(2);
+  });
 });
+
+function emptyBurnAggregate(): BurnAggregate {
+  return {
+    totals: { tokens: 0, cost: 0, sessions: 0 },
+    dailySpend: [],
+    hourlyHeatmap: Array.from({ length: 7 }, () => Array<number>(24).fill(0)),
+    modelMix: [],
+    perProjectLeaderboard: [],
+    cache: {
+      refreshState: 'fresh',
+      generatedAt: '2026-05-14T00:00:00.000Z',
+      filesDiscovered: 0,
+      filesSeen: 0,
+      filesIndexed: 0,
+      filesReused: 0,
+      sources: [],
+    },
+  };
+}

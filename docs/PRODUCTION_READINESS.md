@@ -37,15 +37,26 @@ Production-grade for stash means:
 
 ## P0: Correctness and Responsiveness
 
+The original hardening issues [#1](https://github.com/majiayu000/stash/issues/1)
+through [#5](https://github.com/majiayu000/stash/issues/5) are closed. Their
+closure is historical delivery evidence, not a claim that every production
+boundary is complete: README still records the remaining background-refresh,
+release-packaging, and license limits.
+
 ### 1. Cache and Bound Agent Session Scans
 
-Tracking issue: [#2](https://github.com/majiayu000/stash/issues/2)
+Tracking issues: [#2](https://github.com/majiayu000/stash/issues/2) (closed),
+[#121](https://github.com/majiayu000/stash/issues/121) (frontend bounded
+refresh), and [#122](https://github.com/majiayu000/stash/issues/122) (Burn
+Worker aggregation).
 
 Problem:
 `/api/agent-sessions`, `/api/workboard`, `/api/analytics/burn`, and
-`/api/analytics/weekly` still depend on local session scans. The current build
-bounds repeated work with per-file cache, route limits, and in-process
-singleflight, but background stale-while-refresh is not implemented yet.
+`/api/analytics/weekly` depend on local session histories. The current build
+uses per-file metadata/usage cache, route limits, in-process singleflight,
+shared frontend snapshots, and a dedicated Worker for filesystem scans and
+Burn aggregation. A general stale-while-refresh backend for every
+session-derived route is not implemented yet.
 
 Observed on 2026-05-19:
 
@@ -65,18 +76,20 @@ Plan:
 
 1. Done: add a session index table keyed by provider + source path + mtime + size.
 2. Done: only parse changed JSONL files after the first scan.
-3. Store usage aggregates per session so burn and weekly snapshots do not
-   reparse every event.
+3. Done: store usage per session and aggregate Burn inside the scan Worker
+   without moving raw window-level events to the API thread.
 4. Done: add an in-process singleflight guard so concurrent requests share one scan.
-5. Return stale cached data with `isRefreshing: true` instead of blocking the UI.
+5. Partial: workbench callers share bounded stale snapshots; a general backend
+   stale response with `isRefreshing: true` remains deferred.
 6. Add route-level timing logs and response metadata for cache hit/miss.
 
 Done when:
 
 - A large-history fixture proves warm `/api/workboard` and
   `/api/agent-sessions?provider=all` complete under 500ms.
-- `/api/analytics/burn?days=30` and `/api/analytics/weekly` complete under 1s
-  from warm cache.
+- Done: a 16,384-row / 6,000-candidate / 50,000-event fixture proves warm
+  `/api/analytics/burn?days=30` completes under 1s while `/health` remains
+  responsive; the existing 3,000-file Weekly budget remains unchanged.
 - The UI never shows `loading workbench...` for more than 1s after the first
   successful load.
 

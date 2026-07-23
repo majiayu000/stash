@@ -9,23 +9,21 @@ export interface SessionFileFingerprint {
 
 export interface CachedSession {
   session: AgentSession;
-  usage: UsageEvent[];
   indexedAt: string;
 }
 
-interface CacheRow {
+interface SessionCacheRow {
   session_json: string;
-  usage_json: string;
   indexed_at: string;
 }
 
 export class AgentSessionCache {
   constructor(private readonly db: Database) {}
 
-  getFresh(provider: AgentProvider, file: SessionFileFingerprint): CachedSession | undefined {
+  getFreshSession(provider: AgentProvider, file: SessionFileFingerprint): CachedSession | undefined {
     const row = this.db
-      .query<CacheRow, [string, string, number, number]>(
-        `select session_json, usage_json, indexed_at
+      .query<SessionCacheRow, [string, string, number, number]>(
+        `select session_json, indexed_at
            from agent_session_cache
           where provider = ?
             and source_path = ?
@@ -38,7 +36,6 @@ export class AgentSessionCache {
     try {
       return {
         session: parseCachedSession(JSON.parse(row.session_json)),
-        usage: parseCachedUsage(JSON.parse(row.usage_json)),
         indexedAt: row.indexed_at,
       };
     } catch (e) {
@@ -124,6 +121,9 @@ function parseCachedSession(value: unknown): AgentSession {
   if (typeof session.toolCount !== 'number') throw new Error('session.toolCount is missing');
   if (typeof session.messageCount !== 'number') throw new Error('session.messageCount is missing');
   if (typeof session.lastActiveAt !== 'string') throw new Error('session.lastActiveAt is missing');
+  if (Number.isNaN(Date.parse(session.lastActiveAt))) {
+    throw new Error('session.lastActiveAt is invalid');
+  }
   return session as AgentSession;
 }
 
@@ -133,9 +133,16 @@ function parseCachedUsage(value: unknown): UsageEvent[] {
     if (!event || typeof event !== 'object') throw new Error('usage event is not an object');
     const usage = event as Partial<UsageEvent>;
     if (typeof usage.ts !== 'string') throw new Error('usage.ts is missing');
+    if (Number.isNaN(Date.parse(usage.ts))) throw new Error('usage.ts is invalid');
     if (typeof usage.model !== 'string') throw new Error('usage.model is missing');
     if (typeof usage.inputTokens !== 'number') throw new Error('usage.inputTokens is missing');
     if (typeof usage.outputTokens !== 'number') throw new Error('usage.outputTokens is missing');
+    if (usage.cacheReadTokens !== undefined && typeof usage.cacheReadTokens !== 'number') {
+      throw new Error('usage.cacheReadTokens is invalid');
+    }
+    if (usage.cacheWriteTokens !== undefined && typeof usage.cacheWriteTokens !== 'number') {
+      throw new Error('usage.cacheWriteTokens is invalid');
+    }
     if (typeof usage.sourcePath !== 'string') throw new Error('usage.sourcePath is missing');
     return usage as UsageEvent;
   });

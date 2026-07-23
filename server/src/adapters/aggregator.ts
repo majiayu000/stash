@@ -1,4 +1,9 @@
 import type { AgentProvider, AgentSession, AgentSessionEvent, UsageEvent } from '@stash/shared';
+import {
+  aggregateBurnFromScan,
+  type BurnAggregate,
+  type BurnAggregationRequest,
+} from '../domain/analytics/burn.js';
 import type { AgentSource, SourceParseError, SourceScanCacheStats } from './source.js';
 import type { SessionScanExecutor, SessionScanMode } from './session-scan-worker.js';
 
@@ -28,6 +33,7 @@ export interface AggregateScanCacheStats {
 
 export class AgentSourceAggregator {
   private readonly inflight = new Map<string, Promise<AggregateResult>>();
+  private readonly burnInflight = new Map<string, Promise<BurnAggregate>>();
 
   constructor(
     private readonly sources: Map<AgentProvider, { source: AgentSource; root: string }>,
@@ -93,6 +99,21 @@ export class AgentSourceAggregator {
     return this.scanWithSingleflight(options, 'activity');
   }
 
+  aggregateBurnAsync(request: BurnAggregationRequest): Promise<BurnAggregate> {
+    const key = burnKey(request);
+    const current = this.burnInflight.get(key);
+    if (current) return current;
+
+    const pending = (this.scanExecutor
+      ? this.scanExecutor.aggregateBurn(request)
+      : Promise.resolve().then(() => aggregateBurnFromScan(this, this.scan({}), request)))
+      .finally(() => {
+        this.burnInflight.delete(key);
+      });
+    this.burnInflight.set(key, pending);
+    return pending;
+  }
+
   private scanWithSingleflight(
     options: AggregateOptions,
     mode: SessionScanMode,
@@ -147,6 +168,16 @@ function scanKey(options: AggregateOptions, mode: SessionScanMode): string {
     provider: options.provider ?? 'all',
     limitPerSource: options.limitPerSource ?? 0,
     modifiedSinceMs: options.modifiedSinceMs ?? null,
+  });
+}
+
+function burnKey(request: BurnAggregationRequest): string {
+  return JSON.stringify({
+    kind: 'burn',
+    startMs: request.startMs,
+    beforeMs: request.beforeMs ?? null,
+    days: request.days,
+    rates: request.rates,
   });
 }
 

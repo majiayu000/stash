@@ -42,7 +42,7 @@ export class ClaudeSource implements AgentSource {
     for (const entry of limited) {
       if (this.cache) {
         try {
-          const cached = this.cache.getFresh('claude', entry);
+          const cached = this.cache.getFreshSession('claude', entry);
           if (cached) {
             sessions.push(cached.session);
             filesReused++;
