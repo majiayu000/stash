@@ -3,10 +3,14 @@ import {
   assert_time_zone,
   calendar_date_at,
   calendar_day_of_week,
+  calendar_period_range,
   DEFAULT_MODEL_RATES,
   eventCost,
   format_calendar_date,
   type AgentSession,
+  type BudgetPeriod,
+  type BudgetSpendSnapshot,
+  type CalendarRange,
   type BurnSnapshot,
   type Clock,
   type DailySpendBucket,
@@ -45,6 +49,7 @@ export interface BurnAggregationRequest {
   timeZone: string;
   days: number;
   rates: ModelRate[];
+  includeDailyProjectSpend?: boolean;
 }
 
 interface CompactModelBurn {
@@ -60,6 +65,12 @@ interface CompactProjectBurn {
   sessions: number;
 }
 
+interface CompactDailyProjectBurn {
+  date: string;
+  projectId: string;
+  cost: number;
+}
+
 export interface BurnAggregate {
   calendar: BurnSnapshot['calendar'];
   totals: BurnSnapshot['totals'];
@@ -67,6 +78,7 @@ export interface BurnAggregate {
   hourlyHeatmap: number[][];
   modelMix: CompactModelBurn[];
   perProjectLeaderboard: CompactProjectBurn[];
+  dailyProjectSpend: CompactDailyProjectBurn[];
   cache: AggregateScanCacheStats;
 }
 
@@ -102,6 +114,46 @@ export class BurnService {
   ): Promise<{ data: BurnSnapshot; cache: AggregateScanCacheStats }> {
     const aggregate = await this.aggregator.aggregateBurnAsync(this.rollingRequest(q));
     return { data: this.finalize(aggregate), cache: aggregate.cache };
+  }
+
+  async budgetSpendSnapshotAsync(): Promise<{
+    data: BudgetSpendSnapshot;
+    cache: AggregateScanCacheStats;
+  }> {
+    const generated_at_ms = this.clock.now();
+    const ranges = budget_period_ranges(generated_at_ms, this.time_zone);
+    const union_start_date = min_calendar_date(
+      Object.values(ranges).map((range) => range.startDate),
+    );
+    const union_end_date_exclusive = max_calendar_date(
+      Object.values(ranges).map((range) => range.endDateExclusive),
+    );
+    const union = range_from_dates(
+      union_start_date,
+      union_end_date_exclusive,
+      this.time_zone,
+    );
+    const aggregate = await this.aggregator.aggregateBurnAsync({
+      startMs: Date.parse(union.start),
+      bucketEndMs: Date.parse(union.end),
+      endMs: Date.parse(union.end),
+      startDate: union.startDate,
+      endDateExclusive: union.endDateExclusive,
+      timeZone: this.time_zone,
+      days: calendar_day_count(union.startDate, union.endDateExclusive),
+      rates: this.rates,
+      includeDailyProjectSpend: true,
+    });
+    return {
+      data: build_budget_spend_snapshot(
+        aggregate,
+        ranges,
+        this.areaService,
+        this.time_zone,
+        new Date(generated_at_ms).toISOString(),
+      ),
+      cache: aggregate.cache,
+    };
   }
 
   /**
@@ -208,6 +260,7 @@ class BurnAccumulator {
     Array.from({ length: 7 }, () => Array<number>(24).fill(0));
   private readonly models = new Map<string, { tokens: number; cost: number }>();
   private readonly projects = new Map<string, MutableProjectBurn>();
+  private readonly daily_project_spend = new Map<string, CompactDailyProjectBurn>();
   private readonly sources = new Set<string>();
   private readonly daily_index_by_date: Map<string, number>;
 
@@ -234,17 +287,18 @@ class BurnAccumulator {
       this.totals.cost += cost;
       this.sources.add(event.sourcePath);
 
+      let bucket_date: string | undefined;
       if (eventMs < this.request.bucketEndMs) {
         const local = zoned_parts(eventMs, this.request.timeZone);
-        const calendar_date = format_calendar_date(local);
-        const daily_index = this.daily_index_by_date.get(calendar_date);
+        bucket_date = format_calendar_date(local);
+        const daily_index = this.daily_index_by_date.get(bucket_date);
         const daily = daily_index === undefined ? undefined : this.dailySpend[daily_index];
         if (daily) {
           daily.tokens += tokens;
           daily.cost += cost;
         }
 
-        const weekday = (calendar_day_of_week(calendar_date) + 6) % 7;
+        const weekday = (calendar_day_of_week(bucket_date) + 6) % 7;
         const hourly = this.hourlyHeatmap[weekday];
         if (hourly) hourly[local.hour] = (hourly[local.hour] ?? 0) + tokens;
       }
@@ -264,6 +318,17 @@ class BurnAccumulator {
       project.cost += cost;
       project.sources.add(event.sourcePath);
       this.projects.set(projectId, project);
+
+      if (this.request.includeDailyProjectSpend && bucket_date) {
+        const key = `${bucket_date}\0${projectId}`;
+        const daily_project = this.daily_project_spend.get(key) ?? {
+          date: bucket_date,
+          projectId,
+          cost: 0,
+        };
+        daily_project.cost += cost;
+        this.daily_project_spend.set(key, daily_project);
+      }
     }
   }
 
@@ -298,9 +363,88 @@ class BurnAccumulator {
       hourlyHeatmap: this.hourlyHeatmap,
       modelMix,
       perProjectLeaderboard,
+      dailyProjectSpend: Array.from(this.daily_project_spend.values()),
       cache,
     };
   }
+}
+
+const BUDGET_PERIODS = ['day', 'week', 'month', 'quarter'] as const;
+
+function budget_period_ranges(
+  instant_ms: number,
+  time_zone: string,
+): Record<BudgetPeriod, CalendarRange> {
+  return Object.fromEntries(
+    BUDGET_PERIODS.map((period) => [
+      period,
+      calendar_period_range(period, instant_ms, time_zone),
+    ]),
+  ) as Record<BudgetPeriod, CalendarRange>;
+}
+
+function build_budget_spend_snapshot(
+  aggregate: BurnAggregate,
+  ranges: Record<BudgetPeriod, CalendarRange>,
+  area_service: AreaService,
+  time_zone: string,
+  generated_at: string,
+): BudgetSpendSnapshot {
+  const periods = Object.fromEntries(BUDGET_PERIODS.map((period) => {
+    const range = ranges[period];
+    const in_period = (date: string) =>
+      date >= range.startDate && date < range.endDateExclusive;
+    const project_costs = new Map<string, number>();
+    for (const row of aggregate.dailyProjectSpend) {
+      if (!in_period(row.date)) continue;
+      project_costs.set(row.projectId, (project_costs.get(row.projectId) ?? 0) + row.cost);
+    }
+    return [period, {
+      range,
+      totals: {
+        cost: aggregate.dailySpend
+          .filter((row) => in_period(row.date))
+          .reduce((sum, row) => sum + row.cost, 0),
+      },
+      perProject: Array.from(project_costs, ([projectId, cost]) => ({
+        projectId,
+        projectName: projectId === '__unlinked__'
+          ? 'unlinked'
+          : area_service.get(projectId)?.name ?? projectId,
+        cost,
+      })).sort((left, right) => right.cost - left.cost),
+    }];
+  })) as Record<BudgetPeriod, BudgetSpendSnapshot['periods'][BudgetPeriod]>;
+  return {
+    calendar: { timeZone: time_zone, generatedAt: generated_at },
+    periods,
+  };
+}
+
+function min_calendar_date(values: string[]): string {
+  const value = [...values].sort()[0];
+  if (!value) throw new Error('at least one calendar range is required');
+  return value;
+}
+
+function max_calendar_date(values: string[]): string {
+  const value = [...values].sort().at(-1);
+  if (!value) throw new Error('at least one calendar range is required');
+  return value;
+}
+
+function calendar_day_count(start_date: string, end_date_exclusive: string): number {
+  let count = 0;
+  let cursor = start_date;
+  while (cursor < end_date_exclusive) {
+    cursor = add_calendar_days(cursor, 1);
+    count += 1;
+    if (count > 370) throw new Error('budget period union exceeds 370 calendar days');
+  }
+  if (cursor !== end_date_exclusive || count === 0) {
+    throw new Error('invalid budget period union');
+  }
+  return count;
 }
 
 function clampDays(days: number | undefined): number {

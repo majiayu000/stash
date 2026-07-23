@@ -190,8 +190,19 @@ function isBurnAggregate(value: unknown): value is BurnAggregate {
     && Array.isArray(result.hourlyHeatmap)
     && Array.isArray(result.modelMix)
     && Array.isArray(result.perProjectLeaderboard)
+    && Array.isArray(result.dailyProjectSpend)
+    && result.dailyProjectSpend.every(isDailyProjectSpend)
     && !!result.cache
     && typeof result.cache === 'object';
+}
+
+function isDailyProjectSpend(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  const row = value as Record<string, unknown>;
+  return typeof row.date === 'string'
+    && typeof row.projectId === 'string'
+    && typeof row.cost === 'number'
+    && Number.isFinite(row.cost);
 }
 
 function isBurnCalendar(value: unknown): value is BurnAggregate['calendar'] {

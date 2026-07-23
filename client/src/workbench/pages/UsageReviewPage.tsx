@@ -1,7 +1,13 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { add_calendar_days, type Budget, type BurnSnapshot, type ProjectBurnRow } from '@stash/shared';
-import { getBurnSnapshot } from '../../api/analytics';
+import {
+  add_calendar_days,
+  type Budget,
+  type BudgetPeriodSpend,
+  type BudgetSpendSnapshot,
+  type BurnSnapshot,
+} from '@stash/shared';
+import { getBudgetSpendSnapshot, getBurnSnapshot } from '../../api/analytics';
 import { listBudgets } from '../../api/budgets';
 import { CountUp } from '../../components/effects';
 import { fmt, type WBData } from '../data';
@@ -27,6 +33,7 @@ const MODEL_PALETTE = [
 export function UsageReviewPage({ data }: { data: WBData; reload: () => void }) {
   const navigate = useNavigate();
   const [snap, setSnap] = useState<BurnSnapshot | null>(null);
+  const [budgetSpend, setBudgetSpend] = useState<BudgetSpendSnapshot | null>(null);
   const [budgets, setBudgets] = useState<Budget[]>([]);
   const [loading, setLoading] = useState(true);
   const [analyticsError, setAnalyticsError] = useState<Error | null>(null);
@@ -55,10 +62,11 @@ export function UsageReviewPage({ data }: { data: WBData; reload: () => void }) 
     let cancelled = false;
     setLoading(true);
     setAnalyticsError(null);
-    getBurnSnapshot(30)
-      .then((s) => {
+    Promise.all([getBurnSnapshot(30), getBudgetSpendSnapshot()])
+      .then(([burn, spend]) => {
         if (!cancelled) {
-          setSnap(s);
+          setSnap(burn);
+          setBudgetSpend(spend);
           setLoading(false);
         }
       })
@@ -85,7 +93,7 @@ export function UsageReviewPage({ data }: { data: WBData; reload: () => void }) 
           <Topbar data={data} />
           <LoadErrorPanel
             title="analytics failed to load"
-            endpoint="/api/analytics/burn?days=30"
+            endpoint="/api/analytics/burn?days=30 + /api/analytics/budget-spend"
             error={analyticsError}
             onRetry={() => setRetryTick((t) => t + 1)}
           />
@@ -93,14 +101,14 @@ export function UsageReviewPage({ data }: { data: WBData; reload: () => void }) 
       </div>
     );
   }
-  if (!snap) {
+  if (!snap || !budgetSpend) {
     return (
       <div className="dashboard-canvas">
         <div className="inner">
           <Topbar data={data} />
           <LoadErrorPanel
             title="analytics returned no data"
-            endpoint="/api/analytics/burn?days=30"
+            endpoint="/api/analytics/burn?days=30 + /api/analytics/budget-spend"
             error={new Error('analytics response was empty')}
             onRetry={() => setRetryTick((t) => t + 1)}
           />
@@ -146,8 +154,13 @@ export function UsageReviewPage({ data }: { data: WBData; reload: () => void }) 
   const totalTokens7d = sumTail(snap.dailySpend.map((d) => d.tokens), 7);
   const cost24h = dailyCosts[dailyCosts.length - 1] ?? 0;
   const avgSessionTokens = snap.totals.sessions > 0 ? Math.round(snap.totals.tokens / snap.totals.sessions) : 0;
-  const monthlyBudget = budgets.find((budget) => budget.scope === 'all' && budget.period === 'month');
-  const budgetPercent = monthlyBudget ? Math.min(100, (evaluationTotal / monthlyBudget.capUsd) * 100) : 0;
+  const monthlyBudget = budgets.find(
+    (budget) => budget.scope.toLowerCase() === 'all' && budget.period === 'month',
+  );
+  const monthlySpend = budgetSpend.periods.month.totals.cost;
+  const budgetPercent = monthlyBudget
+    ? Math.min(100, (monthlySpend / monthlyBudget.capUsd) * 100)
+    : 0;
 
   return (
     <div className="dashboard-canvas">
@@ -168,7 +181,7 @@ export function UsageReviewPage({ data }: { data: WBData; reload: () => void }) 
             </div>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.4rem' }}>
               {monthlyBudget
-                ? <>global monthly budget: <span style={{ color: 'var(--text-secondary)' }}>${monthlyBudget.capUsd.toFixed(2)}</span></>
+                ? <>global monthly budget: <span style={{ color: 'var(--text-secondary)' }}>${monthlySpend.toFixed(2)} / ${monthlyBudget.capUsd.toFixed(2)}</span> · {budgetPeriodLabel(budgetSpend.periods.month, budgetSpend.calendar.timeZone)}</>
                 : <>No global monthly budget. Add one in Settings.</>}
             </div>
             <div style={{ height: 6, background: 'var(--bg-elevated)', borderRadius: 3, overflow: 'hidden', marginTop: '0.5rem', position: 'relative' }}>
@@ -259,7 +272,8 @@ export function UsageReviewPage({ data }: { data: WBData; reload: () => void }) 
                     <BudgetRow
                       key={b.id}
                       b={b}
-                      used={spendForScope(b, snap?.perProjectLeaderboard ?? [], data.projects)}
+                      period={budgetSpend.periods[b.period]}
+                      timeZone={budgetSpend.calendar.timeZone}
                     />
                   ))}
                 </div>
@@ -397,32 +411,44 @@ function ModelDonut({ mix, totalTokens }: { mix: { model: string; share: number;
   );
 }
 
-/**
- * v0.9 — given a budget scope and the burn snapshot's per-project leaderboard,
- * compute how much has been spent against that scope. Scope === 'all' aggregates
- * the entire snapshot; otherwise it matches against the project name in the
- * leaderboard (which the BurnService resolves via AreaService.get).
- */
-function spendForScope(b: Budget, leaderboard: ProjectBurnRow[], _projects: WBData['projects']): number {
+function spendForScope(b: Budget, period: BudgetPeriodSpend): number {
   if (b.scope.toLowerCase() === 'all') {
-    return leaderboard.reduce((sum, r) => sum + r.cost, 0);
+    return period.totals.cost;
   }
-  const match = leaderboard.find((r) => r.projectName.toLowerCase() === b.scope.toLowerCase());
+  const match = period.perProject.find(
+    (row) => row.projectName.toLowerCase() === b.scope.toLowerCase(),
+  );
   return match?.cost ?? 0;
 }
 
-function BudgetRow({ b, used }: { b: Budget; used: number }) {
+function budgetPeriodLabel(period: BudgetPeriodSpend, timeZone: string): string {
+  return `${period.range.startDate}–${add_calendar_days(period.range.endDateExclusive, -1)} · ${timeZone}`;
+}
+
+function BudgetRow({
+  b,
+  period,
+  timeZone,
+}: {
+  b: Budget;
+  period: BudgetPeriodSpend;
+  timeZone: string;
+}) {
+  const used = spendForScope(b, period);
   const pct = b.capUsd > 0 ? (used / b.capUsd) * 100 : 0;
   const over = pct > 100;
   const warn = pct > 75;
   const color = over ? 'var(--neon-pink)' : warn ? 'var(--neon-orange)' : 'var(--neon-cyan)';
   return (
-    <div>
+    <div data-testid={`budget-row-${b.id}`} data-over-limit={over ? 'true' : 'false'}>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontFamily: 'var(--font-mono)', fontSize: '0.74rem' }}>
         <span style={{ color: 'var(--text-secondary)' }}>{b.scope} <span style={{ color: 'var(--text-muted)' }}>· {b.period}</span></span>
         <span style={{ color: over ? 'var(--neon-pink)' : warn ? 'var(--neon-orange)' : 'var(--text-muted)' }}>
           <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>${used.toFixed(2)}</span> / ${b.capUsd.toFixed(2)} <span>· {pct.toFixed(0)}%</span>
         </span>
+      </div>
+      <div style={{ marginBottom: 5, fontFamily: 'var(--font-mono)', fontSize: '0.64rem', color: 'var(--text-muted)' }}>
+        {budgetPeriodLabel(period, timeZone)}
       </div>
       <div className="pbar thin">
         <div className="pbar-fill" style={{
