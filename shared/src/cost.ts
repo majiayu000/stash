@@ -127,6 +127,24 @@ export interface CreateBudgetInput {
 
 export type UpdateBudgetInput = Partial<CreateBudgetInput>;
 
+export interface BudgetPeriodSpend {
+  range: CalendarRange;
+  totals: { cost: number };
+  perProject: Array<{
+    projectId: string;
+    projectName: string;
+    cost: number;
+  }>;
+}
+
+export interface BudgetSpendSnapshot {
+  calendar: {
+    timeZone: string;
+    generatedAt: string;
+  };
+  periods: Record<BudgetPeriod, BudgetPeriodSpend>;
+}
+
 /** Cost USD for one event, using the matching default rate (zero if unknown model). */
 export function eventCost(e: UsageEvent, rates: ModelRate[] = DEFAULT_MODEL_RATES): number {
   const rate = rates.find((r) => r.model === e.model);

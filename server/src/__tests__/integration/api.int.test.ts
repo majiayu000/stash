@@ -352,6 +352,40 @@ describe('analytics calendar metadata', () => {
     expect(res.body.data.rangeEnd).toBe(res.body.data.calendar.range.end);
   });
 
+  test('returns all active budget periods with exact configured-zone ranges', async () => {
+    const { app } = setupApp({ time_zone: 'Asia/Shanghai' });
+    const res = await jsonRequest(app, 'GET', '/api/analytics/budget-spend');
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.calendar).toEqual({
+      timeZone: 'Asia/Shanghai',
+      generatedAt: '2026-05-14T10:00:00.000Z',
+    });
+    expect(res.body.data.periods.day).toMatchObject({
+      range: {
+        start: '2026-05-13T16:00:00.000Z',
+        end: '2026-05-14T16:00:00.000Z',
+        startDate: '2026-05-14',
+        endDateExclusive: '2026-05-15',
+      },
+      totals: { cost: 0 },
+      perProject: [],
+    });
+    expect(res.body.data.periods.week.range).toMatchObject({
+      startDate: '2026-05-11',
+      endDateExclusive: '2026-05-18',
+    });
+    expect(res.body.data.periods.month.range).toMatchObject({
+      startDate: '2026-05-01',
+      endDateExclusive: '2026-06-01',
+    });
+    expect(res.body.data.periods.quarter.range).toMatchObject({
+      startDate: '2026-04-01',
+      endDateExclusive: '2026-07-01',
+    });
+    expect(res.body.cache).toBeDefined();
+  });
+
   test('rejects malformed bounded Burn requests', async () => {
     const { app } = setupApp();
     const res = await jsonRequest(app, 'GET', '/api/analytics/burn?endMs=not-a-number');

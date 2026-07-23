@@ -199,6 +199,7 @@ function burnKey(request: BurnAggregationRequest): string {
     endDateExclusive: request.endDateExclusive,
     timeZone: request.timeZone,
     days: request.days,
+    includeDailyProjectSpend: request.includeDailyProjectSpend ?? false,
     rates: request.rates,
   });
 }

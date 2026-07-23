@@ -287,7 +287,9 @@ Current highest-priority gaps:
 - Configured-zone ISO Weekly Review snapshot (WoW pairs, focus hours,
   done-by-project, stale digest)
 - Settings: 7 themes, notifications opt-in, budgets, and skills
-- Persisted budgets (scope × period uniqueness, 409 on conflict)
+- Persisted budgets with scope × period uniqueness, 409 conflicts, and
+  configured-zone day/week/month/quarter spend evaluation from one bounded
+  Worker aggregation
 
 **Deferred** (real new features, not wiring):
 - Voice capture (Whisper local)

@@ -133,13 +133,25 @@ describe('AgentSourceAggregator.scanAsync', () => {
       ...request,
       timeZone: 'Asia/Shanghai',
     });
+    const dailyProjects = aggregator.aggregateBurnAsync({
+      ...request,
+      includeDailyProjectSpend: true,
+    });
 
     expect(first).toBe(same);
     expect(first).not.toBe(differentWindow);
     expect(first).not.toBe(differentRates);
     expect(first).not.toBe(differentZone);
-    await Promise.all([first, same, differentWindow, differentRates, differentZone]);
-    expect(executor.burnRequests).toHaveLength(4);
+    expect(first).not.toBe(dailyProjects);
+    await Promise.all([
+      first,
+      same,
+      differentWindow,
+      differentRates,
+      differentZone,
+      dailyProjects,
+    ]);
+    expect(executor.burnRequests).toHaveLength(5);
   });
 
   test('clears failed Burn singleflight entries so callers can retry', async () => {
@@ -185,6 +197,7 @@ function emptyBurnAggregate(): BurnAggregate {
     hourlyHeatmap: Array.from({ length: 7 }, () => Array<number>(24).fill(0)),
     modelMix: [],
     perProjectLeaderboard: [],
+    dailyProjectSpend: [],
     cache: {
       refreshState: 'fresh',
       generatedAt: '2026-05-14T00:00:00.000Z',

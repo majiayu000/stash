@@ -16,6 +16,7 @@ import { BurnService } from './burn.js';
 class FakeSource implements AgentSource {
   readonly provider: AgentProvider;
   readonly usageReads: string[] = [];
+  scanCount = 0;
   private readonly sessions: AgentSession[];
   private readonly usageBySource: Map<string, UsageEvent[]>;
 
@@ -30,6 +31,7 @@ class FakeSource implements AgentSource {
   }
 
   scan(): SourceScanResult {
+    this.scanCount += 1;
     return { sessions: this.sessions, errors: [] };
   }
   getEvents(): AgentSessionEvent[] {
@@ -305,6 +307,77 @@ describe('BurnService', () => {
     expect(snap.totals.tokens).toBe(100);
     expect(snap.calendar.bucketRange.end).toBe('2026-05-15T00:00:00.000Z');
     expect(snap.calendar.evaluationRange.end).toBe('2026-05-15T00:00:00.000Z');
+  });
+
+  test('evaluates all budget periods from one configured-zone aggregation', async () => {
+    const project = areaService.create({ name: 'aurora' });
+    const sourcePath = '/budget-periods.jsonl';
+    const session = makeSession({
+      sourcePath,
+      projectId: project.id,
+      lastActiveAt: '2026-06-30T16:00:00.000Z',
+    });
+    const event = (ts: string): UsageEvent => ({
+      ts,
+      model: 'claude-sonnet-4-6',
+      inputTokens: 1_000_000,
+      outputTokens: 0,
+      sourcePath,
+    });
+    const source = new FakeSource('claude', [session], {
+      [sourcePath]: [
+        event('2026-03-31T16:00:00.000Z'),
+        event('2026-04-30T16:00:00.000Z'),
+        event('2026-05-10T16:00:00.000Z'),
+        event('2026-05-13T16:00:00.000Z'),
+        event('2026-05-14T16:00:00.000Z'),
+        event('2026-06-30T16:00:00.000Z'),
+      ],
+    });
+    const service = new BurnService({
+      aggregator: new AgentSourceAggregator(new Map([
+        ['claude', { source, root: '/fake' }],
+      ])),
+      areaService,
+      clock: fixedClock(at),
+      time_zone: 'Asia/Shanghai',
+    });
+
+    const result = await service.budgetSpendSnapshotAsync();
+
+    expect(source.scanCount).toBe(1);
+    expect(result.data.calendar).toEqual({
+      timeZone: 'Asia/Shanghai',
+      generatedAt: at,
+    });
+    expect(result.data.periods.day.range).toEqual({
+      start: '2026-05-13T16:00:00.000Z',
+      end: '2026-05-14T16:00:00.000Z',
+      startDate: '2026-05-14',
+      endDateExclusive: '2026-05-15',
+    });
+    expect(result.data.periods.day.totals.cost).toBeCloseTo(3, 9);
+    expect(result.data.periods.week.totals.cost).toBeCloseTo(9, 9);
+    expect(result.data.periods.month.totals.cost).toBeCloseTo(12, 9);
+    expect(result.data.periods.quarter.totals.cost).toBeCloseTo(15, 9);
+    expect(result.data.periods.month.perProject).toEqual([{
+      projectId: project.id,
+      projectName: 'aurora',
+      cost: 12,
+    }]);
+  });
+
+  test('returns explicit zero budget spend for empty active periods', async () => {
+    const result = await build([], {}, 'America/New_York').budgetSpendSnapshotAsync();
+
+    expect(Object.values(result.data.periods).every((period) => period.totals.cost === 0))
+      .toBe(true);
+    expect(Object.values(result.data.periods).every((period) => period.perProject.length === 0))
+      .toBe(true);
+    expect(result.data.periods.quarter.range).toMatchObject({
+      startDate: '2026-04-01',
+      endDateExclusive: '2026-07-01',
+    });
   });
 
   test('totalsBetween uses exact half-open boundaries', () => {

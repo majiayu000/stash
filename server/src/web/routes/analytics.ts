@@ -34,6 +34,14 @@ export function createAnalyticsRouter(burn: BurnService, weekly: WeeklyReviewSer
     }
   });
 
+  r.get('/budget-spend', async (c) => {
+    try {
+      return c.json(await burn.budgetSpendSnapshotAsync());
+    } catch (e) {
+      return handleError(c, e);
+    }
+  });
+
   r.get('/weekly', async (c) => {
     try {
       const q = WeeklyQuery.parse(Object.fromEntries(new URL(c.req.url).searchParams));

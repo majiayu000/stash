@@ -15,6 +15,9 @@ The product is already useful as a local workbench:
 - One server-authoritative IANA time zone now governs calendar workflows,
   analytics buckets, Weekly Review ranges, and exported date labels. Persisted
   instants remain UTC and calendar-only fields remain `YYYY-MM-DD`.
+- Budget caps are evaluated against their declared active day, ISO week, month,
+  or quarter in that same zone. All scopes share one bounded Worker aggregation
+  rather than rescanning history per budget.
 - Local verification on 2026-05-19:
   - `bun run typecheck` passed.
   - `bun run client:build` passed with only the Vite chunk-size warning.

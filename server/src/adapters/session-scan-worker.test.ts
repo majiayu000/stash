@@ -9,7 +9,10 @@ import { SessionScanWorker } from './session-scan-worker.js';
 import type { BurnAggregationRequest } from '../domain/analytics/burn.js';
 
 function burnRequest(
-  input: Pick<BurnAggregationRequest, 'startMs' | 'days' | 'rates'>,
+  input: Pick<
+    BurnAggregationRequest,
+    'startMs' | 'days' | 'rates' | 'includeDailyProjectSpend'
+  >,
 ): BurnAggregationRequest {
   return {
     ...input,
@@ -247,6 +250,33 @@ describe('SessionScanWorker', () => {
     }
   });
 
+  test('returns compact daily project spend only when requested', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'stash-worker-budget-'));
+    try {
+      const projectDir = join(root, 'projects', 'project');
+      mkdirSync(projectDir, { recursive: true });
+      const sourcePath = join(projectDir, 'session.jsonl');
+      writeClaudeFixture(sourcePath, '2026-05-14T08:00:00.000Z', 100, 50);
+      const scanner = new SessionScanWorker({ roots: { claude: root } });
+
+      const result = await scanner.aggregateBurn(burnRequest({
+        startMs: Date.parse('2026-05-10T00:00:00.000Z'),
+        days: 7,
+        rates: [{ model: 'custom-model', inputPerM: 10, outputPerM: 20 }],
+        includeDailyProjectSpend: true,
+      }));
+
+      expect(result.dailyProjectSpend).toEqual([{
+        date: '2026-05-14',
+        projectId: '__unlinked__',
+        cost: 0.002,
+      }]);
+      expect(JSON.stringify(result.dailyProjectSpend)).not.toContain(sourcePath);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test('rejects Burn when cached usage is corrupt instead of returning partial data', async () => {
     const root = mkdtempSync(join(tmpdir(), 'stash-worker-burn-cache-error-'));
     const dbPath = join(root, 'stash.db');
@@ -426,6 +456,7 @@ function emptyBurnAggregate() {
     hourlyHeatmap: Array.from({ length: 7 }, () => Array<number>(24).fill(0)),
     modelMix: [],
     perProjectLeaderboard: [],
+    dailyProjectSpend: [],
     cache: emptyScanResult().cache,
   };
 }
