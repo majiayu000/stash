@@ -4,6 +4,7 @@ import type { AgentSourceAggregator } from '../../adapters/aggregator.js';
 import type { WorkItemService } from '../../domain/work-item/service.js';
 import type { WorkItemSessionService } from '../../domain/work-item-session/service.js';
 import { handleError } from '../errors.js';
+import { bound_session_list_item } from '../session-payload.js';
 
 export interface ProjectSummary {
   projectId: string;
@@ -58,7 +59,7 @@ export function createWorkboardRouter(
         for (const link of links.forWorkItem(item.id)) {
           const s = sessionsById.get(`${link.provider}:${link.sessionId}`);
           if (s && !existing.sessions.find((es) => es.id === s.id && es.provider === s.provider)) {
-            existing.sessions.push(s);
+            existing.sessions.push(bound_session_list_item(s));
           }
         }
         projects.set(key, existing);

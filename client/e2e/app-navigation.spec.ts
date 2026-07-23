@@ -113,6 +113,7 @@ test('primary navigation exposes only the five stable product sections', async (
 
   const navigation = page.getByRole('navigation', { name: 'Primary navigation' });
   await expect(navigation).toBeVisible();
+  await expect(navigation.getByText('Search tasks', { exact: true })).toBeVisible();
   await expect(navigation.getByRole('link')).toHaveCount(6); // brand + five sections
   for (const entry of [
     { id: 'work', route: '/', marker: 'work' },

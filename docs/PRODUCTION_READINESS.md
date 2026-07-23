@@ -1,7 +1,7 @@
 # Production Readiness Plan
 
-Date: 2026-05-19
-Status: local-first beta; production hardening needed
+Date: 2026-07-24
+Status: personal-use ready; public-release hardening needed
 Scope: single-user desktop/local deployment of stash
 
 ## Current State
@@ -18,15 +18,18 @@ The product is already useful as a local workbench:
 - Budget caps are evaluated against their declared active day, ISO week, month,
   or quarter in that same zone. All scopes share one bounded Worker aggregation
   rather than rescanning history per budget.
-- Local verification on 2026-05-19:
+- Local verification on 2026-07-24:
   - `bun run typecheck` passed.
-  - `bun run client:build` passed with only the Vite chunk-size warning.
-  - `bun run test:all` passed: 204 server tests and 2 client tests.
-  - `bun run client:e2e` passed: 9 Playwright tests.
-  - Browser smoke verifies Work, Projects, Sessions, Review, Settings, and the
-    task, project, and session detail routes.
+  - `bun run client:build` passed.
+  - `bun run test:all` passed: 385 server tests and 97 client tests.
+  - General browser verification passed 45 Playwright tests, with the large
+    Weekly performance case intentionally isolated from that group.
+  - The independent 3,000-history cold Weekly gate passed in 1,874ms against
+    the unchanged 3-second assertion.
 
-This is enough for dogfooding. It is not enough to call the app production-grade.
+This is enough for personal source-checkout use. It is not a public
+production-grade distribution until the explicit packaging and license
+boundaries in README are resolved.
 
 ## Production Bar
 
@@ -90,10 +93,20 @@ Plan:
    stale response with `isRefreshing: true` remains deferred.
 6. Add route-level timing logs and response metadata for cache hit/miss.
 
+Verified on 2026-07-24:
+
+- Cold 3,000-history `/api/agent-sessions` and `/api/workboard` requests shared
+  one Worker scan and completed in 293ms.
+- Session list, workboard, and exact-detail preview fields are capped at 4 KiB
+  each with an explicit `previewTruncated` flag. The previous 100-session
+  fixture produced a 52,488,701-byte list response and blocked browser work.
+- Large transcript pages remain independently bounded to 512 KiB.
+
 Done when:
 
-- A large-history fixture proves warm `/api/workboard` and
-  `/api/agent-sessions?provider=all` complete under 500ms.
+- Done: a 3,000-history fixture proves cold `/api/workboard` and
+  `/api/agent-sessions?provider=all` complete under 500ms while sharing one
+  Worker scan.
 - Done: a 16,384-row / 6,000-candidate / 50,000-event fixture proves warm
   `/api/analytics/burn?days=30` completes under 1s while `/health` remains
   responsive; the existing 3,000-file Weekly budget remains unchanged.

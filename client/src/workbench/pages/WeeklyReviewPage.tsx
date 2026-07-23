@@ -32,6 +32,7 @@ export function WeeklyReviewPage({ data }: { data: WBData; reload: () => void })
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionNotice, setActionNotice] = useState<string | null>(null);
   const [mutatingId, setMutatingId] = useState<string | null>(null);
+  const [sharing, setSharing] = useState(false);
   const [retryTick, setRetryTick] = useState(0);
 
   useEffect(() => {
@@ -123,17 +124,55 @@ export function WeeklyReviewPage({ data }: { data: WBData; reload: () => void })
     }
   };
 
-  const exportMarkdown = () => {
-    const markdown = buildWeeklyReviewMarkdown({
+  const reviewMarkdown = () =>
+    buildWeeklyReviewMarkdown({
       week,
       doneItems,
       staleItems: stale,
       nextWeekItems,
       projects,
     });
+
+  const exportMarkdown = () => {
+    const markdown = reviewMarkdown();
     downloadMarkdown(`stash-weekly-review-${week.week}.md`, markdown);
     setActionError(null);
     setActionNotice('markdown exported');
+  };
+
+  const shareReview = async () => {
+    setSharing(true);
+    setActionError(null);
+    setActionNotice(null);
+    const markdown = reviewMarkdown();
+    try {
+      if (typeof navigator.share === 'function') {
+        try {
+          await navigator.share({
+            title: `Stash Weekly Review ${week.week}`,
+            text: markdown,
+          });
+          setActionNotice('weekly review shared');
+          return;
+        } catch (error) {
+          if (isShareCancellation(error)) {
+            setActionNotice('share cancelled');
+            return;
+          }
+          if (!navigator.clipboard?.writeText) throw error;
+        }
+      }
+
+      if (!navigator.clipboard?.writeText) {
+        throw new Error('sharing is unavailable in this browser');
+      }
+      await navigator.clipboard.writeText(markdown);
+      setActionNotice('weekly review copied to clipboard');
+    } catch (error) {
+      setActionError(toError(error).message);
+    } finally {
+      setSharing(false);
+    }
   };
 
   return (
@@ -156,7 +195,7 @@ export function WeeklyReviewPage({ data }: { data: WBData; reload: () => void })
             <button className="wr-nav" type="button" aria-label="next week" onClick={() => navigateWeek(1)}>›</button>
           </div>
           <div style={{ display: 'flex', gap: '0.5rem' }}>
-            <button className="sd-action" type="button">📤 share with team</button>
+            <button className="sd-action" type="button" onClick={shareReview} disabled={sharing} aria-busy={sharing}>📤 {sharing ? 'sharing…' : 'share with team'}</button>
             <button className="sd-action" type="button" onClick={exportMarkdown}>📋 export markdown</button>
           </div>
         </div>
@@ -539,6 +578,13 @@ function sortPlanItems(items: WorkItem[]): WorkItem[] {
 
 function priorityRank(priority: WorkItem['priority']): number {
   return { p0: 0, p1: 1, p2: 2, p3: 3 }[priority];
+}
+
+function isShareCancellation(error: unknown): boolean {
+  return typeof error === 'object'
+    && error !== null
+    && 'name' in error
+    && error.name === 'AbortError';
 }
 
 function downloadMarkdown(filename: string, markdown: string): void {

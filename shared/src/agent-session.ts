@@ -18,6 +18,8 @@ export interface AgentSession {
   title: string;
   initialPrompt?: string;
   lastMessage?: string;
+  /** True when preview fields were shortened at an API response boundary. */
+  previewTruncated?: boolean;
   lastTool?: string;
   lastToolInput?: string;
   filesTouched: string[];

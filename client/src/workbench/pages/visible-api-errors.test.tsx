@@ -1,7 +1,7 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { MemoryRouter } from 'react-router-dom';
-import { beforeEach, describe, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import type { Budget, BudgetSpendSnapshot, BurnSnapshot, WeeklySnapshot } from '@stash/shared';
 import {
   getBudgetSpendSnapshot,
@@ -70,6 +70,10 @@ beforeEach(() => {
   vi.mocked(listWorkItems).mockResolvedValue([]);
   vi.mocked(listStale).mockResolvedValue([]);
   vi.mocked(listSkills).mockResolvedValue([]);
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
 });
 
 function renderPage(node: ReactNode) {
@@ -164,6 +168,39 @@ describe('analytics calendar labels', () => {
     expect(await screen.findByTestId('weekly-calendar-range')).toHaveTextContent(
       '2026-07-06–2026-07-12 · America/Los_Angeles',
     );
+  });
+
+  test('Weekly share copies the complete Markdown when native share is unavailable', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    const navigatorMock = Object.create(navigator) as Navigator;
+    Object.defineProperties(navigatorMock, {
+      clipboard: { value: { writeText }, configurable: true },
+      share: { value: undefined, configurable: true },
+    });
+    vi.stubGlobal('navigator', navigatorMock);
+    vi.mocked(getWeeklySnapshot).mockResolvedValue(weeklySnapshot);
+
+    renderPage(<WeeklyReviewPage data={data} reload={vi.fn()} />);
+    fireEvent.click(await screen.findByRole('button', { name: /share with team/i }));
+
+    await waitFor(() => expect(writeText).toHaveBeenCalledOnce());
+    expect(writeText.mock.calls[0]?.[0]).toContain('# Weekly Review 2026-W28');
+    expect(await screen.findByText('weekly review copied to clipboard')).toBeInTheDocument();
+  });
+
+  test('Weekly share reports an explicit error when no share capability exists', async () => {
+    const navigatorMock = Object.create(navigator) as Navigator;
+    Object.defineProperties(navigatorMock, {
+      clipboard: { value: undefined, configurable: true },
+      share: { value: undefined, configurable: true },
+    });
+    vi.stubGlobal('navigator', navigatorMock);
+    vi.mocked(getWeeklySnapshot).mockResolvedValue(weeklySnapshot);
+
+    renderPage(<WeeklyReviewPage data={data} reload={vi.fn()} />);
+    fireEvent.click(await screen.findByRole('button', { name: /share with team/i }));
+
+    expect(await screen.findByText('sharing is unavailable in this browser')).toBeInTheDocument();
   });
 });
 

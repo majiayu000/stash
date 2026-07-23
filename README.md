@@ -178,7 +178,7 @@ server/   Bun + Hono + bun:sqlite
                                     capture, analytics/burn, analytics/weekly)
           • adapters/    Claude + Codex JSONL parsers + aggregator
           • web/         routes + Zod schemas + error mapper
-          • db/          migrations 001…007
+          • db/          migrations 001…019
 client/   React + Vite + 7-theme system
           • workbench/   application shell + semantic pages + shared widgets
           • api/         one wrapper per backend domain
