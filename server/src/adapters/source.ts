@@ -1,4 +1,5 @@
 import type { AgentProvider, AgentSession, AgentSessionEvent, UsageEvent } from '@stash/shared';
+import type { SessionFileFingerprint } from './session-cache.js';
 
 export interface ScanOptions {
   root: string;
@@ -28,6 +29,8 @@ export interface SourceScanResult {
   sessions: AgentSession[];
   errors: SourceParseError[];
   cache?: SourceScanCacheStats;
+  /** File generation captured by the metadata scan, keyed by source path. */
+  fingerprintsBySource?: Map<string, SessionFileFingerprint>;
   /** Window-scoped usage populated by analytics scans; keyed by source path. */
   usageBySource?: Map<string, UsageEvent[]>;
 }
@@ -45,5 +48,5 @@ export interface AgentSource {
   scanActivity?(options: ScanOptions): SourceScanResult;
   getEvents(sourcePath: string): AgentSessionEvent[];
   /** Extract token usage events from a parsed session file. Empty when unsupported. */
-  getUsage(sourcePath: string): UsageEvent[];
+  getUsage(sourcePath: string, fingerprint?: SessionFileFingerprint): UsageEvent[];
 }

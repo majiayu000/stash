@@ -20,6 +20,11 @@ interface WeeklyBenchmarkResponse {
   cache: AggregateScanCacheStats;
 }
 
+interface SessionListResponse {
+  count: number;
+  cache: AggregateScanCacheStats;
+}
+
 describe('GET /api/analytics/weekly cold-history performance', () => {
   test('keeps exact totals when 3,000 files are mtime candidates but 2,998 contain old activity', async () => {
     const root = mkdtempSync(join(tmpdir(), 'stash-weekly-performance-'));
@@ -51,15 +56,18 @@ describe('GET /api/analytics/weekly cold-history performance', () => {
       const coldStarted = performance.now();
       const coldRequest = app.request('/api/analytics/weekly');
       const healthQueuedAt = performance.now();
-      const healthRequest = Promise.resolve().then(() => app.request('/health'));
-      const [coldResponse, healthResponse] = await Promise.all([coldRequest, healthRequest]);
+      const healthRequest = Promise.resolve().then(async () => {
+        const response = await app.request('/health');
+        return { response, elapsedMs: performance.now() - healthQueuedAt };
+      });
+      const [coldResponse, healthResult] = await Promise.all([coldRequest, healthRequest]);
       const coldMs = performance.now() - coldStarted;
-      const healthMs = performance.now() - healthQueuedAt;
+      const healthMs = healthResult.elapsedMs;
       const cold = await coldResponse.json() as WeeklyBenchmarkResponse;
 
       expect(coldResponse.status).toBe(200);
       expect(coldMs).toBeLessThanOrEqual(COLD_API_BUDGET_MS);
-      expect(healthResponse.status).toBe(200);
+      expect(healthResult.response.status).toBe(200);
       expect(healthMs).toBeLessThanOrEqual(WARM_API_BUDGET_MS);
       expect(cold.cache).toMatchObject({
         filesDiscovered: WEEKLY_PERFORMANCE_FILE_COUNT,
@@ -86,11 +94,38 @@ describe('GET /api/analytics/weekly cold-history performance', () => {
         filesReused: WEEKLY_PERFORMANCE_FILE_COUNT,
       });
       expect(warm.data.wow).toEqual(cold.data.wow);
+
+      const sessionScanStarted = performance.now();
+      const sessionRequest = app.request('/api/agent-sessions?provider=claude');
+      const sessionHealthQueuedAt = performance.now();
+      const sessionHealthRequest = Promise.resolve().then(async () => {
+        const response = await app.request('/health');
+        return { response, elapsedMs: performance.now() - sessionHealthQueuedAt };
+      });
+      const [sessionResponse, sessionHealthResult] = await Promise.all([
+        sessionRequest,
+        sessionHealthRequest,
+      ]);
+      const sessionScanMs = performance.now() - sessionScanStarted;
+      const sessionHealthMs = sessionHealthResult.elapsedMs;
+      const sessionList = await sessionResponse.json() as SessionListResponse;
+
+      expect(sessionResponse.status).toBe(200);
+      expect(sessionHealthResult.response.status).toBe(200);
+      expect(sessionHealthMs).toBeLessThanOrEqual(WARM_API_BUDGET_MS);
+      expect(sessionList.count).toBe(100);
+      expect(sessionList.cache).toMatchObject({
+        filesDiscovered: WEEKLY_PERFORMANCE_FILE_COUNT,
+        filesSeen: 100,
+      });
+
       console.info(JSON.stringify({
         benchmark: 'weekly-api-3000-independent-inodes',
         coldMs: Number(coldMs.toFixed(3)),
         warmMs: Number(warmMs.toFixed(3)),
         healthMs: Number(healthMs.toFixed(3)),
+        sessionScanMs: Number(sessionScanMs.toFixed(3)),
+        sessionHealthMs: Number(sessionHealthMs.toFixed(3)),
         filesDiscovered: cold.cache.filesDiscovered,
         filesSeen: cold.cache.filesSeen,
       }));

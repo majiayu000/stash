@@ -9,23 +9,34 @@ export interface SessionFileFingerprint {
 
 export interface CachedSession {
   session: AgentSession;
-  usage: UsageEvent[];
   indexedAt: string;
 }
 
-interface CacheRow {
+export interface CachedUsage {
+  usage: UsageEvent[] | undefined;
+}
+
+export interface CacheBackedUsageRead {
+  provider: AgentProvider;
+  sourcePath: string;
+  cache?: AgentSessionCache;
+  parseUsage: (sourcePath: string) => UsageEvent[];
+  fingerprint: (sourcePath: string) => SessionFileFingerprint;
+  initialFingerprint?: SessionFileFingerprint;
+}
+
+interface SessionCacheRow {
   session_json: string;
-  usage_json: string;
   indexed_at: string;
 }
 
 export class AgentSessionCache {
   constructor(private readonly db: Database) {}
 
-  getFresh(provider: AgentProvider, file: SessionFileFingerprint): CachedSession | undefined {
+  getFreshSession(provider: AgentProvider, file: SessionFileFingerprint): CachedSession | undefined {
     const row = this.db
-      .query<CacheRow, [string, string, number, number]>(
-        `select session_json, usage_json, indexed_at
+      .query<SessionCacheRow, [string, string, number, number]>(
+        `select session_json, indexed_at
            from agent_session_cache
           where provider = ?
             and source_path = ?
@@ -38,7 +49,6 @@ export class AgentSessionCache {
     try {
       return {
         session: parseCachedSession(JSON.parse(row.session_json)),
-        usage: parseCachedUsage(JSON.parse(row.usage_json)),
         indexedAt: row.indexed_at,
       };
     } catch (e) {
@@ -51,33 +61,39 @@ export class AgentSessionCache {
     }
   }
 
-  getUsage(provider: AgentProvider, sourcePath: string): UsageEvent[] | undefined {
+  getUsage(
+    provider: AgentProvider,
+    file: SessionFileFingerprint,
+  ): CachedUsage | undefined {
     const row = this.db
-      .query<{ usage_json: string }, [string, string]>(
+      .query<{ usage_json: string }, [string, string, number, number]>(
         `select usage_json
            from agent_session_cache
-          where provider = ? and source_path = ?`,
+          where provider = ?
+            and source_path = ?
+            and abs(mtime_ms - ?) < 0.001
+            and size_bytes = ?`,
       )
-      .get(provider, sourcePath);
+      .get(provider, file.sourcePath, file.mtimeMs, file.sizeBytes);
     if (!row) return undefined;
 
     try {
-      return parseCachedUsage(JSON.parse(row.usage_json));
+      const parsed = JSON.parse(row.usage_json) as unknown;
+      return { usage: parsed === null ? undefined : parseCachedUsage(parsed) };
     } catch (e) {
-      this.invalidate(provider, sourcePath);
+      this.invalidate(provider, file.sourcePath);
       throw new Error(
-        `invalid agent usage cache for ${provider}:${sourcePath}: ${
+        `invalid agent usage cache for ${provider}:${file.sourcePath}: ${
           e instanceof Error ? e.message : String(e)
         }`,
       );
     }
   }
 
-  upsert(
+  upsertSession(
     provider: AgentProvider,
     file: SessionFileFingerprint,
     session: AgentSession,
-    usage: UsageEvent[],
     indexedAt: string,
   ): void {
     this.db
@@ -98,9 +114,33 @@ export class AgentSessionCache {
         file.mtimeMs,
         file.sizeBytes,
         JSON.stringify(session),
-        JSON.stringify(usage),
+        'null',
         indexedAt,
       );
+  }
+
+  storeUsage(
+    provider: AgentProvider,
+    file: SessionFileFingerprint,
+    usage: UsageEvent[],
+  ): boolean {
+    const result = this.db
+      .prepare(
+        `update agent_session_cache
+            set usage_json = ?
+          where provider = ?
+            and source_path = ?
+            and abs(mtime_ms - ?) < 0.001
+            and size_bytes = ?`,
+      )
+      .run(
+        JSON.stringify(usage),
+        provider,
+        file.sourcePath,
+        file.mtimeMs,
+        file.sizeBytes,
+      );
+    return result.changes > 0;
   }
 
   invalidate(provider: AgentProvider, sourcePath: string): void {
@@ -108,6 +148,42 @@ export class AgentSessionCache {
       .prepare('delete from agent_session_cache where provider = ? and source_path = ?')
       .run(provider, sourcePath);
   }
+}
+
+export function readUsageWithCache(options: CacheBackedUsageRead): UsageEvent[] {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const before = attempt === 0 && options.initialFingerprint
+      ? options.initialFingerprint
+      : options.fingerprint(options.sourcePath);
+    const cached = options.cache?.getUsage(options.provider, before);
+    if (cached?.usage !== undefined) return cached.usage;
+    const requiresCompareAndSwap = cached !== undefined;
+    const usage = options.parseUsage(options.sourcePath);
+    const after = options.fingerprint(options.sourcePath);
+
+    if (!sameFingerprint(before, after)) {
+      if (attempt === 1) {
+        throw new Error(
+          `agent usage source changed repeatedly while indexing ${options.provider}:${options.sourcePath}`,
+        );
+      }
+      continue;
+    }
+    if (!options.cache || !requiresCompareAndSwap) return usage;
+    if (options.cache.storeUsage(options.provider, before, usage)) return usage;
+    if (attempt === 1) {
+      throw new Error(
+        `agent usage cache generation changed while indexing ${options.provider}:${options.sourcePath}`,
+      );
+    }
+  }
+  throw new Error(`unable to index agent usage for ${options.provider}:${options.sourcePath}`);
+}
+
+function sameFingerprint(a: SessionFileFingerprint, b: SessionFileFingerprint): boolean {
+  return a.sourcePath === b.sourcePath
+    && Math.abs(a.mtimeMs - b.mtimeMs) < 0.001
+    && a.sizeBytes === b.sizeBytes;
 }
 
 function parseCachedSession(value: unknown): AgentSession {
@@ -124,6 +200,9 @@ function parseCachedSession(value: unknown): AgentSession {
   if (typeof session.toolCount !== 'number') throw new Error('session.toolCount is missing');
   if (typeof session.messageCount !== 'number') throw new Error('session.messageCount is missing');
   if (typeof session.lastActiveAt !== 'string') throw new Error('session.lastActiveAt is missing');
+  if (Number.isNaN(Date.parse(session.lastActiveAt))) {
+    throw new Error('session.lastActiveAt is invalid');
+  }
   return session as AgentSession;
 }
 
@@ -133,9 +212,16 @@ function parseCachedUsage(value: unknown): UsageEvent[] {
     if (!event || typeof event !== 'object') throw new Error('usage event is not an object');
     const usage = event as Partial<UsageEvent>;
     if (typeof usage.ts !== 'string') throw new Error('usage.ts is missing');
+    if (Number.isNaN(Date.parse(usage.ts))) throw new Error('usage.ts is invalid');
     if (typeof usage.model !== 'string') throw new Error('usage.model is missing');
     if (typeof usage.inputTokens !== 'number') throw new Error('usage.inputTokens is missing');
     if (typeof usage.outputTokens !== 'number') throw new Error('usage.outputTokens is missing');
+    if (usage.cacheReadTokens !== undefined && typeof usage.cacheReadTokens !== 'number') {
+      throw new Error('usage.cacheReadTokens is invalid');
+    }
+    if (usage.cacheWriteTokens !== undefined && typeof usage.cacheWriteTokens !== 'number') {
+      throw new Error('usage.cacheWriteTokens is invalid');
+    }
     if (typeof usage.sourcePath !== 'string') throw new Error('usage.sourcePath is missing');
     return usage as UsageEvent;
   });

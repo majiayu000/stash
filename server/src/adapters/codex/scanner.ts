@@ -2,7 +2,11 @@ import { existsSync, lstatSync, readdirSync, statSync } from 'fs';
 import { join } from 'path';
 import type { AgentSession, AgentSessionEvent, UsageEvent } from '@stash/shared';
 import type { AgentSource, ScanOptions, SourceParseError, SourceScanResult } from '../source.js';
-import type { AgentSessionCache, SessionFileFingerprint } from '../session-cache.js';
+import {
+  readUsageWithCache,
+  type AgentSessionCache,
+  type SessionFileFingerprint,
+} from '../session-cache.js';
 import {
   createAnalyticsSession,
   isFreshAnalyticsEntry,
@@ -65,8 +69,14 @@ function walkActivity(
 export class CodexSource implements AgentSource {
   readonly provider = 'codex' as const;
   private readonly analyticsCache = new Map<string, AnalyticsCacheEntry>();
+  private readonly usageParser: (sourcePath: string) => UsageEvent[];
 
-  constructor(private readonly cache?: AgentSessionCache) {}
+  constructor(
+    private readonly cache?: AgentSessionCache,
+    options: { usageParser?: (sourcePath: string) => UsageEvent[] } = {},
+  ) {
+    this.usageParser = options.usageParser ?? parseCodexUsage;
+  }
 
   scan(options: ScanOptions): SourceScanResult {
     const sessions: AgentSession[] = [];
@@ -101,7 +111,7 @@ export class CodexSource implements AgentSource {
     for (const entry of limited) {
       if (this.cache) {
         try {
-          const cached = this.cache.getFresh('codex', entry);
+          const cached = this.cache.getFreshSession('codex', entry);
           if (cached) {
             sessions.push(cached.session);
             filesReused++;
@@ -120,8 +130,7 @@ export class CodexSource implements AgentSource {
         const session = parseCodexSession({ sourcePath: entry.sourcePath });
         sessions.push(session);
         if (this.cache) {
-          const usage = parseCodexUsage(entry.sourcePath);
-          this.cache.upsert('codex', entry, session, usage, new Date().toISOString());
+          this.cache.upsertSession('codex', entry, session, new Date().toISOString());
           filesIndexed++;
         }
       } catch (e) {
@@ -136,6 +145,7 @@ export class CodexSource implements AgentSource {
     return {
       sessions,
       errors,
+      fingerprintsBySource: new Map(limited.map((entry) => [entry.sourcePath, entry])),
       cache: scanStats(
         options.root,
         this.cache !== undefined,
@@ -230,10 +240,18 @@ export class CodexSource implements AgentSource {
     return parseCodexEvents(sourcePath);
   }
 
-  getUsage(sourcePath: string): UsageEvent[] {
-    const cached = this.cache?.getUsage('codex', sourcePath);
-    if (cached) return cached;
-    return parseCodexUsage(sourcePath);
+  getUsage(
+    sourcePath: string,
+    fingerprint?: SessionFileFingerprint,
+  ): UsageEvent[] {
+    return readUsageWithCache({
+      provider: 'codex',
+      sourcePath,
+      cache: this.cache,
+      parseUsage: this.usageParser,
+      fingerprint: fileFingerprint,
+      initialFingerprint: fingerprint,
+    });
   }
 }
 

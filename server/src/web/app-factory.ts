@@ -7,6 +7,7 @@ import type { Config, SessionSpawnMode } from '../config.js';
 import { AgentSourceAggregator } from '../adapters/aggregator.js';
 import { ClaudeSource } from '../adapters/claude/scanner.js';
 import { CodexSource } from '../adapters/codex/scanner.js';
+import { SessionScanWorker } from '../adapters/session-scan-worker.js';
 import { AgentSessionCache } from '../adapters/session-cache.js';
 import type { AgentSource } from '../adapters/source.js';
 import { AiDraftService } from '../domain/ai-draft/service.js';
@@ -144,7 +145,15 @@ export function createApp(ctx: AppContext): Hono {
       return map;
     })();
 
-  const aggregator = new AgentSourceAggregator(sources);
+  const scanExecutor = ctx.sourcesOverride
+    ? undefined
+    : new SessionScanWorker({
+        roots: Object.fromEntries(
+          Array.from(sources, ([provider, entry]) => [provider, entry.root]),
+        ),
+        cacheDbPath: ctx.db.filename,
+      });
+  const aggregator = new AgentSourceAggregator(sources, scanExecutor);
   const burnService = new BurnService({ aggregator, areaService, clock });
   const weeklyService = new WeeklyReviewService({
     workItemService,
