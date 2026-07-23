@@ -199,6 +199,7 @@ describe('SessionScanWorker', () => {
       expect(result.dailySpend.find((bucket) => bucket.date === '2026-05-14')?.tokens).toBe(150);
       expect(result.modelMix).toEqual([{ model: 'custom-model', tokens: 150, cost: 0.002 }]);
       expect(result.cache).toMatchObject({ filesDiscovered: 1, filesSeen: 1 });
+      expect(result.cache.workerHeapBytes).toBeGreaterThan(0);
       expect(JSON.stringify(result)).not.toContain('usageBySource');
       expect(JSON.stringify(result)).not.toContain(sourcePath);
     } finally {

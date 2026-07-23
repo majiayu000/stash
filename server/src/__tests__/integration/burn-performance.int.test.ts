@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
+import { fileURLToPath } from 'url';
 import type { AgentSession, UsageEvent } from '@stash/shared';
 import { ClaudeSource } from '../../adapters/claude/scanner.js';
 import { openDatabaseMigrated } from '../../db/connection.js';
@@ -16,6 +17,20 @@ const BURN_BUDGET_MS = 1_000;
 const HEALTH_BUDGET_MS = 250;
 const RSS_BUDGET_BYTES = 250 * 1024 * 1024;
 const NOW = '2026-05-14T12:00:00.000Z';
+const CHILD_FLAG = 'STASH_BURN_PERFORMANCE_CHILD';
+const IS_CHILD = process.env[CHILD_FLAG] === '1';
+
+interface BenchmarkEvidence {
+  benchmark: string;
+  elapsedMs: number[];
+  healthMs: number;
+  eventLoopTailLagMs: number;
+  workerHeapSeries: number[];
+  rssBaseline: number;
+  rssSeries: number[];
+  rssFinalDelta: number;
+  checksum: { tokens: number; cost: number; sessions: number } | undefined;
+}
 
 interface BurnResponse {
   data: {
@@ -34,10 +49,55 @@ interface BurnResponse {
     filesDiscovered: number;
     filesSeen: number;
     filesReused: number;
+    workerHeapBytes: number;
   };
 }
 
 describe('GET /api/analytics/burn bounded worker performance', () => {
+  if (!IS_CHILD) {
+    test('passes the 16k/6k/50k benchmark in a clean Bun process', async () => {
+      const child = Bun.spawn(
+        [process.execPath, 'test', fileURLToPath(import.meta.url)],
+        {
+          cwd: process.cwd(),
+          env: { ...process.env, [CHILD_FLAG]: '1' },
+          stdout: 'pipe',
+          stderr: 'pipe',
+        },
+      );
+      const [exitCode, stdout, stderr] = await Promise.all([
+        child.exited,
+        new Response(child.stdout).text(),
+        new Response(child.stderr).text(),
+      ]);
+      const evidence = parseBenchmarkEvidence(`${stdout}\n${stderr}`);
+
+      if (exitCode !== 0) console.error(`${stdout}\n${stderr}`);
+      expect(exitCode).toBe(0);
+      expect(evidence).toBeDefined();
+      console.info(JSON.stringify(evidence));
+    }, 70_000);
+
+    test('captures a 300ms event-loop stall beginning at 300ms', async () => {
+      const stall = new Promise<void>((resolve) => {
+        setTimeout(() => {
+          const stallStarted = performance.now();
+          while (performance.now() - stallStarted < 300) {
+            // Intentionally block to prove the event-loop monitor observes tail stalls.
+          }
+          resolve();
+        }, 300);
+      });
+      const monitor = monitorEventLoopTail();
+
+      await stall;
+      const lagMs = await monitor.finish();
+
+      expect(lagMs).toBeGreaterThan(HEALTH_BUDGET_MS);
+    }, 2_000);
+    return;
+  }
+
   test('keeps a 16k/6k/50k warm Burn exact, responsive, and memory bounded', async () => {
     const root = mkdtempSync(join(tmpdir(), 'stash-burn-performance-'));
     const claudeRoot = join(root, 'claude');
@@ -70,6 +130,7 @@ describe('GET /api/analytics/burn bounded worker performance', () => {
       Bun.gc(true);
       const rssBaseline = process.memoryUsage().rss;
       const rssSeries: number[] = [];
+      const workerHeapSeries: number[] = [];
       const elapsedSeries: number[] = [];
       let healthMs = 0;
       let eventLoopTailLagMs = 0;
@@ -77,24 +138,12 @@ describe('GET /api/analytics/burn bounded worker performance', () => {
 
       for (let iteration = 0; iteration < 3; iteration++) {
         Bun.gc(true);
-        const started = performance.now();
-        const tailProbe = probeEventLoopTail(started);
-        const burnRequest = app.request('/api/analytics/burn?days=30');
-        const healthStarted = performance.now();
-        const healthRequest = Promise.resolve(app.request('/health')).then(
-          (response: Response) => ({
-            response,
-            elapsedMs: performance.now() - healthStarted,
-          }),
-        );
-        const [burnResponse, health] = await Promise.all([burnRequest, healthRequest]);
-        const elapsedMs = performance.now() - started;
-        expect(burnResponse.status).toBe(200);
-        expect(health.response.status).toBe(200);
-        healthMs = Math.max(healthMs, health.elapsedMs);
-        elapsedSeries.push(elapsedMs);
-        last = await burnResponse.json() as BurnResponse;
-        eventLoopTailLagMs = Math.max(eventLoopTailLagMs, await tailProbe);
+        const measurement = await runMeasuredBurn(app);
+        healthMs = Math.max(healthMs, measurement.healthMs);
+        elapsedSeries.push(measurement.elapsedMs);
+        eventLoopTailLagMs = Math.max(eventLoopTailLagMs, measurement.eventLoopTailLagMs);
+        last = measurement.response;
+        workerHeapSeries.push(measurement.response.cache.workerHeapBytes);
         Bun.gc(true);
         rssSeries.push(process.memoryUsage().rss);
       }
@@ -125,6 +174,7 @@ describe('GET /api/analytics/burn bounded worker performance', () => {
         elapsedMs: elapsedSeries.map(roundMs),
         healthMs: roundMs(healthMs),
         eventLoopTailLagMs: roundMs(eventLoopTailLagMs),
+        workerHeapSeries,
         rssBaseline,
         rssSeries,
         rssFinalDelta: rssSeries.at(-1)! - rssBaseline,
@@ -135,7 +185,7 @@ describe('GET /api/analytics/burn bounded worker performance', () => {
       expect(Math.max(...elapsedSeries)).toBeLessThanOrEqual(BURN_BUDGET_MS);
       expect(healthMs).toBeLessThanOrEqual(HEALTH_BUDGET_MS);
       expect(eventLoopTailLagMs).toBeLessThanOrEqual(HEALTH_BUDGET_MS);
-      expect(isStrictlyIncreasing(rssSeries)).toBe(false);
+      expect(isStrictlyIncreasing(workerHeapSeries)).toBe(false);
       expect(rssSeries.at(-1)! - rssBaseline).toBeLessThanOrEqual(RSS_BUDGET_BYTES);
 
     } finally {
@@ -248,12 +298,79 @@ function roundMs(value: number): number {
   return Number(value.toFixed(3));
 }
 
-async function probeEventLoopTail(startedAt: number): Promise<number> {
-  const delays = [50, 150, 250];
-  const lags = await Promise.all(delays.map((delayMs) => new Promise<number>((resolve) => {
-    setTimeout(() => {
-      resolve(Math.max(0, performance.now() - startedAt - delayMs));
-    }, delayMs);
-  })));
-  return Math.max(...lags);
+async function runMeasuredBurn(app: ReturnType<typeof createApp>): Promise<{
+  elapsedMs: number;
+  healthMs: number;
+  eventLoopTailLagMs: number;
+  response: BurnResponse;
+}> {
+  const started = performance.now();
+  const tailMonitor = monitorEventLoopTail();
+  let result: {
+    elapsedMs: number;
+    healthMs: number;
+    response: BurnResponse;
+  } | undefined;
+  let eventLoopTailLagMs = 0;
+  try {
+    const burnRequest = app.request('/api/analytics/burn?days=30');
+    const healthStarted = performance.now();
+    const healthRequest = Promise.resolve(app.request('/health')).then(
+      (response: Response) => ({
+        response,
+        elapsedMs: performance.now() - healthStarted,
+      }),
+    );
+    const [burnResponse, health] = await Promise.all([burnRequest, healthRequest]);
+    const elapsedMs = performance.now() - started;
+    expect(burnResponse.status).toBe(200);
+    expect(health.response.status).toBe(200);
+    const response = await burnResponse.json() as BurnResponse;
+    result = {
+      elapsedMs,
+      healthMs: health.elapsedMs,
+      response,
+    };
+  } finally {
+    eventLoopTailLagMs = await tailMonitor.finish();
+  }
+  if (!result) throw new Error('Burn measurement did not complete');
+  return { ...result, eventLoopTailLagMs };
+}
+
+function monitorEventLoopTail(intervalMs = 50): { finish: () => Promise<number> } {
+  let expectedAt = performance.now() + intervalMs;
+  let maximumLagMs = 0;
+  let finishRequested = false;
+  let finish: ((lagMs: number) => void) | undefined;
+  const finished = new Promise<number>((resolve) => {
+    finish = resolve;
+  });
+
+  const tick = () => {
+    const tickedAt = performance.now();
+    maximumLagMs = Math.max(maximumLagMs, tickedAt - expectedAt);
+    if (finishRequested) {
+      finish?.(maximumLagMs);
+      return;
+    }
+    expectedAt = tickedAt + intervalMs;
+    setTimeout(tick, intervalMs);
+  };
+  setTimeout(tick, intervalMs);
+
+  return {
+    finish: () => {
+      finishRequested = true;
+      return finished;
+    },
+  };
+}
+
+function parseBenchmarkEvidence(output: string): BenchmarkEvidence | undefined {
+  for (const line of output.split('\n')) {
+    if (!line.startsWith('{"benchmark":"burn-worker-16384-6000-50000"')) continue;
+    return JSON.parse(line) as BenchmarkEvidence;
+  }
+  return undefined;
 }

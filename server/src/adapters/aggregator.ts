@@ -32,6 +32,8 @@ export interface AggregateScanCacheStats {
   filesIndexed: number;
   filesReused: number;
   sources: SourceScanCacheStats[];
+  /** Post-GC JSC heap retained by the Worker after compact Burn aggregation. */
+  workerHeapBytes?: number;
 }
 
 export class AgentSourceAggregator {

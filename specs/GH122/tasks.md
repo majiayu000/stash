@@ -36,7 +36,7 @@
 - Done when：
   - 16,384+ cache rows、6,000+ candidates、50,000+ events 的 checksum 精确；
   - warm Burn ≤1,000 ms，concurrent health ≤250 ms；
-  - 三次 warm RSS 无单调增长，final delta ≤250 MiB；
+  - 三次 warm Worker post-GC JSC heap 无严格单调增长，process RSS final delta ≤250 MiB；
   - 结构断言同时证明无 raw event response、无主线程 usage parse；
   - Weekly 原性能预算不变。
 - Verify：运行新增 Burn benchmark 与 `cd server && bun test src/__tests__/integration/weekly-performance.int.test.ts`

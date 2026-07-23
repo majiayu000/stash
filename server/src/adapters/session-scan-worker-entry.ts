@@ -1,4 +1,5 @@
 import { Database } from 'bun:sqlite';
+import { heapSize } from 'bun:jsc';
 import type { AgentProvider } from '@stash/shared';
 import { AgentSourceAggregator } from './aggregator.js';
 import { ClaudeSource } from './claude/scanner.js';
@@ -32,11 +33,12 @@ self.onmessage = (event: MessageEvent<SessionWorkerRequest>) => {
       postMessage(response);
     } else {
       const result = runBurnAggregation(aggregator, request.request);
-      const response: SessionWorkerResponse = { id: request.id, kind: 'burn', result };
       // The heavy scan and per-session usage arrays have left their helper
-      // scope. Collect them before publishing completion so the caller cannot
-      // sample RSS while the Worker still retains request-temporary objects.
+      // scope. Collect them before publishing completion, then expose the
+      // Worker's own post-GC heap instead of inferring leaks from process RSS.
       Bun.gc(true);
+      result.cache.workerHeapBytes = heapSize();
+      const response: SessionWorkerResponse = { id: request.id, kind: 'burn', result };
       postMessage(response);
     }
   } catch (error) {
