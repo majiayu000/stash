@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, test, vi } from 'vitest';
-import { apiGet, ApiError } from './client';
+import { apiGet, DEFAULT_REQUEST_TIMEOUT_MS } from './client';
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 function mockFetch(response: Response): void {
@@ -58,6 +60,49 @@ describe('api client errors', () => {
       status: 0,
       code: 'NETWORK_ERROR',
       message: 'failed to fetch',
+    });
+  });
+
+  test('classifies timeout separately from network failures', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('fetch', vi.fn((_input: RequestInfo | URL, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => {
+          reject(new DOMException('aborted', 'AbortError'));
+        }, { once: true });
+      })));
+
+    const request = apiGet('/overview');
+    const assertion = expect(request).rejects.toMatchObject({
+      name: 'ApiError',
+      status: 0,
+      code: 'REQUEST_TIMEOUT',
+      details: { timeoutMs: DEFAULT_REQUEST_TIMEOUT_MS },
+    });
+    await vi.advanceTimersByTimeAsync(DEFAULT_REQUEST_TIMEOUT_MS);
+
+    await assertion;
+  });
+
+  test('classifies caller cancellation separately from timeout', async () => {
+    const caller = new AbortController();
+    vi.stubGlobal('fetch', vi.fn((_input: RequestInfo | URL, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => {
+          reject(new DOMException('aborted', 'AbortError'));
+        }, { once: true });
+      })));
+
+    const request = apiGet('/overview', undefined, {
+      signal: caller.signal,
+      timeoutMs: 1_000,
+    });
+    caller.abort();
+
+    await expect(request).rejects.toMatchObject({
+      name: 'ApiError',
+      status: 0,
+      code: 'REQUEST_ABORTED',
     });
   });
 });

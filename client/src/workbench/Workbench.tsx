@@ -62,7 +62,7 @@ function renderPage(page: WorkbenchPage, data: WBData, reload: () => void): Reac
 }
 
 export function Workbench({ page }: { page: WorkbenchPage }) {
-  const { data, loading, error, reload } = useWorkbenchData();
+  const { data, loading, error, reload, revalidate } = useWorkbenchData();
   const location = useLocation();
 
   useEffect(() => {
@@ -76,23 +76,23 @@ export function Workbench({ page }: { page: WorkbenchPage }) {
     function onFocus() {
       if (document.visibilityState === 'visible' && !pendingFocusReload) {
         pendingFocusReload = true;
-        Promise.resolve().then(() => { pendingFocusReload = false; reload(); });
+        Promise.resolve().then(() => { pendingFocusReload = false; revalidate(); });
       }
     }
     function onVisibility() {
-      if (document.visibilityState === 'visible') reload();
+      if (document.visibilityState === 'visible') revalidate();
     }
     window.addEventListener('focus', onFocus);
     document.addEventListener('visibilitychange', onVisibility);
     const heartbeat = window.setInterval(() => {
-      if (document.visibilityState === 'visible') reload();
+      if (document.visibilityState === 'visible') revalidate();
     }, 60_000);
     return () => {
       window.removeEventListener('focus', onFocus);
       document.removeEventListener('visibilitychange', onVisibility);
       window.clearInterval(heartbeat);
     };
-  }, [reload]);
+  }, [revalidate]);
 
   if (loading && !data) {
     return (
@@ -101,7 +101,7 @@ export function Workbench({ page }: { page: WorkbenchPage }) {
       </div>
     );
   }
-  if (error) {
+  if (error && !data) {
     const api = error instanceof ApiError ? ` (${error.status || 'network'} ${error.code})` : '';
     return (
       <div className="app-load-error" role="alert">
@@ -129,6 +129,7 @@ export function Workbench({ page }: { page: WorkbenchPage }) {
       <ReminderTicker />
       <TodayTriage />
       <SourceHealthBanner errors={data.sourceErrors} onRetry={reload} />
+      {error ? <WorkbenchRefreshAlert error={error} onRetry={reload} /> : null}
       <AsyncErrorHost key={`${location.pathname}${location.search}`} />
 
       <main id="main-content" className="workbench-main">
@@ -138,6 +139,19 @@ export function Workbench({ page }: { page: WorkbenchPage }) {
 
       <style>{workbenchStyles}</style>
     </div>
+  );
+}
+
+export function WorkbenchRefreshAlert({ error, onRetry }: { error: Error; onRetry: () => void }) {
+  const api = error instanceof ApiError ? ` (${error.status || 'network'} ${error.code})` : '';
+  return (
+    <aside className="workbench-refresh-error" role="alert">
+      <div>
+        <strong>Workbench refresh failed{api}.</strong>
+        <span>{error.message}</span>
+      </div>
+      <button type="button" onClick={onRetry}>Retry refresh</button>
+    </aside>
   );
 }
 
@@ -253,10 +267,42 @@ const workbenchStyles = `
   font: inherit;
   font-weight: 700;
 }
+.workbench-refresh-error {
+  position: relative;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 0 0 0.75rem;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--neon-pink);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--neon-pink) 10%, var(--bg-elevated));
+  color: var(--text-secondary);
+  font: 600 0.75rem/1.4 var(--font-mono);
+}
+.workbench-refresh-error div { display: grid; gap: 0.2rem; }
+.workbench-refresh-error strong { color: var(--neon-pink); }
+.workbench-refresh-error button {
+  min-height: 2.5rem;
+  flex: 0 0 auto;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--neon-pink);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+}
+.workbench-refresh-error button:focus-visible {
+  outline: 2px solid var(--neon-cyan);
+  outline-offset: 2px;
+}
 @media (max-width: 1100px) {
   .workbench-shell { padding: 5.25rem 0.75rem 5.5rem; }
   .app-theme-picker { top: 1.15rem; right: 1.15rem; }
   .workbench-shell .topbar { padding-right: 1rem; }
+  .workbench-refresh-error { align-items: flex-start; }
 }
 @media (max-width: 720px) {
   .workbench-shell { padding: 0.75rem 0.75rem 6rem; }
