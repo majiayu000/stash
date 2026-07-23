@@ -1,5 +1,6 @@
 import type { AgentProvider, AgentSession, AgentSessionEvent, UsageEvent } from '@stash/shared';
 import type { AgentSource, SourceParseError, SourceScanCacheStats } from './source.js';
+import type { SessionScanExecutor, SessionScanMode } from './session-scan-worker.js';
 
 export interface AggregateOptions {
   limitPerSource?: number;
@@ -28,7 +29,10 @@ export interface AggregateScanCacheStats {
 export class AgentSourceAggregator {
   private readonly inflight = new Map<string, Promise<AggregateResult>>();
 
-  constructor(private readonly sources: Map<AgentProvider, { source: AgentSource; root: string }>) {}
+  constructor(
+    private readonly sources: Map<AgentProvider, { source: AgentSource; root: string }>,
+    private readonly scanExecutor?: SessionScanExecutor,
+  ) {}
 
   scan(options: AggregateOptions = {}): AggregateResult {
     return this.scanWith(options, 'full');
@@ -91,14 +95,15 @@ export class AgentSourceAggregator {
 
   private scanWithSingleflight(
     options: AggregateOptions,
-    mode: 'full' | 'activity',
+    mode: SessionScanMode,
   ): Promise<AggregateResult> {
     const key = scanKey(options, mode);
     const current = this.inflight.get(key);
     if (current) return current;
 
-    const pending = Promise.resolve()
-      .then(() => mode === 'activity' ? this.scanActivity(options) : this.scan(options))
+    const pending = (this.scanExecutor
+      ? this.scanExecutor.scan(mode, options)
+      : Promise.resolve().then(() => mode === 'activity' ? this.scanActivity(options) : this.scan(options)))
       .finally(() => {
         this.inflight.delete(key);
       });
@@ -136,7 +141,7 @@ function usageKey(provider: AgentProvider, sourcePath: string): string {
   return `${provider}\0${sourcePath}`;
 }
 
-function scanKey(options: AggregateOptions, mode: 'full' | 'activity'): string {
+function scanKey(options: AggregateOptions, mode: SessionScanMode): string {
   return JSON.stringify({
     mode,
     provider: options.provider ?? 'all',
