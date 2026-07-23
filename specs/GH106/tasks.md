@@ -36,12 +36,14 @@
 - Files：Weekly benchmark / integration / E2E 测试文件
 - Done when：
   - fresh DB、3k 独立 inode、512–600 KiB 且大部分窗口外历史的冷 API ≤2s；
-  - 3k 文件即使 mtime 全部进入候选，窗口外内容也不触发 full parse；
+  - GH123 后 3k mtime 候选会完整严格解析，仍须满足同一冷启动门槛；
   - 热 API ≤250ms；
   - `/c/j` 在同类 fresh 3k root 上标题 ≤3s且真实交互可点击；
   - `/health` ≤250ms，或确定性测试证明大文件未进入同步解析路径；
   - 基准校验 exact totals，不能只测耗时。
-  - 完整坏行、无 timestamp usage、timestamp 回退返回显式错误；仅明确 EOF partial 可容忍；非法 ISO week 返回 400。
+  - 完整坏行、非法 timestamp、无 timestamp usage 返回显式错误；合法
+    timestamp 回退由 GH123 支持；仅明确 EOF partial 可容忍；非法 ISO week
+    返回 400。
 - Verify：运行任务内新增的 benchmark 命令及 focused E2E。
 
 ## SP106-T4 — 完整验证与本地交付

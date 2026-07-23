@@ -16,7 +16,10 @@ Concept J（`/c/j`）在冷缓存和大量 Claude/Codex 历史下会长时间停
 ## 产品不变量
 
 1. Weekly Review 的当前周与上周统计必须覆盖两个完整 ISO 周窗口 `[prevStart, start)` 与 `[start, end)`，边界为左闭右开。
-2. 支持的 Claude/Codex JSONL 来源合同是：记录 append-only，带 timestamp 的记录按物理追加顺序单调不减（允许相同 timestamp），文件 `mtime` 随最后追加更新。候选历史可以利用该来源不变量做保守筛选；所有可能包含窗口内事件的文件都必须进入精确解析，不得按数量截断。活跃候选若检测到 timestamp 回退必须显式失败。
+2. 支持的 Claude/Codex JSONL 记录为 append-only，文件 `mtime` 随最后追加
+   更新。GH123 已取代本规格最初的 timestamp 单调假设：合法 timestamp 可以
+   回退；mtime 候选必须完整严格解析，并按最大 timestamp 和逐事件 timestamp
+   精确聚合，不得按数量或物理 tail 截断。
 3. 候选文件进入聚合后，session 数、usage、token、cost 与 focus hour 必须按 JSONL 中的真实时间戳计算，不能用 `mtime` 代替业务时间戳。
 4. 查询历史周时仍返回完整结果；较早周可能需要扫描更多候选文件，但不得为满足性能目标静默返回部分统计。
 5. 索引或解析失败必须沿用现有显式错误路径，不能显示零值或旧数据冒充成功结果。
@@ -37,7 +40,9 @@ Concept J（`/c/j`）在冷缓存和大量 Claude/Codex 历史下会长时间停
 
 ## 非目标
 
-- 不在本 Issue 中建设常驻后台索引服务、worker 队列或新的进程间协议。
-- 不重新设计 Claude/Codex JSONL 格式，也不支持手工篡改 `mtime`、非 append-only、timestamp 非单调或时间戳伪造的数据源。
+- 本 Issue 当时不建设常驻后台索引服务、worker 队列或新的进程间协议；
+  后续 Worker 迁移由 GH122 完成。
+- 不重新设计 Claude/Codex JSONL 格式，也不支持手工篡改 `mtime`、非
+  append-only 或时间戳伪造的数据源；合法 timestamp 非单调已由 GH123 支持。
 - 不改变 Concept J 的视觉布局、周报动作或导出格式。
 - 不优化与当前周/上周统计无关的 Session events 详情读取。

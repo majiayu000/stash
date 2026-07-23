@@ -215,6 +215,56 @@ describe('GET /api/analytics/weekly cold-history performance', () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  test('returns exact weekly buckets for valid non-monotonic Claude and Codex timestamps', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'stash-weekly-non-monotonic-'));
+    const db = freshDb();
+    try {
+      const claudeRoot = join(root, 'claude');
+      const claudeProject = join(claudeRoot, 'projects', '-Users-test-order');
+      const codexRoot = join(root, 'codex');
+      const codexSessions = join(codexRoot, 'sessions', '2026', '07', '09');
+      mkdirSync(claudeProject, { recursive: true });
+      mkdirSync(codexSessions, { recursive: true });
+      writeNonMonotonicClaudeFixture(join(claudeProject, 'session.jsonl'));
+      writeNonMonotonicCodexFixture(join(codexSessions, 'rollout-order.jsonl'));
+
+      const app = createApp({
+        db,
+        clock: fixedClock(NOW),
+        claudeRoot,
+        codexRoot,
+        sessionSpawnMode: 'disabled',
+      });
+
+      const response = await app.request('/api/analytics/weekly');
+      const weekly = await response.json() as WeeklyBenchmarkResponse;
+
+      expect(response.status).toBe(200);
+      expect(weekly.data.wow.sessions).toEqual({ now: 2, prev: 0 });
+      expect(weekly.data.wow.tokens).toEqual({ now: 215, prev: 75 });
+      expect(weekly.cache).toMatchObject({
+        filesDiscovered: 2,
+        filesSeen: 2,
+        filesIndexed: 2,
+        filesReused: 0,
+      });
+
+      const warmResponse = await app.request('/api/analytics/weekly');
+      const warm = await warmResponse.json() as WeeklyBenchmarkResponse;
+      expect(warmResponse.status).toBe(200);
+      expect(warm.data.wow).toEqual(weekly.data.wow);
+      expect(warm.cache).toMatchObject({
+        filesDiscovered: 2,
+        filesSeen: 2,
+        filesIndexed: 0,
+        filesReused: 2,
+      });
+    } finally {
+      db.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
 
 function writeCodexCrossWeekFixture(sourcePath: string): void {
@@ -232,6 +282,59 @@ function writeCodexCrossWeekFixture(sourcePath: string): void {
     token('2026-06-28T23:00:00.000Z', 1_000, 100),
     token('2026-07-01T08:00:00.000Z', 1_500, 200),
     token('2026-07-08T08:00:00.000Z', 2_300, 350),
+  ];
+  writeFileSync(sourcePath, `${lines.map((line) => JSON.stringify(line)).join('\n')}\n`);
+}
+
+function writeNonMonotonicClaudeFixture(sourcePath: string): void {
+  const assistant = (timestamp: string, input: number, output: number) => ({
+    type: 'assistant',
+    timestamp,
+    sessionId: 'claude-order',
+    message: {
+      role: 'assistant',
+      content: 'done',
+      model: 'claude-sonnet-4-6',
+      usage: { input_tokens: input, output_tokens: output },
+    },
+  });
+  const lines = [
+    {
+      type: 'user',
+      timestamp: '2026-07-08T07:00:00.000Z',
+      sessionId: 'claude-order',
+      cwd: '/tmp/claude-order',
+      message: { role: 'user', content: 'check weekly order' },
+    },
+    assistant('2026-07-08T08:00:00.000Z', 20, 5),
+    assistant('2026-07-01T08:00:00.000Z', 10, 5),
+  ];
+  writeFileSync(sourcePath, `${lines.map((line) => JSON.stringify(line)).join('\n')}\n`);
+}
+
+function writeNonMonotonicCodexFixture(sourcePath: string): void {
+  const token = (timestamp: string, input: number, output: number) => ({
+    timestamp,
+    type: 'event_msg',
+    payload: {
+      type: 'token_count',
+      info: { total_token_usage: { input_tokens: input, output_tokens: output } },
+    },
+  });
+  const lines = [
+    {
+      timestamp: '2026-07-09T07:00:00.000Z',
+      type: 'session_meta',
+      payload: { id: 'codex-order', cwd: '/tmp/codex-order' },
+    },
+    {
+      timestamp: '2026-07-08T07:30:00.000Z',
+      type: 'turn_context',
+      payload: { model: 'gpt-5' },
+    },
+    token('2026-07-08T08:00:00.000Z', 100, 10),
+    token('2026-07-01T08:00:00.000Z', 150, 20),
+    token('2026-07-09T08:00:00.000Z', 220, 30),
   ];
   writeFileSync(sourcePath, `${lines.map((line) => JSON.stringify(line)).join('\n')}\n`);
 }
