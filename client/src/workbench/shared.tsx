@@ -2,7 +2,7 @@ import { type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { updateWorkItem } from '../api/work-items';
 import { CountUp, LiveDot } from '../components/effects';
-import { fmt, type WBData, type WBProject, type WBSession, type WBTodo } from './data';
+import { fmt, sessionPath, type WBData, type WBProject, type WBSession, type WBTodo } from './data';
 import { reportAsyncError } from './reportAsyncError';
 
 export interface Feature {
@@ -291,7 +291,7 @@ export function SessionRow({
   const proj = projects.find((p) => p.id === s.project);
   const icon = s.tool === 'codex' ? '$' : '>';
   const navigate = useNavigate();
-  const openSession = onClick ?? (() => navigate(`/sessions/${pathPart(s.id)}`));
+  const openSession = onClick ?? (() => navigate(sessionPath(s)));
   return (
     <div
       className={`sess ${s.state}`}

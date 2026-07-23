@@ -44,4 +44,26 @@ export interface AgentSessionEvent {
   tool?: string;
   callId?: string;
   meta?: Record<string, unknown>;
+  /** True when an oversized event was shortened to enforce the API payload bound. */
+  truncated?: boolean;
+}
+
+export interface AgentSessionEventSummary {
+  totalToolCalls: number;
+  totalFiles: number;
+  toolCalls: Array<{ name: string; count: number }>;
+  filesTouched: Array<{ path: string; count: number }>;
+}
+
+export interface AgentSessionEventPage {
+  data: AgentSessionEvent[];
+  page: {
+    cursor: string | null;
+    nextCursor: string | null;
+    hasMore: boolean;
+    limit: number;
+    totalEvents: number;
+    responseBytes: number;
+  };
+  summary: AgentSessionEventSummary;
 }

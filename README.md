@@ -40,7 +40,8 @@ bun run client:dev            # http://localhost:5173
 
 Open `http://localhost:5173`. The primary navigation exposes five stable product
 sections: Work, Projects, Sessions, Review, and Settings. Entity pages keep their
-own semantic URLs, such as `/todos/:id`, `/projects/:id`, and `/sessions/:id`.
+own semantic URLs, such as `/todos/:id`, `/projects/:id`, and
+`/sessions/:provider/:id`.
 
 Try UI capture from the default page:
 
@@ -105,7 +106,8 @@ from the object they act on, rather than appearing as unrelated destinations.
 | `/projects/:projectId/settings` | edit or delete one project |
 | `/sessions` | live agents and session history |
 | `/sessions/new?todoId=...` | start a session from a specific task |
-| `/sessions/:sessionId` | transcript, tools, files, related task, and project context |
+| `/sessions/:provider/:sessionId` | transcript, tools, files, related task, and project context |
+| `/sessions/:sessionId` | compatibility link; redirects only when the provider is unambiguous |
 | `/review` | weekly review and next-week planning |
 | `/review/usage` | token, cost, model, project, and budget review |
 | `/settings` | themes, notifications, and budgets |
@@ -254,10 +256,10 @@ The current production plan is tracked in
 [`docs/PRODUCTION_READINESS.md`](./docs/PRODUCTION_READINESS.md).
 
 Current highest-priority gaps:
-- Background refresh for very large Claude/Codex histories is still deferred;
-  current scans are bounded by route limits, singleflight, and per-file cache.
-- The canonical session route is `/sessions/:sessionId`; provider-qualified deep links are
-  a hardening target, not the current route contract.
+- General stale-while-refresh responses for every session-derived route remain
+  deferred. Filesystem scans, transcript pages, decision extraction, and Burn
+  aggregation run in a Worker; shared workbench snapshots, singleflight, and
+  per-file cache keep repeat navigation bounded.
 - Release packaging is still personal-use only; no public OSS license is granted.
 
 ## What ships vs what's deferred
@@ -278,7 +280,9 @@ Current highest-priority gaps:
 - Inferred completion evidence: scan, accept (✓ done), or reject from the agent trace
 - Skills library: search + tabs filter, install/uninstall, per-project bindings,
   new-skill creation, delete with binding cleanup, install command copy
-- Session detail: real transcript / tool-call summary / files-touched
+- Provider-qualified session detail with exact old-session lookup, bounded
+  incremental transcript pages, complete tool/file summaries, and legacy-link
+  disambiguation
 - Decision candidate extraction from JSONL (accept/ignore inline)
 - Connected session starter: composes a prompt and spawns Claude / Codex
 - Analytics: configured-zone rolling burn (daily spend / hourly heatmap / model

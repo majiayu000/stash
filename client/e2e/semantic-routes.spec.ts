@@ -8,16 +8,18 @@ test('obsolete letter routes show an explicit not-found state', async ({ page })
   await expect(page.getByRole('link', { name: 'Return to Work' })).toHaveAttribute('href', '/');
 });
 
-test('session detail renders by sessionId', async ({ page, request }) => {
+test('session detail renders by provider-qualified session identity', async ({ page, request }) => {
   const res = await request.get(`${API}/agent-sessions`);
   expect(res.ok()).toBeTruthy();
-  const body = (await res.json()) as { data: Array<{ id: string; title: string }> };
+  const body = (await res.json()) as { data: Array<{ id: string; provider: string; title: string }> };
   expect(body.data.length).toBeGreaterThan(0);
   const session = body.data[0]!;
 
-  await page.goto(`/sessions/${session.id}`);
+  await page.goto(`/sessions/${session.provider}/${session.id}`);
 
   await expect(page.locator('.sd-head')).toContainText(session.title, { timeout: 10_000 });
+  await expect.poll(() => new URL(page.url()).pathname)
+    .toBe(`/sessions/${session.provider}/${session.id}`);
 });
 
 test('project detail renders by projectId', async ({ page, request }) => {

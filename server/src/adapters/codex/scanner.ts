@@ -236,8 +236,8 @@ export class CodexSource implements AgentSource {
     };
   }
 
-  getEvents(sourcePath: string): AgentSessionEvent[] {
-    return parseCodexEvents(sourcePath);
+  getEvents(sourcePath: string, limit?: number): AgentSessionEvent[] {
+    return parseCodexEvents(sourcePath, limit);
   }
 
   getUsage(

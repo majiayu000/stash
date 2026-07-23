@@ -1,4 +1,8 @@
-import type { AgentProvider, AgentSession, AgentSessionEvent } from '@stash/shared';
+import type {
+  AgentProvider,
+  AgentSession,
+  AgentSessionEventPage,
+} from '@stash/shared';
 import type { DecisionCandidateRecord } from '@stash/shared';
 import { apiDelete, apiGet, apiPost } from './client';
 
@@ -18,11 +22,6 @@ interface ListResponse {
   count: number;
 }
 
-interface EventsResponse {
-  data: AgentSessionEvent[];
-  count: number;
-}
-
 export interface SessionsScan {
   sessions: AgentSessionWithLinks[];
   errors: SourceHealthError[];
@@ -36,8 +35,25 @@ export async function listAgentSessions(provider: AgentProvider | 'all' = 'all')
 export async function getAgentSessionEvents(
   provider: AgentProvider,
   id: string,
-): Promise<AgentSessionEvent[]> {
-  const res = await apiGet<EventsResponse>(`/agent-sessions/${provider}/${encodeURIComponent(id)}/events`);
+  cursor?: string,
+  limit?: number,
+): Promise<AgentSessionEventPage> {
+  const query = cursor === undefined && limit === undefined
+    ? undefined
+    : { cursor, limit: limit === undefined ? undefined : String(limit) };
+  return apiGet<AgentSessionEventPage>(
+    `/agent-sessions/${provider}/${encodeURIComponent(id)}/events`,
+    query,
+  );
+}
+
+export async function getAgentSession(
+  provider: AgentProvider,
+  id: string,
+): Promise<AgentSessionWithLinks> {
+  const res = await apiGet<{ data: AgentSessionWithLinks }>(
+    `/agent-sessions/${provider}/${encodeURIComponent(id)}`,
+  );
   return res.data;
 }
 

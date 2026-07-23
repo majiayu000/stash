@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, test } from 'bun:test';
 import type { Database } from 'bun:sqlite';
 import type { Hono } from 'hono';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { fixedClock } from '@stash/shared';
@@ -12,7 +14,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const CLAUDE_FIXTURE_ROOT = join(here, '..', '..', 'adapters', 'claude', 'fixtures');
 
 function setupApp(
-  overrides: Pick<Partial<AppContext>, 'sessionSpawnMode'> = {},
+  overrides: Pick<Partial<AppContext>, 'sessionSpawnMode' | 'claudeRoot' | 'codexRoot'> = {},
 ): { app: Hono; db: Database } {
   const db = openDatabase({ path: ':memory:', inMemory: true });
   migrate(db);
@@ -57,16 +59,116 @@ describe('GET /api/agent-sessions', () => {
 });
 
 describe('GET /api/agent-sessions/:provider/:id/events', () => {
-  test('returns parsed events for a known session', async () => {
+  test('returns bounded cursor pages for a known session', async () => {
     const { app } = setupApp();
-    const res = await jsonReq(app, 'GET', '/api/agent-sessions/claude/sess-fixture-1/events');
+    const res = await jsonReq(app, 'GET', '/api/agent-sessions/claude/sess-fixture-1/events?limit=1');
     expect(res.status).toBe(200);
-    expect(res.body.count).toBeGreaterThanOrEqual(3);
+    expect(res.body.count).toBe(1);
+    expect(res.body.page).toMatchObject({ limit: 1, hasMore: true });
+    expect(res.body.page.nextCursor).toEqual(expect.any(String));
+    expect(res.body.page.responseBytes).toBeLessThanOrEqual(512 * 1024);
+    expect(res.body.summary.totalToolCalls).toBeGreaterThanOrEqual(1);
     const kinds = new Set(res.body.data.map((e: any) => e.kind));
     expect(kinds.has('user')).toBe(true);
-    expect(kinds.has('assistant')).toBe(true);
+
+    const next = await jsonReq(
+      app,
+      'GET',
+      `/api/agent-sessions/claude/sess-fixture-1/events?limit=1&cursor=${encodeURIComponent(res.body.page.nextCursor)}`,
+    );
+    expect(next.status).toBe(200);
+    expect(next.body.data[0]).not.toEqual(res.body.data[0]);
+  });
+
+  test('rejects invalid cursor and limit query values', async () => {
+    const { app } = setupApp();
+    const cursor = await jsonReq(
+      app,
+      'GET',
+      '/api/agent-sessions/claude/sess-fixture-1/events?cursor=invalid',
+    );
+    const limit = await jsonReq(
+      app,
+      'GET',
+      '/api/agent-sessions/claude/sess-fixture-1/events?limit=201',
+    );
+
+    expect(cursor.status).toBe(400);
+    expect(cursor.body.error.code).toBe('VALIDATION');
+    expect(limit.status).toBe(400);
+    expect(limit.body.error.code).toBe('VALIDATION');
+  });
+
+  test('keeps health responsive while a large transcript page runs in the worker', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'stash-large-events-'));
+    const projectDir = join(root, 'projects', 'large');
+    mkdirSync(projectDir, { recursive: true });
+    const sourcePath = join(projectDir, 'large.jsonl');
+    const records: unknown[] = [
+      claudeUserRecord('large-session', '2026-05-14T08:00:00.000Z'),
+    ];
+    for (let index = 0; index < 8_000; index++) {
+      records.push({
+        type: 'assistant',
+        timestamp: new Date(Date.parse('2026-05-14T08:00:01.000Z') + index).toISOString(),
+        message: {
+          role: 'assistant',
+          content: [{ type: 'text', text: `large-${index}-${'x'.repeat(1_000)}` }],
+        },
+      });
+    }
+    writeFileSync(sourcePath, `${records.map((record) => JSON.stringify(record)).join('\n')}\n`);
+    const { app, db } = setupApp({ claudeRoot: root });
+    try {
+      const events = app.request('/api/agent-sessions/claude/large-session/events?limit=10');
+      await Promise.resolve();
+      const healthStarted = performance.now();
+      const health = await app.request('/health');
+      const healthMs = performance.now() - healthStarted;
+
+      expect(health.status).toBe(200);
+      expect(healthMs).toBeLessThanOrEqual(250);
+      expect((await events).status).toBe(200);
+    } finally {
+      db.close();
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
+
+describe('GET /api/agent-sessions/:provider/:id', () => {
+  test('finds an exact session older than the recent 30', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'stash-old-session-'));
+    const projectDir = join(root, 'projects', 'history');
+    mkdirSync(projectDir, { recursive: true });
+    for (let index = 0; index < 31; index++) {
+      const id = `session-${String(index).padStart(2, '0')}`;
+      writeFileSync(
+        join(projectDir, `${id}.jsonl`),
+        `${JSON.stringify(claudeUserRecord(id, new Date(Date.parse('2026-05-01T00:00:00.000Z') + index * 1000).toISOString()))}\n`,
+      );
+    }
+    const { app, db } = setupApp({ claudeRoot: root });
+    try {
+      const res = await jsonReq(app, 'GET', '/api/agent-sessions/claude/session-00');
+      expect(res.status).toBe(200);
+      expect(res.body.data).toMatchObject({ provider: 'claude', id: 'session-00' });
+    } finally {
+      db.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+function claudeUserRecord(sessionId: string, timestamp: string) {
+  return {
+    type: 'user',
+    timestamp,
+    sessionId,
+    cwd: '/tmp/project',
+    message: { role: 'user', content: `session ${sessionId}` },
+  };
+}
 
 describe('dispatch run lifecycle errors', () => {
   test('matching a missing dispatch run returns 404', async () => {

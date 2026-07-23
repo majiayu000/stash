@@ -397,7 +397,7 @@ function SessionsSidebar({ mySessions, projects }: { mySessions: WBData['session
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
         {mySessions.length === 0
           ? <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)' }}>none</div>
-          : mySessions.slice(0, 4).map((s) => <SessionRow key={s.id} s={s} projects={projects} compact />)}
+          : mySessions.slice(0, 4).map((s) => <SessionRow key={`${s.provider}:${s.id}`} s={s} projects={projects} compact />)}
       </div>
     </div>
   );

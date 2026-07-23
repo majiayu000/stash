@@ -294,7 +294,7 @@ export function WeeklyReviewPage({ data }: { data: WBData; reload: () => void })
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', overflowY: 'auto' }}>
                 {sessions.filter((s) => s.state !== 'error').slice(0, 3).length === 0
                   ? <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)' }}>(no sessions this week)</div>
-                  : sessions.filter((s) => s.state !== 'error').slice(0, 3).map((s) => <SessionRow key={s.id} s={s} projects={projects} compact />)}
+                  : sessions.filter((s) => s.state !== 'error').slice(0, 3).map((s) => <SessionRow key={`${s.provider}:${s.id}`} s={s} projects={projects} compact />)}
               </div>
             </div>
           </div>

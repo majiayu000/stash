@@ -16,6 +16,8 @@ import type {
   SessionWorkerResponse,
   SessionScanWorkerConfig,
 } from './session-scan-worker.js';
+import { buildSessionEventPage } from './session-event-page.js';
+import { extractDecisions } from '../domain/capture/decision-extract.js';
 
 let activeSignature = '';
 let activeAggregator: AgentSourceAggregator | undefined;
@@ -31,7 +33,7 @@ self.onmessage = (event: MessageEvent<SessionWorkerRequest>) => {
         : aggregator.scan(request.options);
       const response: SessionWorkerResponse = { id: request.id, kind: 'scan', result };
       postMessage(response);
-    } else {
+    } else if (request.kind === 'burn') {
       const result = runBurnAggregation(aggregator, request.request);
       // The heavy scan and per-session usage arrays have left their helper
       // scope. Collect them before publishing completion, then expose the
@@ -39,6 +41,31 @@ self.onmessage = (event: MessageEvent<SessionWorkerRequest>) => {
       Bun.gc(true);
       result.cache.workerHeapBytes = heapSize();
       const response: SessionWorkerResponse = { id: request.id, kind: 'burn', result };
+      postMessage(response);
+    } else if (request.kind === 'event-page') {
+      const events = aggregator.getEvents(
+        request.request.provider,
+        request.request.sourcePath,
+        0,
+      );
+      const result = buildSessionEventPage(events, request.request);
+      const response: SessionWorkerResponse = {
+        id: request.id,
+        kind: 'event-page',
+        result,
+      };
+      postMessage(response);
+    } else {
+      const events = aggregator.getEvents(
+        request.request.provider,
+        request.request.sourcePath,
+        0,
+      );
+      const response: SessionWorkerResponse = {
+        id: request.id,
+        kind: 'decision-candidates',
+        result: extractDecisions(events),
+      };
       postMessage(response);
     }
   } catch (error) {

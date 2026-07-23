@@ -46,7 +46,7 @@ export interface AgentSource {
   scan(options: ScanOptions): SourceScanResult;
   /** Lightweight exact activity/usage scan for analytics-only consumers. */
   scanActivity?(options: ScanOptions): SourceScanResult;
-  getEvents(sourcePath: string): AgentSessionEvent[];
+  getEvents(sourcePath: string, limit?: number): AgentSessionEvent[];
   /** Extract token usage events from a parsed session file. Empty when unsupported. */
   getUsage(sourcePath: string, fingerprint?: SessionFileFingerprint): UsageEvent[];
 }
