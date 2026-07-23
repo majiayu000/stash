@@ -35,7 +35,7 @@ describe('AgentSessionCache', () => {
     const db = freshDb();
     const cache = new AgentSessionCache(db);
     cache.upsertSession('claude', file, session, '2026-05-14T12:01:00.000Z');
-    cache.storeUsage('claude', file.sourcePath, usage);
+    cache.storeUsage('claude', file, usage);
     db.prepare(
       'update agent_session_cache set usage_json = ? where provider = ? and source_path = ?',
     ).run('{broken', 'claude', file.sourcePath);
@@ -44,7 +44,7 @@ describe('AgentSessionCache', () => {
       session,
       indexedAt: '2026-05-14T12:01:00.000Z',
     });
-    expect(() => cache.getUsage('claude', file.sourcePath)).toThrow(
+    expect(() => cache.getUsage('claude', file)).toThrow(
       `invalid agent usage cache for claude:${file.sourcePath}`,
     );
   });
@@ -53,14 +53,14 @@ describe('AgentSessionCache', () => {
     const db = freshDb();
     const cache = new AgentSessionCache(db);
     cache.upsertSession('claude', file, session, '2026-05-14T12:01:00.000Z');
-    cache.storeUsage('claude', file.sourcePath, usage);
+    cache.storeUsage('claude', file, usage);
     db.prepare(
       'update agent_session_cache set session_json = ? where provider = ? and source_path = ?',
     ).run('{}', 'claude', file.sourcePath);
 
     expect(() => cache.getFreshSession('claude', file))
       .toThrow(`invalid agent session cache for claude:${file.sourcePath}`);
-    expect(cache.getUsage('claude', file.sourcePath)).toBeUndefined();
+    expect(cache.getUsage('claude', file)).toBeUndefined();
   });
 
   test('session upsert invalidates stale usage until lazy indexing stores a replacement', () => {
@@ -68,16 +68,23 @@ describe('AgentSessionCache', () => {
     const cache = new AgentSessionCache(db);
     cache.upsertSession('claude', file, session, '2026-05-14T12:01:00.000Z');
 
-    expect(cache.getUsage('claude', file.sourcePath)).toBeUndefined();
-    expect(cache.storeUsage('claude', file.sourcePath, usage)).toBe(true);
-    expect(cache.getUsage('claude', file.sourcePath)).toEqual(usage);
+    expect(cache.getUsage('claude', file)).toEqual({ usage: undefined });
+    expect(cache.storeUsage('claude', file, usage)).toBe(true);
+    expect(cache.getUsage('claude', file)).toEqual({ usage });
+  });
 
+  test('a delayed generation A usage write cannot contaminate generation B', () => {
+    const db = freshDb();
+    const cache = new AgentSessionCache(db);
+    cache.upsertSession('claude', file, session, '2026-05-14T12:01:00.000Z');
+    const changedFile = { ...file, mtimeMs: file.mtimeMs + 1 };
     cache.upsertSession(
       'claude',
-      { ...file, mtimeMs: file.mtimeMs + 1 },
+      changedFile,
       { ...session, title: 'changed' },
       '2026-05-14T12:02:00.000Z',
     );
-    expect(cache.getUsage('claude', file.sourcePath)).toBeUndefined();
+    expect(cache.storeUsage('claude', file, usage)).toBe(false);
+    expect(cache.getUsage('claude', changedFile)).toEqual({ usage: undefined });
   });
 });

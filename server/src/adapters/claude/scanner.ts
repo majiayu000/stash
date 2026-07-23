@@ -2,7 +2,11 @@ import { existsSync, readdirSync, statSync } from 'fs';
 import { join } from 'path';
 import type { AgentSession, AgentSessionEvent, UsageEvent } from '@stash/shared';
 import type { AgentSource, ScanOptions, SourceParseError, SourceScanResult } from '../source.js';
-import type { AgentSessionCache, SessionFileFingerprint } from '../session-cache.js';
+import {
+  readUsageWithCache,
+  type AgentSessionCache,
+  type SessionFileFingerprint,
+} from '../session-cache.js';
 import {
   createAnalyticsSession,
   isFreshAnalyticsEntry,
@@ -17,8 +21,14 @@ function projectsDir(root: string): string {
 export class ClaudeSource implements AgentSource {
   readonly provider = 'claude' as const;
   private readonly analyticsCache = new Map<string, AnalyticsCacheEntry>();
+  private readonly usageParser: (sourcePath: string) => UsageEvent[];
 
-  constructor(private readonly cache?: AgentSessionCache) {}
+  constructor(
+    private readonly cache?: AgentSessionCache,
+    options: { usageParser?: (sourcePath: string) => UsageEvent[] } = {},
+  ) {
+    this.usageParser = options.usageParser ?? parseClaudeUsage;
+  }
 
   scan(options: ScanOptions): SourceScanResult {
     const errors: SourceParseError[] = [];
@@ -76,6 +86,7 @@ export class ClaudeSource implements AgentSource {
     return {
       sessions,
       errors,
+      fingerprintsBySource: new Map(limited.map((entry) => [entry.sourcePath, entry])),
       cache: scanStats(
         options.root,
         this.cache !== undefined,
@@ -155,12 +166,18 @@ export class ClaudeSource implements AgentSource {
     return parseClaudeEvents(sourcePath);
   }
 
-  getUsage(sourcePath: string): UsageEvent[] {
-    const cached = this.cache?.getUsage('claude', sourcePath);
-    if (cached) return cached;
-    const usage = parseClaudeUsage(sourcePath);
-    this.cache?.storeUsage('claude', sourcePath, usage);
-    return usage;
+  getUsage(
+    sourcePath: string,
+    fingerprint?: SessionFileFingerprint,
+  ): UsageEvent[] {
+    return readUsageWithCache({
+      provider: 'claude',
+      sourcePath,
+      cache: this.cache,
+      parseUsage: this.usageParser,
+      fingerprint: fileFingerprint,
+      initialFingerprint: fingerprint,
+    });
   }
 }
 
