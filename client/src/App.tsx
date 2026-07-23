@@ -20,6 +20,7 @@ export function App() {
 
         <Route path="/sessions" element={<Page page="sessions" />} />
         <Route path="/sessions/new" element={<Page page="session-start" />} />
+        <Route path="/sessions/:provider/:sessionId" element={<Page page="session-detail" />} />
         <Route path="/sessions/:sessionId" element={<Page page="session-detail" />} />
 
         <Route path="/review" element={<Page page="review" />} />

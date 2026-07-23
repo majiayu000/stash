@@ -1,9 +1,20 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import type { AgentSessionEvent } from '@stash/shared';
-import { getAgentSessionEvents } from '../../api/agent-sessions';
+import type {
+  AgentProvider,
+  AgentSessionEvent,
+  AgentSessionEventSummary,
+} from '@stash/shared';
+import { getAgentSession, getAgentSessionEvents } from '../../api/agent-sessions';
+import { ApiError } from '../../api/client';
 import { LiveDot } from '../../components/effects';
-import { fmt, type WBData, type WBSession } from '../data';
+import {
+  fmt,
+  sessionPath,
+  toWorkbenchSession,
+  type WBData,
+  type WBSession,
+} from '../data';
 import { LoadErrorPanel, ModelBadge, Tile, TodoItem, ToolBadge, Topbar, toError } from '../shared';
 
 /**
@@ -18,25 +29,99 @@ import { LoadErrorPanel, ModelBadge, Tile, TodoItem, ToolBadge, Topbar, toError 
  *   - transcript turns + tool calls + diffs: real agent session events API
  */
 export function SessionDetailPage({ data }: { data: WBData; reload: () => void }) {
-  const { projects, sessions, todos } = data;
-  const { sessionId } = useParams<{ sessionId?: string }>();
+  const { projects, todos } = data;
+  const { provider: providerParam, sessionId } = useParams<{
+    provider?: string;
+    sessionId?: string;
+  }>();
   const navigate = useNavigate();
+  const provider = isAgentProvider(providerParam) ? providerParam : undefined;
+  const legacyRoute = providerParam === undefined;
+  const [session, setSession] = useState<WBSession | null>(null);
+  const [sessionError, setSessionError] = useState<Error | null>(null);
+  const [sessionLoading, setSessionLoading] = useState(true);
+  const [sessionNotFound, setSessionNotFound] = useState(false);
+  const [legacyChoices, setLegacyChoices] = useState<WBSession[]>([]);
+  const [sessionRetryTick, setSessionRetryTick] = useState(0);
 
-  const session = sessionId
-    ? sessions.find((s) => s.id === sessionId)
-    : sessions.find((s) => s.state === 'live') ?? sessions[0];
+  useEffect(() => {
+    if (!sessionId) {
+      setSessionLoading(false);
+      setSessionNotFound(true);
+      return;
+    }
+    let cancelled = false;
+    setSession(null);
+    setSessionError(null);
+    setSessionNotFound(false);
+    setLegacyChoices([]);
+    setSessionLoading(true);
+
+    const resolve = async () => {
+      if (!legacyRoute) {
+        if (!provider) throw new Error(`unsupported session provider: ${providerParam}`);
+        return [toWorkbenchSession(await getAgentSession(provider, sessionId))];
+      }
+      const results = await Promise.allSettled(
+        (['claude', 'codex'] as const).map((candidate) => getAgentSession(candidate, sessionId)),
+      );
+      const failures = results
+        .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+        .map((result) => result.reason)
+        .filter((error) => !(error instanceof ApiError && error.status === 404));
+      if (failures.length > 0) throw failures[0];
+      return results
+        .filter((result): result is PromiseFulfilledResult<Awaited<ReturnType<typeof getAgentSession>>> =>
+          result.status === 'fulfilled')
+        .map((result) => toWorkbenchSession(result.value));
+    };
+
+    resolve()
+      .then((matches) => {
+        if (cancelled) return;
+        if (legacyRoute && matches.length === 1) {
+          navigate(sessionPath(matches[0]!), { replace: true });
+          return;
+        }
+        if (matches.length === 1) setSession(matches[0]!);
+        else if (matches.length > 1) setLegacyChoices(matches);
+        else setSessionNotFound(true);
+        setSessionLoading(false);
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          if (error instanceof ApiError && error.status === 404) setSessionNotFound(true);
+          else setSessionError(toError(error));
+          setSessionLoading(false);
+        }
+      });
+    return () => { cancelled = true; };
+  }, [legacyRoute, navigate, provider, providerParam, sessionId, sessionRetryTick]);
 
   // SPEC v0.3 §9d — real session events from /api/agent-sessions/:provider/:id/events.
   const [events, setEvents] = useState<AgentSessionEvent[] | null>(null);
+  const [eventSummary, setEventSummary] = useState<AgentSessionEventSummary | null>(null);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [eventsError, setEventsError] = useState<Error | null>(null);
+  const [nextPageError, setNextPageError] = useState<Error | null>(null);
+  const [loadingNextPage, setLoadingNextPage] = useState(false);
   const [retryTick, setRetryTick] = useState(0);
   useEffect(() => {
     if (!session) return;
     let cancelled = false;
     setEvents(null);
+    setEventSummary(null);
+    setNextCursor(null);
     setEventsError(null);
+    setNextPageError(null);
     getAgentSessionEvents(session.provider, session.id)
-      .then((res) => { if (!cancelled) setEvents(res); })
+      .then((res) => {
+        if (!cancelled) {
+          setEvents(res.data);
+          setEventSummary(res.summary);
+          setNextCursor(res.page.nextCursor);
+        }
+      })
       .catch((error) => {
         if (!cancelled) {
           setEventsError(toError(error));
@@ -46,17 +131,32 @@ export function SessionDetailPage({ data }: { data: WBData; reload: () => void }
     return () => { cancelled = true; };
   }, [session?.id, session?.provider, retryTick]);
 
-  if (!session) {
+  if (sessionLoading || sessionError || sessionNotFound || legacyChoices.length > 0 || !session) {
     return (
-      <div className="dashboard-canvas">
-        <div className="inner" style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div className="surface" style={{ padding: '2rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-            No session selected. Open Sessions to choose one, or start from a task.
-          </div>
-        </div>
-      </div>
+      <SessionResolutionPanel
+        loading={sessionLoading}
+        error={sessionError}
+        notFound={sessionNotFound}
+        choices={legacyChoices}
+        onRetry={() => setSessionRetryTick((value) => value + 1)}
+        onChoose={(choice) => navigate(sessionPath(choice), { replace: true })}
+      />
     );
   }
+
+  const loadNextPage = () => {
+    if (!nextCursor || loadingNextPage) return;
+    setLoadingNextPage(true);
+    setNextPageError(null);
+    getAgentSessionEvents(session.provider, session.id, nextCursor)
+      .then((page) => {
+        setEvents((current) => [...(current ?? []), ...page.data]);
+        setEventSummary(page.summary);
+        setNextCursor(page.page.nextCursor);
+      })
+      .catch((error) => setNextPageError(toError(error)))
+      .finally(() => setLoadingNextPage(false));
+  };
 
   const project = projects.find((p) => p.id === session.project);
   const relatedTodos = todos.filter((t) => t.project === session.project).slice(0, 3);
@@ -117,7 +217,17 @@ export function SessionDetailPage({ data }: { data: WBData; reload: () => void }
             ) : events.length === 0 ? (
               <EmptyTranscript />
             ) : (
-              <RealTranscript events={events} session={session} />
+              <>
+                <RealTranscript events={events} session={session} />
+                {nextCursor && (
+                  <button className="sd-side-btn" type="button" onClick={loadNextPage} disabled={loadingNextPage}>
+                    {loadingNextPage ? 'loading more…' : 'load more transcript'}
+                  </button>
+                )}
+                {nextPageError && (
+                  <LoadErrorPanel title="next transcript page failed to load" endpoint={`/api/agent-sessions/${session.provider}/${session.id}/events`} error={nextPageError} onRetry={loadNextPage} compact />
+                )}
+              </>
             )}
           </div>
 
@@ -125,8 +235,8 @@ export function SessionDetailPage({ data }: { data: WBData; reload: () => void }
           <div className="sd-sidebar">
             <EstimatedSessionMetrics session={session} />
 
-            <ToolCallSummary events={events} />
-            <FilesTouched events={events} />
+            <ToolCallSummary summary={eventSummary} />
+            <FilesTouched summary={eventSummary} />
 
             <div className="surface" style={{ padding: '1rem' }}>
               <div className="sec-head" style={{ marginBottom: '0.6rem' }}>
@@ -162,6 +272,48 @@ export function SessionDetailPage({ data }: { data: WBData; reload: () => void }
       </div>
 
       <style>{sessionDetailStyles}</style>
+    </div>
+  );
+}
+
+function isAgentProvider(value: string | undefined): value is AgentProvider {
+  return value === 'claude' || value === 'codex';
+}
+
+function SessionResolutionPanel({
+  loading,
+  error,
+  notFound,
+  choices,
+  onRetry,
+  onChoose,
+}: {
+  loading: boolean;
+  error: Error | null;
+  notFound: boolean;
+  choices: WBSession[];
+  onRetry: () => void;
+  onChoose: (choice: WBSession) => void;
+}) {
+  return (
+    <div className="dashboard-canvas">
+      <div className="inner" style={{ height: '100%', display: 'grid', placeItems: 'center' }}>
+        <div className="surface" style={{ padding: '2rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+          {loading && 'loading exact session…'}
+          {error && <LoadErrorPanel title="session failed to load" endpoint="/api/agent-sessions/:provider/:id" error={error} onRetry={onRetry} compact />}
+          {notFound && 'Session not found in Claude or Codex history.'}
+          {choices.length > 0 && (
+            <div>
+              <strong style={{ color: 'var(--text-primary)' }}>This ID exists in multiple providers.</strong>
+              {choices.map((choice) => (
+                <button key={choice.provider} type="button" className="sd-side-btn" onClick={() => onChoose(choice)}>
+                  Open {choice.provider}: {choice.title}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -267,6 +419,7 @@ export function RealTranscript({ events, session }: { events: AgentSessionEvent[
         return (
           <Turn key={i} kind={kind} who={who} at={fmt.ago(new Date(e.timestamp).getTime())}>
             {e.text}
+            {e.truncated && <div style={{ color: 'var(--neon-orange)' }}>[event truncated to the transcript response limit]</div>}
           </Turn>
         );
       })}
@@ -324,6 +477,7 @@ export function formatToolCallDetails(call: AgentSessionEvent, output?: AgentSes
   if (output?.text) {
     sections.push(`Output:\n${output.text.trimEnd()}`);
   }
+  if (call.truncated || output?.truncated) sections.push('[event truncated to the transcript response limit]');
   return sections.join('\n\n');
 }
 
@@ -343,20 +497,14 @@ function truncateArgs(meta: Record<string, unknown> | undefined): string {
   } catch { return ''; }
 }
 
-function ToolCallSummary({ events }: { events: AgentSessionEvent[] | null }) {
-  const byTool = new Map<string, number>();
-  for (const ev of events ?? []) {
-    if (ev.kind === 'tool_call' && ev.tool) byTool.set(ev.tool, (byTool.get(ev.tool) ?? 0) + 1);
-  }
-  const rows = Array.from(byTool.entries())
-    .sort((a, b) => b[1] - a[1])
+function ToolCallSummary({ summary }: { summary: AgentSessionEventSummary | null }) {
+  const rows = (summary?.toolCalls ?? [])
     .slice(0, 8)
-    .map(([name, count], i) => ({ name, count, color: TOOL_COLOR[i % TOOL_COLOR.length]! }));
-  const total = Array.from(byTool.values()).reduce((s, n) => s + n, 0);
+    .map(({ name, count }, i) => ({ name, count, color: TOOL_COLOR[i % TOOL_COLOR.length]! }));
   return (
     <div className="surface" style={{ padding: '1rem' }}>
       <div className="sec-head" style={{ marginBottom: '0.6rem' }}>
-        <span className="prompt">&gt;</span> tool calls <span className="count">— {total}</span>
+        <span className="prompt">&gt;</span> tool calls <span className="count">— {summary?.totalToolCalls ?? 0}</span>
       </div>
       {rows.length === 0 ? (
         <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)' }}>none recorded yet</div>
@@ -380,27 +528,20 @@ const TOOL_COLOR = [
   'var(--neon-green)', 'var(--neon-pink)', 'var(--text-secondary)',
 ];
 
-function FilesTouched({ events }: { events: AgentSessionEvent[] | null }) {
-  const seen = new Map<string, number>();
-  for (const ev of events ?? []) {
-    if (ev.kind !== 'tool_call' || !ev.meta) continue;
-    const m = ev.meta as Record<string, unknown>;
-    const p = pickPath(m);
-    if (p) seen.set(p, (seen.get(p) ?? 0) + 1);
-  }
-  const rows = Array.from(seen.entries()).sort((a, b) => b[1] - a[1]).slice(0, 12);
+function FilesTouched({ summary }: { summary: AgentSessionEventSummary | null }) {
+  const rows = (summary?.filesTouched ?? []).slice(0, 12);
   return (
     <div className="surface" style={{ padding: '1rem' }}>
       <div className="sec-head" style={{ marginBottom: '0.6rem' }}>
-        <span className="prompt">&gt;</span> files touched <span className="count">— {rows.length}</span>
+        <span className="prompt">&gt;</span> files touched <span className="count">— {summary?.totalFiles ?? 0}</span>
       </div>
       {rows.length === 0 ? (
         <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)' }}>none yet</div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {rows.map(([p, count]) => (
-            <div key={p} style={{ display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'var(--font-mono)', fontSize: '0.74rem' }}>
-              <span style={{ color: 'var(--text-primary)', flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p}</span>
+          {rows.map(({ path, count }) => (
+            <div key={path} style={{ display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'var(--font-mono)', fontSize: '0.74rem' }}>
+              <span style={{ color: 'var(--text-primary)', flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{path}</span>
               <span style={{ color: 'var(--text-muted)' }}>×{count}</span>
             </div>
           ))}
@@ -408,14 +549,6 @@ function FilesTouched({ events }: { events: AgentSessionEvent[] | null }) {
       )}
     </div>
   );
-}
-
-function pickPath(meta: Record<string, unknown>): string | undefined {
-  for (const k of ['file_path', 'filePath', 'path', 'notebook_path']) {
-    const v = meta[k];
-    if (typeof v === 'string' && v.length > 0) return v;
-  }
-  return undefined;
 }
 
 const sessionDetailStyles = `

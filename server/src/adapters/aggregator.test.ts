@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import type {
   AgentProvider,
   AgentSessionEvent,
+  AgentSessionEventPage,
   ModelRate,
   UsageEvent,
 } from '@stash/shared';
@@ -48,6 +49,14 @@ class CountingExecutor implements SessionScanExecutor {
     this.burnRequests.push(request);
     await Promise.resolve();
     return emptyBurnAggregate();
+  }
+
+  eventPage(): Promise<AgentSessionEventPage> {
+    throw new Error('event page should not be called');
+  }
+
+  decisionCandidates(): Promise<[]> {
+    throw new Error('decision candidates should not be called');
   }
 }
 
@@ -162,6 +171,8 @@ describe('AgentSourceAggregator.scanAsync', () => {
         attempts++;
         throw new Error('burn failed');
       },
+      eventPage: () => Promise.reject(new Error('unused')),
+      decisionCandidates: () => Promise.reject(new Error('unused')),
     };
     const aggregator = new AgentSourceAggregator(new Map(), executor);
     const request: BurnAggregationRequest = {

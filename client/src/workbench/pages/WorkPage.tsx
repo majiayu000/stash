@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { CountUp, LiveDot, ParticleField } from '../../components/effects';
 import { useWorkbenchDialog } from '../../components/ui/workbench-dialogs';
 import { captureWorkItem, createWorkItem, updateWorkItem } from '../../api/work-items';
-import type { WBData, WBProject, WBTodo } from '../data';
+import { sessionPath, type WBData, type WBProject, type WBTodo } from '../data';
 import { ConnectedFlow } from '../ConnectedFlow';
 import { ProgressBar, Topbar, TodoItem } from '../shared';
 import {
@@ -169,10 +169,10 @@ export function WorkPage({ data, reload }: { data: WBData; reload: () => void })
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
                 {sessions.filter((s) => s.state === 'live').slice(0, 3).map((s) => (
                   <button
-                    key={s.id}
+                    key={`${s.provider}:${s.id}`}
                     type="button"
                     className="live-session-link"
-                    onClick={() => navigate(`/sessions/${encodeURIComponent(s.id)}`)}
+                    onClick={() => navigate(sessionPath(s))}
                   >
                     <span style={{ color: s.tool === 'codex' ? 'var(--neon-purple)' : 'var(--neon-cyan)' }}>
                       {s.tool === 'codex' ? '$' : '>'}

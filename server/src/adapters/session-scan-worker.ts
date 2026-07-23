@@ -1,5 +1,6 @@
-import type { AgentProvider } from '@stash/shared';
+import type { AgentProvider, AgentSessionEventPage } from '@stash/shared';
 import type { BurnAggregate, BurnAggregationRequest } from '../domain/analytics/burn.js';
+import type { DecisionCandidate } from '../domain/capture/decision-extract.js';
 import type { AggregateOptions, AggregateResult } from './aggregator.js';
 
 export type SessionScanMode = 'full' | 'activity';
@@ -7,6 +8,8 @@ export type SessionScanMode = 'full' | 'activity';
 export interface SessionScanExecutor {
   scan(mode: SessionScanMode, options: AggregateOptions): Promise<AggregateResult>;
   aggregateBurn(request: BurnAggregationRequest): Promise<BurnAggregate>;
+  eventPage(request: SessionEventPageRequest): Promise<AgentSessionEventPage>;
+  decisionCandidates(request: SessionEvidenceRequest): Promise<DecisionCandidate[]>;
 }
 
 export interface SessionScanWorkerConfig {
@@ -29,15 +32,47 @@ export interface BurnAggregationWorkerRequest {
   config: SessionScanWorkerConfig;
 }
 
-export type SessionWorkerRequest = SessionScanRequest | BurnAggregationWorkerRequest;
+export interface SessionEventPageRequest {
+  provider: AgentProvider;
+  sourcePath: string;
+  cursor?: string;
+  limit: number;
+}
+
+export interface SessionEventPageWorkerRequest {
+  id: number;
+  kind: 'event-page';
+  request: SessionEventPageRequest;
+  config: SessionScanWorkerConfig;
+}
+
+export interface SessionEvidenceRequest {
+  provider: AgentProvider;
+  sourcePath: string;
+}
+
+export interface SessionDecisionCandidatesWorkerRequest {
+  id: number;
+  kind: 'decision-candidates';
+  request: SessionEvidenceRequest;
+  config: SessionScanWorkerConfig;
+}
+
+export type SessionWorkerRequest =
+  | SessionScanRequest
+  | BurnAggregationWorkerRequest
+  | SessionEventPageWorkerRequest
+  | SessionDecisionCandidatesWorkerRequest;
 
 export type SessionWorkerResponse =
   | { id: number; kind: 'scan'; result: AggregateResult }
   | { id: number; kind: 'burn'; result: BurnAggregate }
+  | { id: number; kind: 'event-page'; result: AgentSessionEventPage }
+  | { id: number; kind: 'decision-candidates'; result: DecisionCandidate[] }
   | { id: number; kind: 'error'; error: string };
 
 interface PendingRequest {
-  kind: 'scan' | 'burn';
+  kind: 'scan' | 'burn' | 'event-page' | 'decision-candidates';
   accept: (response: SessionWorkerResponse) => void;
   reject: (error: Error) => void;
 }
@@ -87,6 +122,44 @@ export class SessionScanWorker implements SessionScanExecutor {
         kind: 'burn',
         accept: (response) => {
           if (response.kind === 'burn') resolve(response.result);
+        },
+        reject,
+      });
+    });
+  }
+
+  eventPage(request: SessionEventPageRequest): Promise<AgentSessionEventPage> {
+    const id = this.nextId++;
+    return new Promise((resolve, reject) => {
+      const workerRequest: SessionEventPageWorkerRequest = {
+        id,
+        kind: 'event-page',
+        request,
+        config: this.config,
+      };
+      this.post(workerRequest, {
+        kind: 'event-page',
+        accept: (response) => {
+          if (response.kind === 'event-page') resolve(response.result);
+        },
+        reject,
+      });
+    });
+  }
+
+  decisionCandidates(request: SessionEvidenceRequest): Promise<DecisionCandidate[]> {
+    const id = this.nextId++;
+    return new Promise((resolve, reject) => {
+      const workerRequest: SessionDecisionCandidatesWorkerRequest = {
+        id,
+        kind: 'decision-candidates',
+        request,
+        config: this.config,
+      };
+      this.post(workerRequest, {
+        kind: 'decision-candidates',
+        accept: (response) => {
+          if (response.kind === 'decision-candidates') resolve(response.result);
         },
         reject,
       });
@@ -168,6 +241,18 @@ function decodeWorkerResponse(value: unknown): SessionWorkerResponse | undefined
     if (!('result' in response) || !isBurnAggregate(response.result)) return undefined;
     return response as { id: number; kind: 'burn'; result: BurnAggregate };
   }
+  if (response.kind === 'event-page') {
+    if (!('result' in response) || !isEventPage(response.result)) return undefined;
+    return response as { id: number; kind: 'event-page'; result: AgentSessionEventPage };
+  }
+  if (response.kind === 'decision-candidates') {
+    if (!('result' in response) || !isDecisionCandidates(response.result)) return undefined;
+    return response as {
+      id: number;
+      kind: 'decision-candidates';
+      result: DecisionCandidate[];
+    };
+  }
   return undefined;
 }
 
@@ -203,6 +288,62 @@ function isDailyProjectSpend(value: unknown): boolean {
     && typeof row.projectId === 'string'
     && typeof row.cost === 'number'
     && Number.isFinite(row.cost);
+}
+
+function isEventPage(value: unknown): value is AgentSessionEventPage {
+  if (!value || typeof value !== 'object') return false;
+  const result = value as Partial<AgentSessionEventPage>;
+  return Array.isArray(result.data)
+    && result.data.every(isAgentSessionEvent)
+    && !!result.page
+    && typeof result.page === 'object'
+    && (result.page.cursor === null || typeof result.page.cursor === 'string')
+    && typeof result.page.hasMore === 'boolean'
+    && (result.page.nextCursor === null || typeof result.page.nextCursor === 'string')
+    && typeof result.page.limit === 'number'
+    && typeof result.page.totalEvents === 'number'
+    && typeof result.page.responseBytes === 'number'
+    && !!result.summary
+    && typeof result.summary === 'object'
+    && typeof result.summary.totalToolCalls === 'number'
+    && typeof result.summary.totalFiles === 'number'
+    && Array.isArray(result.summary.toolCalls)
+    && result.summary.toolCalls.every(isCountedLabel)
+    && Array.isArray(result.summary.filesTouched)
+    && result.summary.filesTouched.every(isCountedPath);
+}
+
+function isAgentSessionEvent(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  const event = value as Record<string, unknown>;
+  return typeof event.kind === 'string'
+    && typeof event.text === 'string'
+    && typeof event.timestamp === 'string'
+    && (event.tool === undefined || typeof event.tool === 'string')
+    && (event.callId === undefined || typeof event.callId === 'string')
+    && (event.meta === undefined || (!!event.meta && typeof event.meta === 'object'))
+    && (event.truncated === undefined || typeof event.truncated === 'boolean');
+}
+
+function isCountedLabel(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  const row = value as Record<string, unknown>;
+  return typeof row.name === 'string' && typeof row.count === 'number';
+}
+
+function isCountedPath(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  const row = value as Record<string, unknown>;
+  return typeof row.path === 'string' && typeof row.count === 'number';
+}
+
+function isDecisionCandidates(value: unknown): value is DecisionCandidate[] {
+  return Array.isArray(value) && value.every((candidate) =>
+    !!candidate
+    && typeof candidate === 'object'
+    && typeof candidate.raw === 'string'
+    && typeof candidate.title === 'string'
+    && typeof candidate.timestamp === 'string');
 }
 
 function isBurnCalendar(value: unknown): value is BurnAggregate['calendar'] {

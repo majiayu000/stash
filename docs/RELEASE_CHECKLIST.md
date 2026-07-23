@@ -199,7 +199,8 @@ data.
 | `/projects/:projectId/settings` | Project settings | Edits only the requested project. |
 | `/sessions` | Sessions | Live and recent sessions render truthfully. |
 | `/sessions/new?todoId=...` | Start session | Composes context for the requested task. |
-| `/sessions/:sessionId` | Session detail | Opens the requested transcript and evidence. |
+| `/sessions/:provider/:sessionId` | Session detail | Opens the exact provider transcript with bounded incremental pages and evidence. |
+| `/sessions/:sessionId` | Legacy session link | Redirects only for one provider match; otherwise shows choices or not found. |
 | `/review` | Weekly review | Review and next-week planning render or show an explicit error. |
 | `/review/usage` | Usage and cost | Analytics render or show a truthful empty/error state. |
 | `/settings` | Preferences | Themes, notifications, and budgets render. |

@@ -162,8 +162,8 @@ export class ClaudeSource implements AgentSource {
     };
   }
 
-  getEvents(sourcePath: string): AgentSessionEvent[] {
-    return parseClaudeEvents(sourcePath);
+  getEvents(sourcePath: string, limit?: number): AgentSessionEvent[] {
+    return parseClaudeEvents(sourcePath, limit);
   }
 
   getUsage(

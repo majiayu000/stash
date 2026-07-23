@@ -1,12 +1,25 @@
-import type { AgentProvider, AgentSession, AgentSessionEvent, UsageEvent } from '@stash/shared';
+import type {
+  AgentProvider,
+  AgentSession,
+  AgentSessionEvent,
+  AgentSessionEventPage,
+  UsageEvent,
+} from '@stash/shared';
 import {
   aggregateBurnFromScan,
   type BurnAggregate,
   type BurnAggregationRequest,
 } from '../domain/analytics/burn.js';
+import { extractDecisions, type DecisionCandidate } from '../domain/capture/decision-extract.js';
 import type { AgentSource, SourceParseError, SourceScanCacheStats } from './source.js';
 import type { SessionFileFingerprint } from './session-cache.js';
-import type { SessionScanExecutor, SessionScanMode } from './session-scan-worker.js';
+import { buildSessionEventPage } from './session-event-page.js';
+import type {
+  SessionEventPageRequest,
+  SessionEvidenceRequest,
+  SessionScanExecutor,
+  SessionScanMode,
+} from './session-scan-worker.js';
 
 export interface AggregateOptions {
   limitPerSource?: number;
@@ -39,6 +52,8 @@ export interface AggregateScanCacheStats {
 export class AgentSourceAggregator {
   private readonly inflight = new Map<string, Promise<AggregateResult>>();
   private readonly burnInflight = new Map<string, Promise<BurnAggregate>>();
+  private readonly eventPageInflight = new Map<string, Promise<AgentSessionEventPage>>();
+  private readonly decisionInflight = new Map<string, Promise<DecisionCandidate[]>>();
 
   constructor(
     private readonly sources: Map<AgentProvider, { source: AgentSource; root: string }>,
@@ -124,6 +139,38 @@ export class AgentSourceAggregator {
     return pending;
   }
 
+  getEventPageAsync(request: SessionEventPageRequest): Promise<AgentSessionEventPage> {
+    const key = JSON.stringify(request);
+    const current = this.eventPageInflight.get(key);
+    if (current) return current;
+    const pending = (this.scanExecutor
+      ? this.scanExecutor.eventPage(request)
+      : Promise.resolve().then(() => buildSessionEventPage(
+          this.getEvents(request.provider, request.sourcePath, 0),
+          request,
+        )))
+      .finally(() => {
+        this.eventPageInflight.delete(key);
+      });
+    this.eventPageInflight.set(key, pending);
+    return pending;
+  }
+
+  getDecisionCandidatesAsync(request: SessionEvidenceRequest): Promise<DecisionCandidate[]> {
+    const key = JSON.stringify(request);
+    const current = this.decisionInflight.get(key);
+    if (current) return current;
+    const pending = (this.scanExecutor
+      ? this.scanExecutor.decisionCandidates(request)
+      : Promise.resolve().then(() =>
+          extractDecisions(this.getEvents(request.provider, request.sourcePath, 0))))
+      .finally(() => {
+        this.decisionInflight.delete(key);
+      });
+    this.decisionInflight.set(key, pending);
+    return pending;
+  }
+
   private scanWithSingleflight(
     options: AggregateOptions,
     mode: SessionScanMode,
@@ -142,10 +189,10 @@ export class AgentSourceAggregator {
     return pending;
   }
 
-  getEvents(provider: AgentProvider, sourcePath: string): AgentSessionEvent[] {
+  getEvents(provider: AgentProvider, sourcePath: string, limit?: number): AgentSessionEvent[] {
     const entry = this.sources.get(provider);
     if (!entry) return [];
-    return entry.source.getEvents(sourcePath);
+    return entry.source.getEvents(sourcePath, limit);
   }
 
   getUsage(

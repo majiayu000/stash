@@ -32,7 +32,7 @@ export function SessionsPage({ data }: { data: WBData; reload: () => void }) {
             </div>
           ) : (
             <div className="sessions-list">
-              {liveSessions.map((session) => <SessionRow key={session.id} s={session} projects={data.projects} />)}
+              {liveSessions.map((session) => <SessionRow key={`${session.provider}:${session.id}`} s={session} projects={data.projects} />)}
             </div>
           )}
         </section>
@@ -49,7 +49,7 @@ export function SessionsPage({ data }: { data: WBData; reload: () => void }) {
             </div>
           ) : (
             <div className="sessions-list">
-              {recentSessions.map((session) => <SessionRow key={session.id} s={session} projects={data.projects} />)}
+              {recentSessions.map((session) => <SessionRow key={`${session.provider}:${session.id}`} s={session} projects={data.projects} />)}
             </div>
           )}
         </section>

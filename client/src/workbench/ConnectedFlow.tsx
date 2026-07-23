@@ -1,7 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import type { ReactNode } from 'react';
 import { LiveDot } from '../components/effects';
-import { fmt, type WBData, type WBProject, type WBSession, type WBTodo } from './data';
+import { fmt, sessionPath, type WBData, type WBProject, type WBSession, type WBTodo } from './data';
 import { ModelBadge } from './shared';
 
 function projectName(projects: WBProject[], id: string | null | undefined): string {
@@ -54,7 +54,7 @@ export function ConnectedFlow({ data }: { data: WBData }) {
         detail={recentSession ? <SessionMeta session={recentSession} /> : 'agent trace will appear here'}
         disabled={!recentSession}
         testId="flow-session"
-        onClick={() => recentSession && navigate(`/sessions/${encodeURIComponent(recentSession.id)}`)}
+        onClick={() => recentSession && navigate(sessionPath(recentSession))}
       />
       <FlowCard
         tone="orange"

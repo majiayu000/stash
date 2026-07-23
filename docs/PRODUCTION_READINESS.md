@@ -61,8 +61,9 @@ Problem:
 `/api/analytics/weekly` depend on local session histories. The current build
 uses per-file metadata/usage cache, route limits, in-process singleflight,
 shared frontend snapshots, and a dedicated Worker for filesystem scans and
-Burn aggregation. A general stale-while-refresh backend for every
-session-derived route is not implemented yet.
+Burn aggregation. Exact session lookup, bounded transcript pages, and decision
+extraction also run through that Worker. A general stale-while-refresh backend
+for every session-derived route is not implemented yet.
 
 Observed on 2026-05-19:
 
@@ -101,23 +102,27 @@ Done when:
 
 ### 2. Make Route Contracts Exact
 
-Tracking issue: [#1](https://github.com/majiayu000/stash/issues/1)
+Tracking issues: [#1](https://github.com/majiayu000/stash/issues/1) (closed)
+and [#127](https://github.com/majiayu000/stash/issues/127).
 
-Problem:
-The current app supports `/sessions/:sessionId`. Provider-qualified session
-links should either
-work or disappear from docs and UI.
+Current contract:
+`/sessions/:provider/:sessionId` is canonical. It fetches the exact provider
+session independently of the recent list and incrementally loads bounded event
+pages. `/sessions/:sessionId` is compatibility-only: one provider redirects,
+two providers show explicit choices, and zero providers show not found.
 
 Target:
 All documented routes work exactly as documented.
 
-Plan:
+Delivered:
 
-1. Keep `/sessions/:sessionId` as the current canonical route.
-2. Add `/sessions/:provider/:sessionId` only if the UI needs provider disambiguation.
-3. If provider-qualified links are added, update `SessionDetailPage` to read both
-   parameters and resolve the session by provider + id.
-4. Add Playwright coverage for both canonical and compatibility session links.
+1. Every generated session link includes provider and ID.
+2. Exact lookup scans without a file-count cutoff in the Worker.
+3. Event pages use validated opaque cursors, count and byte limits, paging
+   metadata, and complete compact summaries.
+4. Large transcript parsing stays off the HTTP event loop; the concurrency gate
+   keeps `/health` under 250ms.
+5. Component, integration, Worker, and Playwright tests cover the contract.
 
 Done when:
 

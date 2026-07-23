@@ -277,6 +277,72 @@ describe('SessionScanWorker', () => {
     }
   });
 
+  test('parses and bounds transcript pages inside the worker', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'stash-worker-events-'));
+    try {
+      const projectDir = join(root, 'projects', 'project');
+      mkdirSync(projectDir, { recursive: true });
+      const sourcePath = join(projectDir, 'session.jsonl');
+      writeClaudeFixture(sourcePath, '2026-05-14T08:00:00.000Z', 100, 50);
+      const scanner = new SessionScanWorker({ roots: { claude: root } });
+
+      const first = await scanner.eventPage({
+        provider: 'claude',
+        sourcePath,
+        limit: 1,
+      });
+      const second = await scanner.eventPage({
+        provider: 'claude',
+        sourcePath,
+        cursor: first.page.nextCursor ?? undefined,
+        limit: 1,
+      });
+
+      expect(first.data).toHaveLength(1);
+      expect(first.page).toMatchObject({ hasMore: true, totalEvents: 2, limit: 1 });
+      expect(second.data).toHaveLength(1);
+      expect(second.page).toMatchObject({ hasMore: false, nextCursor: null });
+      expect(JSON.stringify(first)).not.toContain(sourcePath);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('extracts decisions from the complete transcript inside the worker', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'stash-worker-decisions-'));
+    try {
+      const projectDir = join(root, 'projects', 'project');
+      mkdirSync(projectDir, { recursive: true });
+      const sourcePath = join(projectDir, 'session.jsonl');
+      const records: unknown[] = [{
+        type: 'user',
+        timestamp: '2026-05-14T08:00:00.000Z',
+        sessionId: 'session-worker-decisions',
+        cwd: '/tmp/project',
+        message: { role: 'user', content: 'We decided to use SQLite.' },
+      }];
+      for (let index = 0; index < 250; index++) {
+        records.push({
+          type: 'assistant',
+          timestamp: new Date(Date.parse('2026-05-14T08:00:01.000Z') + index).toISOString(),
+          message: { role: 'assistant', content: `filler ${index}` },
+        });
+      }
+      writeFileSync(sourcePath, `${records.map((record) => JSON.stringify(record)).join('\n')}\n`);
+      const scanner = new SessionScanWorker({ roots: { claude: root } });
+
+      const result = await scanner.decisionCandidates({ provider: 'claude', sourcePath });
+
+      expect(result).toEqual([{
+        raw: 'We decided to use SQLite.',
+        title: 'use SQLite',
+        timestamp: '2026-05-14T08:00:00.000Z',
+      }]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test('rejects Burn when cached usage is corrupt instead of returning partial data', async () => {
     const root = mkdtempSync(join(tmpdir(), 'stash-worker-burn-cache-error-'));
     const dbPath = join(root, 'stash.db');

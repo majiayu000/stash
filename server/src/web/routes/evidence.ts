@@ -59,11 +59,11 @@ export function createEvidenceRouter(
    * Trigger inference: walk linked sessions for a work item and propose
    * completion candidates. Idempotent.
    */
-  r.post('/infer/:workItemId', (c) => {
+  r.post('/infer/:workItemId', async (c) => {
     try {
       const workItemId = c.req.param('workItemId');
       const linked = links.forWorkItem(workItemId);
-      const scan = aggregator.scan({ provider: 'all', limitPerSource: 200 });
+      const scan = await aggregator.scanAsync({ provider: 'all', limitPerSource: 200 });
       const sessionMap = new Map(scan.sessions.map((s) => [`${s.provider}:${s.id}`, s] as const));
       const proposed = evidence.proposeFromSessions(
         workItemId,

@@ -137,6 +137,26 @@ export function estimateSessionActivity(toolCount: number, messageCount: number)
   };
 }
 
+export function toWorkbenchSession(session: AgentSession): WBSession {
+  const estimate = estimateSessionActivity(session.toolCount, session.messageCount);
+  return {
+    id: session.id,
+    provider: session.provider,
+    project: session.projectId ?? session.cwd,
+    model: session.model ?? (session.provider === 'codex' ? 'codex' : 'claude'),
+    tool: session.provider === 'codex' ? 'codex' : 'claude-code',
+    state: sessionState(session),
+    title: session.title,
+    preview: session.lastMessage ?? session.initialPrompt ?? '',
+    ...estimate,
+    at: new Date(session.lastActiveAt).getTime(),
+  };
+}
+
+export function sessionPath(session: Pick<WBSession, 'provider' | 'id'>): string {
+  return `/sessions/${session.provider}/${encodeURIComponent(session.id)}`;
+}
+
 /**
  * Adapt real backend payloads into workbench-shape data. Workbench pages
  * read from this consistent shape; reshape lives in one place.
@@ -208,21 +228,7 @@ export function adaptToWorkbenchData(input: AdaptInput): WBData {
   });
 
   // Sessions, ordered by most recent.
-  const sessions: WBSession[] = input.sessions.slice(0, 30).map((s) => {
-    const estimate = estimateSessionActivity(s.toolCount, s.messageCount);
-    return {
-      id: s.id,
-      provider: s.provider,
-      project: s.projectId ?? s.cwd,
-      model: s.model ?? (s.provider === 'codex' ? 'codex' : 'claude'),
-      tool: s.provider === 'codex' ? 'codex' : 'claude-code',
-      state: sessionState(s),
-      title: s.title,
-      preview: s.lastMessage ?? s.initialPrompt ?? '',
-      ...estimate,
-      at: new Date(s.lastActiveAt).getTime(),
-    };
-  });
+  const sessions: WBSession[] = input.sessions.slice(0, 30).map(toWorkbenchSession);
 
   // Todos.
   const todos: WBTodo[] = input.items

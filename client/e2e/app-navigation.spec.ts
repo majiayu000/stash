@@ -20,6 +20,7 @@ interface SeededState {
   projectId: string;
   workItemId: string;
   sessionId: string;
+  sessionProvider: string;
 }
 
 const PAGE_MARKERS: Record<PageMarker, (page: Page) => Locator> = {
@@ -42,8 +43,13 @@ async function seedState(request: APIRequestContext): Promise<SeededState> {
   const projectId = await createArea(request, `e2e-navigation-${stamp}`);
   const workItemId = await createWorkItem(request, projectId, `e2e navigation item ${stamp}`);
   await createSkill(request, stamp);
-  const sessionId = await firstSessionId(request);
-  return { projectId, workItemId, sessionId };
+  const session = await firstSession(request);
+  return {
+    projectId,
+    workItemId,
+    sessionId: session.id,
+    sessionProvider: session.provider,
+  };
 }
 
 async function createSkill(request: APIRequestContext, stamp: number): Promise<void> {
@@ -75,13 +81,14 @@ async function createWorkItem(request: APIRequestContext, projectId: string, tit
   return id!;
 }
 
-async function firstSessionId(request: APIRequestContext): Promise<string> {
+async function firstSession(request: APIRequestContext): Promise<{ id: string; provider: string }> {
   const response = await request.get(`${API}/agent-sessions?provider=all`);
   expect(response.ok()).toBeTruthy();
-  const body = (await response.json()) as { data?: Array<{ id?: string }> };
-  const id = body.data?.[0]?.id;
-  expect(id).toBeTruthy();
-  return id!;
+  const body = (await response.json()) as { data?: Array<{ id?: string; provider?: string }> };
+  const session = body.data?.[0];
+  expect(session?.id).toBeTruthy();
+  expect(session?.provider).toBeTruthy();
+  return { id: session!.id!, provider: session!.provider! };
 }
 
 async function expectRoute(page: Page, route: string, marker: PageMarker) {
@@ -131,7 +138,7 @@ test('semantic routes cover sections, entity details, and contextual actions', a
     [`/projects/${state.projectId}/settings`, 'project-detail'],
     ['/sessions', 'sessions'],
     [`/sessions/new?todoId=${state.workItemId}`, 'session-start'],
-    [`/sessions/${state.sessionId}`, 'session-detail'],
+    [`/sessions/${state.sessionProvider}/${state.sessionId}`, 'session-detail'],
     [`/todos/${state.workItemId}`, 'todo-detail'],
     ['/review', 'review'],
     ['/review/usage', 'usage'],
