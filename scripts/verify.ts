@@ -27,6 +27,7 @@ const steps: Step[] = [
     args: ['run', 'doctor'],
   },
   { name: 'typecheck', command: 'bun', args: ['run', 'typecheck'] },
+  { name: 'root tests', command: 'bun', args: ['run', 'test:root'] },
   { name: 'server tests', command: 'bun', args: ['run', 'server:test'] },
   { name: 'client tests', command: 'bun', args: ['run', 'client:test'] },
   { name: 'client build', command: 'bun', args: ['run', 'client:build'] },

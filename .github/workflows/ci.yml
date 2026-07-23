@@ -22,13 +22,8 @@ jobs:
         with:
           bun-version: latest
 
-      - name: Install server dependencies
-        working-directory: server
-        run: bun install --frozen-lockfile
-
-      - name: Install client dependencies
-        working-directory: client
-        run: bun install --frozen-lockfile
+      - name: Install all dependencies
+        run: bun run install:all
 
       - name: Install Playwright Chromium
         working-directory: client
