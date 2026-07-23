@@ -55,4 +55,3 @@ usage/token 记录缺 timestamp，并保持现有大历史性能门槛。
 - 不把真正损坏的来源降级为部分成功。
 - 若完整严格扫描不能满足 B-010，才引入可失效的持久 activity index；不得以
   tail shortcut 换取静默漏算。
-
