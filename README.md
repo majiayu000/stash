@@ -18,7 +18,7 @@ context surfaces itself.
 
 ```sh
 # 1) Install
-bun install
+bun run install:all
 
 # Optional: check local paths and dev servers before first launch
 bun run doctor
@@ -226,7 +226,7 @@ bun run doctor --strict  # fail on missing first-run state or unreachable dev se
 ```
 
 The pre-commit hook (VibeGuard) runs guards inline; no setup needed beyond
-`bun install`.
+`bun run install:all`.
 
 ## Production readiness
 

@@ -45,13 +45,10 @@ bun --version
 `git status --short` must print nothing. Bun must satisfy the `package.json`
 engine requirement.
 
-Install each package because this repository does not currently declare root
-workspaces:
+Install every package from its frozen lockfile with the root bootstrap command:
 
 ```sh
-bun install
-(cd server && bun install)
-(cd client && bun install)
+bun run install:all
 ```
 
 Blocking install warnings:
@@ -322,10 +319,14 @@ Rollback app code:
 ```sh
 git fetch --tags origin
 git checkout "$PREVIOUS_RELEASE"
-bun install
-(cd server && bun install)
-(cd client && bun install)
+bun install --frozen-lockfile
+(cd server && bun install --frozen-lockfile)
+(cd client && bun install --frozen-lockfile)
+(cd shared && bun install --frozen-lockfile)
 ```
+
+Rollback uses the explicit per-package commands because the previous release may
+predate `bun run install:all`.
 
 Rollback DB state:
 

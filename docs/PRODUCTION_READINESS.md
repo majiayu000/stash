@@ -211,7 +211,7 @@ A user can install, run, upgrade, and inspect the app from documented commands.
 
 Plan:
 
-1. Add a release checklist covering `bun install`, seed, server, client, tests,
+1. Add a release checklist covering `bun run install:all`, seed, server, client, tests,
    and DB backup.
 2. Add `doctor` command/API checks for Bun version, DB path, roots, and ports.
 3. Decide whether production packaging means a desktop wrapper, a launchd
