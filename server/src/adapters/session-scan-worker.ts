@@ -107,8 +107,10 @@ export class SessionScanWorker implements SessionScanExecutor {
   private getWorker(): Worker {
     if (this.worker) return this.worker;
 
-    const worker = new Worker(new URL('./session-scan-worker-entry.ts', import.meta.url).href);
-    (worker as Worker & { unref(): void }).unref();
+    const worker = new Worker(
+      new URL('./session-scan-worker-entry.ts', import.meta.url).href,
+      { smol: true, ref: false },
+    );
     worker.onmessage = (event: MessageEvent<unknown>) => {
       const response = decodeWorkerResponse(event.data);
       if (!response) {
@@ -125,6 +127,7 @@ export class SessionScanWorker implements SessionScanExecutor {
           `session scan worker returned ${response.kind} for ${pending.kind} request`,
         ));
       } else {
+        if (pending.kind === 'burn') Bun.gc(true);
         pending.accept(response);
       }
     };

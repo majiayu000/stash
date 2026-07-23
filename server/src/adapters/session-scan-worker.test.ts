@@ -121,6 +121,35 @@ describe('SessionScanWorker', () => {
     }
   });
 
+  test('starts the worker with the small heap and without retaining the parent process', async () => {
+    const originalWorker = globalThis.Worker;
+    let receivedOptions: Bun.WorkerOptions | undefined;
+    class OptionsWorker {
+      onmessage: ((event: MessageEvent) => void) | null = null;
+      onerror: ((event: ErrorEvent) => void) | null = null;
+      onmessageerror: ((event: MessageEvent) => void) | null = null;
+
+      constructor(_url: string | URL, options?: Bun.WorkerOptions) {
+        receivedOptions = options;
+      }
+      terminate(): void {}
+      postMessage(request: { id: number }): void {
+        this.onmessage?.(new MessageEvent('message', {
+          data: { id: request.id, kind: 'scan', result: emptyScanResult() },
+        }));
+      }
+    }
+
+    try {
+      globalThis.Worker = OptionsWorker as unknown as typeof Worker;
+      const scanner = new SessionScanWorker({ roots: {} });
+      await expect(scanner.scan('full', {})).resolves.toEqual(emptyScanResult());
+      expect(receivedOptions).toEqual({ smol: true, ref: false });
+    } finally {
+      globalThis.Worker = originalWorker;
+    }
+  });
+
   test('aggregates usage inside the worker with custom rates and no raw events response', async () => {
     const root = mkdtempSync(join(tmpdir(), 'stash-worker-burn-'));
     try {

@@ -5,7 +5,11 @@ import { ClaudeSource } from './claude/scanner.js';
 import { CodexSource } from './codex/scanner.js';
 import { AgentSessionCache } from './session-cache.js';
 import type { AgentSource } from './source.js';
-import { aggregateBurnFromScan } from '../domain/analytics/burn.js';
+import {
+  aggregateBurnFromScan,
+  type BurnAggregate,
+  type BurnAggregationRequest,
+} from '../domain/analytics/burn.js';
 import type {
   SessionWorkerRequest,
   SessionWorkerResponse,
@@ -27,14 +31,13 @@ self.onmessage = (event: MessageEvent<SessionWorkerRequest>) => {
       const response: SessionWorkerResponse = { id: request.id, kind: 'scan', result };
       postMessage(response);
     } else {
-      const scan = aggregator.scan({});
-      const result = aggregateBurnFromScan(aggregator, scan, request.request);
+      const result = runBurnAggregation(aggregator, request.request);
       const response: SessionWorkerResponse = { id: request.id, kind: 'burn', result };
+      // The heavy scan and per-session usage arrays have left their helper
+      // scope. Collect them before publishing completion so the caller cannot
+      // sample RSS while the Worker still retains request-temporary objects.
+      Bun.gc(true);
       postMessage(response);
-      // Large histories create substantial short-lived JSON objects. Run a
-      // Worker-local collection after the compact response has been cloned so
-      // repeated warm requests do not retain an ever-growing heap arena.
-      queueMicrotask(() => Bun.gc(true));
     }
   } catch (error) {
     const response: SessionWorkerResponse = {
@@ -45,6 +48,14 @@ self.onmessage = (event: MessageEvent<SessionWorkerRequest>) => {
     postMessage(response);
   }
 };
+
+function runBurnAggregation(
+  aggregator: AgentSourceAggregator,
+  request: BurnAggregationRequest,
+): BurnAggregate {
+  const scan = aggregator.scan({});
+  return aggregateBurnFromScan(aggregator, scan, request);
+}
 
 function aggregatorFor(config: SessionScanWorkerConfig): AgentSourceAggregator {
   const signature = JSON.stringify(config);
