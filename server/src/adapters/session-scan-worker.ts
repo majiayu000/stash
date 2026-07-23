@@ -127,7 +127,6 @@ export class SessionScanWorker implements SessionScanExecutor {
           `session scan worker returned ${response.kind} for ${pending.kind} request`,
         ));
       } else {
-        if (pending.kind === 'burn') Bun.gc(true);
         pending.accept(response);
       }
     };

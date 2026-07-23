@@ -72,11 +72,13 @@ describe('GET /api/analytics/burn bounded worker performance', () => {
       const rssSeries: number[] = [];
       const elapsedSeries: number[] = [];
       let healthMs = 0;
+      let eventLoopTailLagMs = 0;
       let last: BurnResponse | undefined;
 
       for (let iteration = 0; iteration < 3; iteration++) {
         Bun.gc(true);
         const started = performance.now();
+        const tailProbe = probeEventLoopTail(started);
         const burnRequest = app.request('/api/analytics/burn?days=30');
         const healthStarted = performance.now();
         const healthRequest = Promise.resolve(app.request('/health')).then(
@@ -92,6 +94,7 @@ describe('GET /api/analytics/burn bounded worker performance', () => {
         healthMs = Math.max(healthMs, health.elapsedMs);
         elapsedSeries.push(elapsedMs);
         last = await burnResponse.json() as BurnResponse;
+        eventLoopTailLagMs = Math.max(eventLoopTailLagMs, await tailProbe);
         Bun.gc(true);
         rssSeries.push(process.memoryUsage().rss);
       }
@@ -121,6 +124,7 @@ describe('GET /api/analytics/burn bounded worker performance', () => {
         benchmark: 'burn-worker-16384-6000-50000',
         elapsedMs: elapsedSeries.map(roundMs),
         healthMs: roundMs(healthMs),
+        eventLoopTailLagMs: roundMs(eventLoopTailLagMs),
         rssBaseline,
         rssSeries,
         rssFinalDelta: rssSeries.at(-1)! - rssBaseline,
@@ -130,6 +134,7 @@ describe('GET /api/analytics/burn bounded worker performance', () => {
       expect(JSON.stringify(last)).not.toContain('usageBySource');
       expect(Math.max(...elapsedSeries)).toBeLessThanOrEqual(BURN_BUDGET_MS);
       expect(healthMs).toBeLessThanOrEqual(HEALTH_BUDGET_MS);
+      expect(eventLoopTailLagMs).toBeLessThanOrEqual(HEALTH_BUDGET_MS);
       expect(isStrictlyIncreasing(rssSeries)).toBe(false);
       expect(rssSeries.at(-1)! - rssBaseline).toBeLessThanOrEqual(RSS_BUDGET_BYTES);
 
@@ -241,4 +246,14 @@ function isStrictlyIncreasing(values: number[]): boolean {
 
 function roundMs(value: number): number {
   return Number(value.toFixed(3));
+}
+
+async function probeEventLoopTail(startedAt: number): Promise<number> {
+  const delays = [50, 150, 250];
+  const lags = await Promise.all(delays.map((delayMs) => new Promise<number>((resolve) => {
+    setTimeout(() => {
+      resolve(Math.max(0, performance.now() - startedAt - delayMs));
+    }, delayMs);
+  })));
+  return Math.max(...lags);
 }

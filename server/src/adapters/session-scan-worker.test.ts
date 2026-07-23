@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, spyOn, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -146,6 +146,34 @@ describe('SessionScanWorker', () => {
       await expect(scanner.scan('full', {})).resolves.toEqual(emptyScanResult());
       expect(receivedOptions).toEqual({ smol: true, ref: false });
     } finally {
+      globalThis.Worker = originalWorker;
+    }
+  });
+
+  test('settles Burn pending work without running garbage collection on the main thread', async () => {
+    const originalWorker = globalThis.Worker;
+    const gc = spyOn(Bun, 'gc');
+    class BurnResponseWorker {
+      onmessage: ((event: MessageEvent) => void) | null = null;
+      onerror: ((event: ErrorEvent) => void) | null = null;
+      onmessageerror: ((event: MessageEvent) => void) | null = null;
+
+      terminate(): void {}
+      postMessage(request: { id: number }): void {
+        this.onmessage?.(new MessageEvent('message', {
+          data: { id: request.id, kind: 'burn', result: emptyBurnAggregate() },
+        }));
+      }
+    }
+
+    try {
+      globalThis.Worker = BurnResponseWorker as unknown as typeof Worker;
+      const scanner = new SessionScanWorker({ roots: {} });
+      await expect(scanner.aggregateBurn({ startMs: 0, days: 1, rates: [] }))
+        .resolves.toEqual(emptyBurnAggregate());
+      expect(gc).not.toHaveBeenCalled();
+    } finally {
+      gc.mockRestore();
       globalThis.Worker = originalWorker;
     }
   });
@@ -337,5 +365,16 @@ function emptyScanResult() {
       filesReused: 0,
       sources: [],
     },
+  };
+}
+
+function emptyBurnAggregate() {
+  return {
+    totals: { tokens: 0, cost: 0, sessions: 0 },
+    dailySpend: [],
+    hourlyHeatmap: Array.from({ length: 7 }, () => Array<number>(24).fill(0)),
+    modelMix: [],
+    perProjectLeaderboard: [],
+    cache: emptyScanResult().cache,
   };
 }
