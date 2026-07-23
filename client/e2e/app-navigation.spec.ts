@@ -91,10 +91,12 @@ async function expectRoute(page: Page, route: string, marker: PageMarker) {
 }
 
 async function openWorkContext(page: Page) {
+  const summary = page.getByTestId('ce-insights').locator('.ce-insights-summary');
   const connectedFlow = page.getByTestId('connected-flow');
-  if (!(await connectedFlow.isVisible())) {
-    await page.getByTestId('ce-insights').locator('.ce-insights-summary').click();
+  if (await summary.getAttribute('aria-expanded') !== 'true') {
+    await summary.click();
   }
+  await expect(summary).toHaveAttribute('aria-expanded', 'true');
   await expect(connectedFlow).toBeVisible({ timeout: 10_000 });
 }
 
