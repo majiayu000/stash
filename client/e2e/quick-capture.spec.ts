@@ -33,6 +33,9 @@ test('Quick Capture parses inline tokens and lands a structured work item', asyn
   await expect(page.getByTestId('qc-toast')).toBeVisible();
 
   // Verify via API
+  const runtimeRes = await request.get(`${API}/runtime`);
+  expect(runtimeRes.ok()).toBeTruthy();
+  const runtime = await runtimeRes.json() as { timeZone: string; calendarDate: string };
   const res = await request.get(`${API}/work-items?status=inbox`);
   expect(res.ok()).toBeTruthy();
   const json = await res.json();
@@ -43,5 +46,15 @@ test('Quick Capture parses inline tokens and lands a structured work item', asyn
   expect(found?.labels).toContain('e2e');
   expect(found?.estimateMinutes).toBe(45);
   expect(found?.scheduledFor).toBeTruthy();
-  expect(found?.startAt).toContain('20:30');
+  expect(wallClockTime(found?.startAt, runtime.timeZone)).toBe('20:30');
 });
+
+function wallClockTime(instant: string | undefined, timeZone: string): string | undefined {
+  if (!instant) return undefined;
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone,
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).format(new Date(instant));
+}

@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import type { WorkItem } from '@stash/shared';
+import { zoned_parts, type WorkItem } from '@stash/shared';
 
 export function EditableTitle({ value, disabled, onCommit }: { value: string; disabled?: boolean; onCommit: (next: string) => void | Promise<void> }) {
   const [text, setText] = useState(value);
@@ -123,10 +123,14 @@ export function optionToRecurrence(opt: string): WorkItem['recurrence'] {
   }
 }
 
-// ISO datetime -> "YYYY-MM-DDTHH:MM" suitable for <input type=datetime-local>.
-export function toLocalDateTime(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
+// UTC instant -> configured-zone wall time for <input type=datetime-local>.
+export function toLocalDateTime(iso: string, time_zone: string): string {
+  let parts: ReturnType<typeof zoned_parts>;
+  try {
+    parts = zoned_parts(iso, time_zone);
+  } catch {
+    return '';
+  }
   const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return `${String(parts.year).padStart(4, '0')}-${pad(parts.month)}-${pad(parts.day)}T${pad(parts.hour)}:${pad(parts.minute)}`;
 }

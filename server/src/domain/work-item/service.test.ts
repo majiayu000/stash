@@ -64,6 +64,78 @@ describe('WorkItemService.create', () => {
     expect(found?.links).toEqual(['https://example.com']);
     expect(found?.checklist).toEqual([{ id: 'c1', text: 'step a', completed: false }]);
   });
+
+  test('resolves relative dates and local reminders in the configured zone', () => {
+    const zoned = new WorkItemService({
+      db,
+      clock: fixedClock('2026-03-08T06:00:00.000Z'),
+      time_zone: 'America/New_York',
+    });
+    const item = zoned.create({
+      title: 'DST reminder',
+      scheduledForRelative: 'tomorrow',
+      reminderLocalDateTime: '2026-03-08T02:30',
+    });
+    expect(item.scheduledFor).toBe('2026-03-09');
+    expect(item.reminderAt).toBe('2026-03-08T07:30:00.000Z');
+    const persisted = item as unknown as Record<string, unknown>;
+    expect(persisted.scheduledForRelative).toBeUndefined();
+    expect(persisted.reminderLocalDateTime).toBeUndefined();
+  });
+
+  test('rejects conflicting absolute and semantic calendar fields', () => {
+    expect(() => service.create({
+      title: 'conflict',
+      scheduledFor: '2026-05-14',
+      scheduledForRelative: 'today',
+    })).toThrow(ValidationError);
+    expect(() => service.create({
+      title: 'conflict',
+      reminderAt: '2026-05-14T10:00:00.000Z',
+      reminderLocalDateTime: '2026-05-14T18:00',
+    })).toThrow(ValidationError);
+    expect(() => service.create({
+      title: 'bad date',
+      dueAt: '2026-02-30',
+    })).toThrow(ValidationError);
+    expect(() => service.create({
+      title: 'bad instant',
+      startAt: '2026-05-14',
+    })).toThrow(ValidationError);
+  });
+});
+
+describe('WorkItemService.today calendar semantics', () => {
+  test('uses the configured zone on both sides of UTC midnight', () => {
+    const instant = fixedClock('2026-05-14T00:30:00.000Z');
+    const shanghai = new WorkItemService({
+      db: freshDb(),
+      clock: instant,
+      time_zone: 'Asia/Shanghai',
+    });
+    const los_angeles = new WorkItemService({
+      db: freshDb(),
+      clock: instant,
+      time_zone: 'America/Los_Angeles',
+    });
+    shanghai.create({ title: 'Shanghai today', scheduledFor: '2026-05-14' });
+    los_angeles.create({ title: 'LA today', scheduledFor: '2026-05-13' });
+
+    expect(shanghai.today().map((item) => item.title)).toEqual(['Shanghai today']);
+    expect(los_angeles.today().map((item) => item.title)).toEqual(['LA today']);
+  });
+
+  test('treats due dates as inclusive through their configured-zone day', () => {
+    const service = new WorkItemService({
+      db: freshDb(),
+      clock: fixedClock('2026-05-14T18:00:00.000Z'),
+      time_zone: 'Asia/Shanghai',
+    });
+    service.create({ title: 'due today', dueAt: '2026-05-15' });
+    service.create({ title: 'overdue', dueAt: '2026-05-14' });
+
+    expect(service.today().map((item) => item.title)).toEqual(['overdue']);
+  });
 });
 
 describe('WorkItemService.list', () => {
@@ -177,7 +249,7 @@ describe('WorkItemService.update', () => {
       context: 'ctx',
       scheduledFor: '2026-05-14',
       startAt: '2026-05-14T09:00:00.000Z',
-      dueAt: '2026-05-14T18:00:00.000Z',
+      dueAt: '2026-05-14',
       sortOrder: 1000,
     });
 
@@ -210,6 +282,21 @@ describe('WorkItemService.update', () => {
   test('rejects empty title on update', () => {
     const item = service.create({ title: 'thing' });
     expect(() => service.update(item.id, { title: '   ' })).toThrow(ValidationError);
+  });
+
+  test('resolves semantic calendar fields on every update request', () => {
+    const zoned = new WorkItemService({
+      db,
+      clock: fixedClock('2026-05-14T23:30:00.000Z'),
+      time_zone: 'Asia/Shanghai',
+    });
+    const item = zoned.create({ title: 'thing' });
+    const updated = zoned.update(item.id, {
+      scheduledForRelative: 'today',
+      reminderLocalDateTime: '2026-05-15T09:00',
+    });
+    expect(updated.scheduledFor).toBe('2026-05-15');
+    expect(updated.reminderAt).toBe('2026-05-15T01:00:00.000Z');
   });
 });
 

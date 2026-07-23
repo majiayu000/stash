@@ -1,5 +1,7 @@
 import type { Database } from 'bun:sqlite';
 import {
+  assert_time_zone,
+  calendar_date_at,
   STATUS_TRANSITIONS,
   systemClock,
   ulid,
@@ -13,6 +15,7 @@ import {
 } from '@stash/shared';
 import { nextInstanceFromCompleted } from './recurrence.js';
 import { WorkItemRepository, type ListFilter } from './repository.js';
+import { resolve_work_item_calendar_fields } from './calendar-input.js';
 
 export class WorkItemNotFoundError extends Error {
   constructor(id: string) {
@@ -38,6 +41,7 @@ export class ValidationError extends Error {
 export interface WorkItemServiceDeps {
   db: Database;
   clock?: Clock;
+  time_zone?: string;
 }
 
 export function isTransitionAllowed(from: WorkItemStatus, to: WorkItemStatus): boolean {
@@ -48,10 +52,12 @@ export function isTransitionAllowed(from: WorkItemStatus, to: WorkItemStatus): b
 export class WorkItemService {
   private readonly repo: WorkItemRepository;
   private readonly clock: Clock;
+  private readonly time_zone: string;
 
   constructor(deps: WorkItemServiceDeps) {
     this.repo = new WorkItemRepository(deps.db);
     this.clock = deps.clock ?? systemClock;
+    this.time_zone = assert_time_zone(deps.time_zone ?? 'UTC');
   }
 
   create(input: CreateWorkItemInput): WorkItem {
@@ -59,6 +65,7 @@ export class WorkItemService {
     if (!title) throw new ValidationError('title is required');
 
     const now = this.clock.nowIso();
+    const calendar_fields = this.resolve_calendar_fields(input);
     const status: WorkItemStatus = input.status ?? 'inbox';
     const kind = input.kind ?? 'task';
     assertSystemTemplateStatus(kind, status);
@@ -80,14 +87,14 @@ export class WorkItemService {
       labels: input.labels ?? [],
       checklist: input.checklist ?? [],
       estimateMinutes: input.estimateMinutes,
-      reminderAt: input.reminderAt,
+      reminderAt: calendar_fields.reminder_at ?? input.reminderAt,
       blockedBy: input.blockedBy?.trim() || undefined,
       waitingOn: input.waitingOn?.trim() || undefined,
       links: input.links ?? [],
       reviewAt: input.reviewAt,
       startAt: input.startAt,
       dueAt: input.dueAt,
-      scheduledFor: input.scheduledFor,
+      scheduledFor: calendar_fields.scheduled_for ?? input.scheduledFor,
       todayPinned: input.todayPinned ?? false,
       sortOrder: input.sortOrder,
       recurrence: input.recurrence,
@@ -133,19 +140,19 @@ export class WorkItemService {
    * SPEC v0.3 §3d — Today list. Returns items that:
    *   - are pinned via today_pinned, OR
    *   - have start_at <= now (visibility gate elapsed), OR
-   *   - are overdue (due_at < now and not done), OR
+   *   - are overdue (due_at < the configured-zone calendar date), OR
    *   - are scheduled for today's date
    * Excludes done/dropped. Pinned items sort first.
    */
   today(): WorkItem[] {
     const nowIso = this.clock.nowIso();
-    const today = nowIso.slice(0, 10);
+    const today = calendar_date_at(this.clock.now(), this.time_zone);
     const all = this.repo.list({});
     const matched = all.filter((it) => {
       if (it.status === 'done' || it.status === 'dropped') return false;
       if (it.todayPinned) return true;
       if (it.startAt && it.startAt <= nowIso) return true;
-      if (it.dueAt && it.dueAt < nowIso) return true;
+      if (it.dueAt && it.dueAt < today) return true;
       if (it.scheduledFor === today) return true;
       return false;
     });
@@ -182,10 +189,12 @@ export class WorkItemService {
         : input.status && input.status !== 'done'
           ? undefined
           : existing.completedAt;
+    const calendar_fields = this.resolve_calendar_fields(input);
+    const persisted_input = stripSemanticFields(input);
 
     const merged: WorkItem = {
       ...existing,
-      ...(stripUndefined(input) as Partial<WorkItem>),
+      ...(stripUndefined(persisted_input) as Partial<WorkItem>),
       projectId: clearable(input.projectId, existing.projectId),
       areaId: clearable(input.areaId, existing.areaId),
       parentId: clearable(input.parentId, existing.parentId),
@@ -194,13 +203,17 @@ export class WorkItemService {
       outcome: clearableTrimmed(input.outcome, existing.outcome),
       context: clearableTrimmed(input.context, existing.context),
       estimateMinutes: clearable(input.estimateMinutes, existing.estimateMinutes),
-      reminderAt: clearable(input.reminderAt, existing.reminderAt),
+      reminderAt: calendar_fields.reminder_at === undefined
+        ? clearable(input.reminderAt, existing.reminderAt)
+        : calendar_fields.reminder_at,
       blockedBy: clearableTrimmed(input.blockedBy, existing.blockedBy),
       waitingOn: clearableTrimmed(input.waitingOn, existing.waitingOn),
       reviewAt: clearable(input.reviewAt, existing.reviewAt),
       startAt: clearable(input.startAt, existing.startAt),
       dueAt: clearable(input.dueAt, existing.dueAt),
-      scheduledFor: clearable(input.scheduledFor, existing.scheduledFor),
+      scheduledFor: calendar_fields.scheduled_for === undefined
+        ? clearable(input.scheduledFor, existing.scheduledFor)
+        : calendar_fields.scheduled_for,
       status: nextStatus,
       labels: input.labels ?? existing.labels,
       checklist: input.checklist ?? existing.checklist,
@@ -244,6 +257,16 @@ export class WorkItemService {
     }
 
     return saved;
+  }
+
+  private resolve_calendar_fields(
+    input: CreateWorkItemInput | UpdateWorkItemInput,
+  ): { scheduled_for?: string; reminder_at?: string } {
+    try {
+      return resolve_work_item_calendar_fields(input, this.clock, this.time_zone);
+    } catch (error) {
+      throw new ValidationError(error instanceof Error ? error.message : String(error));
+    }
   }
 
   /**
@@ -333,6 +356,17 @@ function stripUndefined<T extends object>(o: T): T {
     if (v !== undefined) (out as Record<string, unknown>)[k] = v;
   }
   return out;
+}
+
+function stripSemanticFields(
+  input: CreateWorkItemInput | UpdateWorkItemInput,
+): Omit<CreateWorkItemInput | UpdateWorkItemInput, 'scheduledForRelative' | 'reminderLocalDateTime'> {
+  const {
+    scheduledForRelative: _scheduled_for_relative,
+    reminderLocalDateTime: _reminder_local_date_time,
+    ...persisted
+  } = input;
+  return persisted;
 }
 
 function clearable<T>(next: T | null | undefined, existing: T | undefined): T | undefined {

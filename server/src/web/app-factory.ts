@@ -2,7 +2,13 @@ import { Hono, type MiddlewareHandler } from 'hono';
 import { cors } from 'hono/cors';
 import { logger as honoLogger } from 'hono/logger';
 import type { Database } from 'bun:sqlite';
-import { systemClock, type AgentProvider, type Clock } from '@stash/shared';
+import {
+  assert_time_zone,
+  calendar_date_at,
+  systemClock,
+  type AgentProvider,
+  type Clock,
+} from '@stash/shared';
 import type { Config, SessionSpawnMode } from '../config.js';
 import { AgentSourceAggregator } from '../adapters/aggregator.js';
 import { ClaudeSource } from '../adapters/claude/scanner.js';
@@ -71,6 +77,7 @@ function rejectUntrustedBrowserOrigins(allowedOrigins: ReadonlySet<string>): Mid
 export interface AppContext {
   db: Database;
   clock?: Clock;
+  time_zone?: string;
   claudeRoot?: string;
   codexRoot?: string;
   /** Extra browser origins allowed to call the local API, e.g. e2e client ports. */
@@ -96,8 +103,11 @@ function spawnImplForMode(mode: SessionSpawnMode): SpawnImpl | undefined {
 
 export function createApp(ctx: AppContext): Hono {
   const clock = ctx.clock ?? systemClock;
+  const time_zone = assert_time_zone(
+    ctx.time_zone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
+  );
   const areaService = new AreaService({ db: ctx.db, clock });
-  const workItemService = new WorkItemService({ db: ctx.db, clock });
+  const workItemService = new WorkItemService({ db: ctx.db, clock, time_zone });
   const sessionLinks = new WorkItemSessionService({ db: ctx.db, clock });
   const evidenceService = new EvidenceService({ db: ctx.db, clock });
   const skillService = new SkillService({ db: ctx.db, clock });
@@ -154,13 +164,14 @@ export function createApp(ctx: AppContext): Hono {
         cacheDbPath: ctx.db.filename,
       });
   const aggregator = new AgentSourceAggregator(sources, scanExecutor);
-  const burnService = new BurnService({ aggregator, areaService, clock });
+  const burnService = new BurnService({ aggregator, areaService, clock, time_zone });
   const weeklyService = new WeeklyReviewService({
     workItemService,
     areaService,
     aggregator,
     burnService,
     clock,
+    time_zone,
   });
 
   const localClientOrigins = resolveAllowedOrigins(ctx.allowedOrigins);
@@ -174,6 +185,11 @@ export function createApp(ctx: AppContext): Hono {
   app.get('/health', (c) =>
     c.json({ ok: true, service: 'stash', version: '0.1.13', time: clock.nowIso() }),
   );
+  app.get('/api/runtime', (c) => c.json({
+    timeZone: time_zone,
+    calendarDate: calendar_date_at(clock.now(), time_zone),
+    now: clock.nowIso(),
+  }));
 
   app.route('/api/areas', createAreasRouter(areaService));
   app.route('/api/work-items', createWorkItemAiRouter(aiProviderService, aiDraftService));
@@ -181,9 +197,14 @@ export function createApp(ctx: AppContext): Hono {
   app.route('/api/meeting-triage', createMeetingTriageRouter({ db: ctx.db, ai: aiProviderService, clock }));
   app.route(
     '/api/work-items',
-    createWorkItemsRouter(workItemService, sessionLinks, evidenceService, { areaService, journal: journalService, clock }),
+    createWorkItemsRouter(workItemService, sessionLinks, evidenceService, {
+      areaService,
+      journal: journalService,
+      clock,
+      time_zone,
+    }),
   );
-  app.route('/api/overview', createOverviewRouter(workItemService, clock));
+  app.route('/api/overview', createOverviewRouter(workItemService, clock, time_zone));
   app.route('/api/agent-sessions', createAgentSessionsRouter(aggregator, sessionLinks, decisionCandidateService));
   app.route('/api/workboard', createWorkboardRouter(workItemService, sessionLinks, aggregator));
   app.route('/api/evidence', createEvidenceRouter(evidenceService, sessionLinks, aggregator));

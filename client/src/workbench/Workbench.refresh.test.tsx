@@ -9,6 +9,7 @@ const hookState = vi.hoisted(() => ({
   data: undefined as WBData | undefined,
   loading: false,
   error: undefined as Error | undefined,
+  calendarBlocked: false,
   reload: vi.fn(),
   revalidate: vi.fn(),
 }));
@@ -43,6 +44,7 @@ vi.mock('./TodayTriage', () => ({ TodayTriage: () => null }));
 vi.mock('./AsyncErrorHost', () => ({ AsyncErrorHost: () => null }));
 
 const cachedData: WBData = {
+  runtime: { timeZone: 'UTC', calendarDate: '2026-07-11', now: '2026-07-11T00:00:00.000Z' },
   projects: [],
   sessions: [],
   todos: [],
@@ -69,6 +71,7 @@ beforeEach(() => {
   hookState.data = undefined;
   hookState.loading = false;
   hookState.error = undefined;
+  hookState.calendarBlocked = false;
   hookState.reload.mockReset();
   hookState.revalidate.mockReset();
 });
@@ -99,6 +102,21 @@ describe('Workbench refresh errors', () => {
     expect(screen.getByRole('alert')).toHaveTextContent("We couldn't load your workbench");
     expect(screen.queryByTestId('work-page')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(hookState.reload).toHaveBeenCalledTimes(1);
+  });
+
+  test('blocks calendar pages after midnight while retaining cached non-calendar data', () => {
+    hookState.data = cachedData;
+    hookState.error = new Error('runtime refresh failed');
+    hookState.calendarBlocked = true;
+
+    renderWorkbench();
+
+    expect(screen.getByTestId('calendar-refresh-block')).toHaveTextContent(
+      'runtime refresh failed',
+    );
+    expect(screen.queryByTestId('work-page')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry calendar refresh' }));
     expect(hookState.reload).toHaveBeenCalledTimes(1);
   });
 

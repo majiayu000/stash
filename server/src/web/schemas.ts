@@ -1,4 +1,9 @@
 import { z } from 'zod';
+import {
+  assert_utc_instant,
+  parse_calendar_date,
+  parse_local_date_time,
+} from '@stash/shared';
 
 const Priority = z.enum(['p0', 'p1', 'p2', 'p3']);
 const Kind = z.enum([
@@ -27,6 +32,27 @@ const Source = z.enum(['manual', 'claude_plan', 'codex_goal', 'session_inferred'
 const Confidence = z.enum(['explicit', 'inferred']);
 const Assignee = z.enum(['human', 'claude', 'codex', 'mixed']);
 const ReviewCadence = z.enum(['daily', 'weekly', 'monthly', 'ad_hoc']);
+const CalendarDate = z.string().superRefine((value, ctx) => {
+  try {
+    parse_calendar_date(value);
+  } catch {
+    ctx.addIssue({ code: 'custom', message: 'expected Gregorian calendar date YYYY-MM-DD' });
+  }
+});
+const UtcInstant = z.string().superRefine((value, ctx) => {
+  try {
+    assert_utc_instant(value);
+  } catch {
+    ctx.addIssue({ code: 'custom', message: 'expected valid UTC instant ending in Z' });
+  }
+});
+const LocalDateTime = z.string().superRefine((value, ctx) => {
+  try {
+    parse_local_date_time(value);
+  } catch {
+    ctx.addIssue({ code: 'custom', message: 'expected local date-time YYYY-MM-DDTHH:mm' });
+  }
+});
 
 const ChecklistItem = z.object({
   id: z.string(),
@@ -41,7 +67,7 @@ const Recurrence = z.object({
   freq: RecurrenceFreq.optional(),
   interval: z.number().int().positive().optional(),
   byDay: z.array(RecurrenceWeekday).optional(),
-  until: z.string().optional(),
+  until: CalendarDate.optional(),
   count: z.number().int().positive().optional(),
   offsetDays: z.number().int().positive().optional(),
 });
@@ -60,7 +86,7 @@ export const UpdateAreaBody = z.object({
   reviewCadence: ReviewCadence.optional(),
 });
 
-export const CreateWorkItemBody = z.object({
+const WorkItemBodyShape = {
   title: z.string().min(1),
   description: z.string().optional(),
   outcome: z.string().optional(),
@@ -77,21 +103,53 @@ export const CreateWorkItemBody = z.object({
   labels: z.array(z.string()).optional(),
   checklist: z.array(ChecklistItem).optional(),
   estimateMinutes: z.number().int().nonnegative().optional(),
-  reminderAt: z.string().optional(),
+  reminderAt: UtcInstant.optional(),
+  reminderLocalDateTime: LocalDateTime.optional(),
   blockedBy: z.string().optional(),
   waitingOn: z.string().optional(),
   links: z.array(z.string()).optional(),
-  reviewAt: z.string().optional(),
-  startAt: z.string().optional(),
-  dueAt: z.string().optional(),
-  scheduledFor: z.string().optional(),
+  reviewAt: CalendarDate.optional(),
+  startAt: UtcInstant.optional(),
+  dueAt: CalendarDate.optional(),
+  scheduledFor: CalendarDate.optional(),
+  scheduledForRelative: z.enum(['today', 'tomorrow']).optional(),
   todayPinned: z.boolean().optional(),
   sortOrder: z.number().optional(),
   recurrence: Recurrence.optional(),
   rawInput: z.string().optional(),
-});
+};
 
-export const UpdateWorkItemBody = CreateWorkItemBody.partial().extend({
+function validateSemanticCalendarFields(
+  value: {
+    scheduledFor?: string | null;
+    scheduledForRelative?: 'today' | 'tomorrow';
+    reminderAt?: string | null;
+    reminderLocalDateTime?: string;
+  },
+  ctx: z.RefinementCtx,
+): void {
+  if (value.scheduledFor !== undefined && value.scheduledFor !== null
+    && value.scheduledForRelative !== undefined) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['scheduledForRelative'],
+      message: 'scheduledForRelative is mutually exclusive with scheduledFor',
+    });
+  }
+  if (value.reminderAt !== undefined && value.reminderAt !== null
+    && value.reminderLocalDateTime !== undefined) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['reminderLocalDateTime'],
+      message: 'reminderLocalDateTime is mutually exclusive with reminderAt',
+    });
+  }
+}
+
+export const CreateWorkItemBody = z.object(WorkItemBodyShape)
+  .superRefine(validateSemanticCalendarFields);
+
+export const UpdateWorkItemBody = z.object(WorkItemBodyShape).partial().extend({
   projectId: z.string().nullable().optional(),
   areaId: z.string().nullable().optional(),
   parentId: z.string().nullable().optional(),
@@ -99,17 +157,17 @@ export const UpdateWorkItemBody = CreateWorkItemBody.partial().extend({
   outcome: z.string().nullable().optional(),
   context: z.string().nullable().optional(),
   estimateMinutes: z.number().int().nonnegative().nullable().optional(),
-  reminderAt: z.string().nullable().optional(),
+  reminderAt: UtcInstant.nullable().optional(),
   blockedBy: z.string().nullable().optional(),
   waitingOn: z.string().nullable().optional(),
-  reviewAt: z.string().nullable().optional(),
-  startAt: z.string().nullable().optional(),
-  dueAt: z.string().nullable().optional(),
-  scheduledFor: z.string().nullable().optional(),
+  reviewAt: CalendarDate.nullable().optional(),
+  startAt: UtcInstant.nullable().optional(),
+  dueAt: CalendarDate.nullable().optional(),
+  scheduledFor: CalendarDate.nullable().optional(),
   sortOrder: z.number().nullable().optional(),
   recurrence: Recurrence.nullable().optional(),
   rawInput: z.string().nullable().optional(),
-});
+}).superRefine(validateSemanticCalendarFields);
 
 export const ListWorkItemsQuery = z.object({
   status: z
@@ -129,14 +187,14 @@ export const ListWorkItemsQuery = z.object({
     .transform((v) => (v === undefined ? undefined : v === 'true')),
   q: z.string().optional(),
   priority: z.enum(['p0', 'p1', 'p2', 'p3']).optional(),
-  dueBefore: z.string().optional(),
+  dueBefore: CalendarDate.optional(),
   todayPinned: z
     .union([z.literal('true'), z.literal('false')])
     .optional()
     .transform((v) => (v === undefined ? undefined : v === 'true')),
   label: z.string().optional(),
-  scheduledFrom: z.string().optional(),
-  scheduledTo: z.string().optional(),
+  scheduledFrom: CalendarDate.optional(),
+  scheduledTo: CalendarDate.optional(),
   scheduledIsNull: z
     .union([z.literal('true'), z.literal('false')])
     .optional()

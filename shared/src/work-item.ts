@@ -114,6 +114,7 @@ export interface CreateWorkItemInput {
   checklist?: ChecklistItem[];
   estimateMinutes?: number;
   reminderAt?: string;
+  reminderLocalDateTime?: string;
   blockedBy?: string;
   waitingOn?: string;
   links?: string[];
@@ -121,6 +122,7 @@ export interface CreateWorkItemInput {
   startAt?: string;
   dueAt?: string;
   scheduledFor?: string;
+  scheduledForRelative?: 'today' | 'tomorrow';
   todayPinned?: boolean;
   sortOrder?: number;
   recurrence?: RecurrenceRule;

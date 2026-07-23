@@ -84,7 +84,10 @@ test('Work capture legend matches the parser grammar end-to-end', async ({ page 
   expect(item, 'captured item should be queryable').toBeTruthy();
   expect(item.priority).toBe('p1');
   expect(item.labels).toContain('legendcheck');
-  expect(item.scheduledFor).toBe(new Date().toISOString().slice(0, 10));
+  const runtimeRes = await page.request.get(`${API}/runtime`);
+  expect(runtimeRes.ok()).toBe(true);
+  const runtime = await runtimeRes.json() as { calendarDate: string };
+  expect(item.scheduledFor).toBe(runtime.calendarDate);
 });
 
 /**

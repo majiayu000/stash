@@ -1,5 +1,11 @@
 import { Hono } from 'hono';
-import { systemClock, type Clock, type WorkItem } from '@stash/shared';
+import {
+  assert_time_zone,
+  calendar_date_at,
+  systemClock,
+  type Clock,
+  type WorkItem,
+} from '@stash/shared';
 import type { WorkItemService } from '../../domain/work-item/service.js';
 import { handleError } from '../errors.js';
 
@@ -26,20 +32,19 @@ export interface OverviewResponse {
   needsAttention: NeedsAttentionItem[];
 }
 
-function isoDate(now: string): string {
-  // YYYY-MM-DD
-  return now.slice(0, 10);
-}
-
 function isStale(updatedAt: string, todayIso: string, days: number): boolean {
   const u = new Date(updatedAt).getTime();
   const t = new Date(todayIso).getTime();
   return !Number.isNaN(u) && !Number.isNaN(t) && (t - u) / 86400000 >= days;
 }
 
-export function buildOverview(service: WorkItemService, clock: Clock): OverviewResponse {
+export function buildOverview(
+  service: WorkItemService,
+  clock: Clock,
+  time_zone: string,
+): OverviewResponse {
   const nowIso = clock.nowIso();
-  const todayDate = isoDate(nowIso);
+  const todayDate = calendar_date_at(clock.now(), time_zone);
   const all = service.list({ includeDropped: false });
 
   const inbox = all.filter((i) => i.status === 'inbox');
@@ -99,11 +104,13 @@ export function buildOverview(service: WorkItemService, clock: Clock): OverviewR
 export function createOverviewRouter(
   service: WorkItemService,
   clock: Clock = systemClock,
+  time_zone: string = 'UTC',
 ): Hono {
+  const validated_time_zone = assert_time_zone(time_zone);
   const r = new Hono();
   r.get('/', (c) => {
     try {
-      return c.json({ data: buildOverview(service, clock) });
+      return c.json({ data: buildOverview(service, clock, validated_time_zone) });
     } catch (e) {
       return handleError(c, e);
     }

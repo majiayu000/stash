@@ -8,7 +8,13 @@ const BurnQuery = z.object({
   days: z
     .string()
     .optional()
-    .transform((v) => (v === undefined ? undefined : Number(v))),
+    .transform((v) => (v === undefined ? undefined : Number(v)))
+    .refine((v) => v === undefined || Number.isFinite(v), 'days must be a finite number'),
+  endMs: z
+    .string()
+    .optional()
+    .transform((v) => (v === undefined ? undefined : Number(v)))
+    .refine((v) => v === undefined || Number.isFinite(v), 'endMs must be a finite number'),
 });
 
 const WeeklyQuery = z.object({
@@ -21,7 +27,7 @@ export function createAnalyticsRouter(burn: BurnService, weekly: WeeklyReviewSer
   r.get('/burn', async (c) => {
     try {
       const q = BurnQuery.parse(Object.fromEntries(new URL(c.req.url).searchParams));
-      const snapshot = await burn.snapshotAsync({ days: q.days });
+      const snapshot = await burn.snapshotAsync({ days: q.days, endMs: q.endMs });
       return c.json(snapshot);
     } catch (e) {
       return handleError(c, e);

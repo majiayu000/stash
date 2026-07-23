@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { fixedClock } from '@stash/shared';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -11,6 +12,7 @@ import { ProjectKnowledgeService } from '../domain/project-knowledge/service.js'
 import { SkillService } from '../domain/skill/service.js';
 import { WorkItemService } from '../domain/work-item/service.js';
 import { WorkItemSessionService } from '../domain/work-item-session/service.js';
+import { AiDraftService } from '../domain/ai-draft/service.js';
 
 interface TableRow {
   name: string;
@@ -132,6 +134,7 @@ describe('migrate', () => {
         '016_meeting_triage_sources.sql',
         '017_work_item_ai_writes_checklist_destination.sql',
         '018_work_item_coach_summary_destination.sql',
+        '019_calendar_field_formats.sql',
       ]);
       const cacheTable = db
         .query<{ name: string }, []>(
@@ -223,6 +226,105 @@ describe('migrate', () => {
 
       expect(db.query<CountRow, []>('select count(*) as c from work_items').get()?.c).toBe(1);
       expect(db.query<CountRow, []>('select count(*) as c from project_skills').get()?.c).toBe(1);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('normalizes only exact UTC-midnight calendar fields in migration 019', () => {
+    const root = mkdtempSync(join(tmpdir(), 'stash-calendar-migrate-'));
+    try {
+      const legacy_dir = join(root, 'through-018');
+      mkdirSync(legacy_dir);
+      for (const file of listMigrationFiles(MIGRATIONS_DIR)) {
+        if (file <= '018_work_item_coach_summary_destination.sql') {
+          cpSync(join(MIGRATIONS_DIR, file), join(legacy_dir, file));
+        }
+      }
+      const db = openDatabase({ path: ':memory:', inMemory: true });
+      migrate(db, legacy_dir);
+      const clock = fixedClock('2026-05-14T10:00:00.000Z');
+      const work_items = new WorkItemService({ db, clock });
+      const item = work_items.create({
+        title: 'legacy calendar fields',
+        scheduledFor: '2026-05-15',
+        dueAt: '2026-05-16',
+        reviewAt: '2026-05-17',
+        reminderAt: '2026-05-15T09:00:00.000Z',
+        startAt: '2026-05-15T10:00:00.000Z',
+        recurrence: { type: 'rrule', freq: 'DAILY', until: '2026-05-20' },
+      });
+      const drafts = new AiDraftService({ db, clock, workItems: work_items });
+      const run = drafts.createRun({
+        feature: 'manual_split',
+        sourceKind: 'manual_split',
+        provider: 'migration-test',
+        promptHash: 'migration-test',
+        status: 'succeeded',
+      });
+      const [draft] = drafts.createDrafts(run.id, [{
+        sourceKind: 'manual_split',
+        proposedTitle: 'legacy draft',
+        proposedScheduledFor: '2026-05-18',
+        proposedDueAt: '2026-05-19',
+      }]);
+      db.prepare(
+        `update work_items
+            set scheduled_for = ?, due_at = ?, review_at = ?, recurrence_json = ?
+          where id = ?`,
+      ).run(
+        '2026-05-15T00:00:00.000Z',
+        '2026-05-16T00:00:00.000Z',
+        '2026-05-17T00:00:00.000Z',
+        JSON.stringify({ type: 'rrule', freq: 'DAILY', until: '2026-05-20T00:00:00.000Z' }),
+        item.id,
+      );
+      db.prepare(
+        `update decision_drafts
+            set proposed_scheduled_for = ?, proposed_due_at = ?
+          where id = ?`,
+      ).run('2026-05-18T00:00:00.000Z', '2026-05-19T00:00:00.000Z', draft!.id);
+
+      expect(migrate(db).applied).toEqual(['019_calendar_field_formats.sql']);
+      const migrated = work_items.get(item.id);
+      expect(migrated?.scheduledFor).toBe('2026-05-15');
+      expect(migrated?.dueAt).toBe('2026-05-16');
+      expect(migrated?.reviewAt).toBe('2026-05-17');
+      expect(migrated?.reminderAt).toBe('2026-05-15T09:00:00.000Z');
+      expect(migrated?.recurrence?.until).toBe('2026-05-20');
+      const migrated_draft = drafts.getDraft(draft!.id);
+      expect(migrated_draft?.proposedScheduledFor).toBe('2026-05-18');
+      expect(migrated_draft?.proposedDueAt).toBe('2026-05-19');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('blocks ambiguous calendar values with table, row, and field evidence', () => {
+    const root = mkdtempSync(join(tmpdir(), 'stash-calendar-block-'));
+    try {
+      const legacy_dir = join(root, 'through-018');
+      mkdirSync(legacy_dir);
+      for (const file of listMigrationFiles(MIGRATIONS_DIR)) {
+        if (file <= '018_work_item_coach_summary_destination.sql') {
+          cpSync(join(MIGRATIONS_DIR, file), join(legacy_dir, file));
+        }
+      }
+      const db = openDatabase({ path: ':memory:', inMemory: true });
+      migrate(db, legacy_dir);
+      const work_items = new WorkItemService({ db });
+      const item = work_items.create({ title: 'ambiguous date', scheduledFor: '2026-05-15' });
+      db.prepare('update work_items set scheduled_for = ? where id = ?')
+        .run('2026-05-15T12:00:00.000Z', item.id);
+
+      expect(() => migrate(db)).toThrow(
+        `work_items[${item.id}].scheduled_for has noncanonical date`,
+      );
+      expect(listAppliedMigrations(db)).not.toContain('019_calendar_field_formats.sql');
+      const raw = db.query<{ scheduled_for: string }, [string]>(
+        'select scheduled_for from work_items where id = ?',
+      ).get(item.id);
+      expect(raw?.scheduled_for).toBe('2026-05-15T12:00:00.000Z');
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

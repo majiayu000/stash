@@ -10,6 +10,7 @@ const originalAiBaseUrl = process.env.STASH_AI_BASE_URL;
 const originalAiApiKey = process.env.STASH_AI_API_KEY;
 const originalAiModel = process.env.STASH_AI_MODEL;
 const originalAiTimeoutMs = process.env.STASH_AI_TIMEOUT_MS;
+const originalTimeZone = process.env.STASH_TIME_ZONE;
 
 function restoreEnv(name: string, value: string | undefined): void {
   if (value === undefined) {
@@ -28,6 +29,7 @@ afterEach(() => {
   restoreEnv('STASH_AI_API_KEY', originalAiApiKey);
   restoreEnv('STASH_AI_MODEL', originalAiModel);
   restoreEnv('STASH_AI_TIMEOUT_MS', originalAiTimeoutMs);
+  restoreEnv('STASH_TIME_ZONE', originalTimeZone);
 });
 
 describe('defaultDbPath', () => {
@@ -95,6 +97,18 @@ describe('defaultDbPath', () => {
 });
 
 describe('loadConfig local API security', () => {
+  test('uses an explicit IANA time zone and rejects offsets or legacy aliases', () => {
+    process.env.STASH_TIME_ZONE = 'Asia/Shanghai';
+    expect(loadConfig({ dbPath: ':memory:' }).time_zone).toBe('Asia/Shanghai');
+
+    process.env.STASH_TIME_ZONE = '+01:00';
+    expect(() => loadConfig({ dbPath: ':memory:' })).toThrow('unsupported IANA time zone');
+    expect(() => loadConfig({ dbPath: ':memory:' })).toThrow('set STASH_TIME_ZONE');
+
+    process.env.STASH_TIME_ZONE = 'US/Pacific';
+    expect(() => loadConfig({ dbPath: ':memory:' })).toThrow('unsupported IANA time zone');
+  });
+
   test('binds to 127.0.0.1 by default', () => {
     delete process.env.STASH_HOST;
 

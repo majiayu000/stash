@@ -12,8 +12,8 @@ import type { Hono } from 'hono';
 
 const NOW = '2026-05-14T10:00:00.000Z';
 
-function setupApp(): Hono {
-  return createApp({ db: freshDb(), clock: fixedClock(NOW) });
+function setupApp(time_zone = 'UTC'): Hono {
+  return createApp({ db: freshDb(), clock: fixedClock(NOW), time_zone });
 }
 
 async function postJson(app: Hono, path: string, body: unknown): Promise<Response> {
@@ -155,6 +155,51 @@ describe('GET /api/work-items/today + /stale', () => {
     // With days=0 (clamped to 1) nothing is stale yet either since updatedAt == NOW.
     const res2 = await getJson(app, '/api/work-items/stale?days=1');
     expect(res2.status).toBe(200);
+  });
+});
+
+describe('POST/PATCH /api/work-items calendar fields', () => {
+  test('resolves relative scheduling and local reminders in the server zone', async () => {
+    const app = setupApp('Asia/Shanghai');
+    const created = await postJson(app, '/api/work-items', {
+      title: 'server calendar',
+      scheduledForRelative: 'today',
+      reminderLocalDateTime: '2026-05-14T18:30',
+    });
+    expect(created.status).toBe(201);
+    const created_item = ((await created.json()) as { data: Record<string, unknown> }).data;
+    expect(created_item.scheduledFor).toBe('2026-05-14');
+    expect(created_item.reminderAt).toBe('2026-05-14T10:30:00.000Z');
+    expect(created_item.scheduledForRelative).toBeUndefined();
+    expect(created_item.reminderLocalDateTime).toBeUndefined();
+
+    const patched = await patchJson(app, `/api/work-items/${created_item.id}`, {
+      scheduledForRelative: 'tomorrow',
+      reminderLocalDateTime: '2026-05-15T09:00',
+    });
+    expect(patched.status).toBe(200);
+    const patched_item = ((await patched.json()) as { data: Record<string, unknown> }).data;
+    expect(patched_item.scheduledFor).toBe('2026-05-15');
+    expect(patched_item.reminderAt).toBe('2026-05-15T01:00:00.000Z');
+  });
+
+  test('rejects conflicts and date/instant format interchange', async () => {
+    const app = setupApp('America/Los_Angeles');
+    const requests = [
+      { title: 'conflict', scheduledFor: '2026-05-13', scheduledForRelative: 'today' },
+      {
+        title: 'conflict',
+        reminderAt: '2026-05-14T10:00:00.000Z',
+        reminderLocalDateTime: '2026-05-14T10:00',
+      },
+      { title: 'bad date', scheduledFor: '2026-05-14T00:00:00.000Z' },
+      { title: 'bad instant', reminderAt: '2026-05-14' },
+      { title: 'invalid date', dueAt: '2026-02-30' },
+    ];
+    for (const body of requests) {
+      const response = await postJson(app, '/api/work-items', body);
+      expect(response.status).toBe(400);
+    }
   });
 });
 

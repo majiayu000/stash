@@ -1,4 +1,4 @@
-import type { WeeklySnapshot, WorkItem } from '@stash/shared';
+import { add_calendar_days, type WeeklySnapshot, type WorkItem } from '@stash/shared';
 import { nextIsoWeekRange } from './weekly-review.week';
 
 export interface WeeklyReviewExportProject {
@@ -21,7 +21,7 @@ export function buildWeeklyReviewMarkdown(input: WeeklyReviewMarkdownInput): str
   const lines: string[] = [
     `# Weekly Review ${week.week}`,
     '',
-    `Range: ${week.rangeStart.slice(0, 10)} to ${previousDate(week.rangeEnd)}`,
+    `Range: ${week.calendar.range.startDate} to ${add_calendar_days(week.calendar.range.endDateExclusive, -1)} (${week.calendar.timeZone})`,
     '',
     '## Summary',
     `- Todos done: ${week.doneCount}`,
@@ -117,10 +117,6 @@ function deltaLabel(now: number, prev: number): string {
   const delta = now - prev;
   if (delta === 0) return 'no change';
   return `${delta > 0 ? '+' : ''}${Number.isInteger(delta) ? delta : delta.toFixed(2)}`;
-}
-
-function previousDate(exclusiveIso: string): string {
-  return new Date(Date.parse(exclusiveIso) - 86_400_000).toISOString().slice(0, 10);
 }
 
 function clean(value: string): string {

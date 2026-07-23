@@ -54,6 +54,7 @@ export default defineConfig({
       port: SERVER_PORT,
       env: {
         STASH_DB_PATH: DB_PATH,
+        STASH_TIME_ZONE: 'Asia/Shanghai',
         PORT: String(SERVER_PORT),
         STASH_ALLOWED_ORIGINS: CLIENT_ORIGINS,
         CLAUDE_ROOT: CLAUDE_FIXTURE_ROOT,

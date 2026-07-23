@@ -183,7 +183,8 @@ function isAggregateResult(value: unknown): value is AggregateResult {
 function isBurnAggregate(value: unknown): value is BurnAggregate {
   if (!value || typeof value !== 'object') return false;
   const result = value as Partial<BurnAggregate>;
-  return !!result.totals
+  return isBurnCalendar(result.calendar)
+    && !!result.totals
     && typeof result.totals === 'object'
     && Array.isArray(result.dailySpend)
     && Array.isArray(result.hourlyHeatmap)
@@ -191,6 +192,24 @@ function isBurnAggregate(value: unknown): value is BurnAggregate {
     && Array.isArray(result.perProjectLeaderboard)
     && !!result.cache
     && typeof result.cache === 'object';
+}
+
+function isBurnCalendar(value: unknown): value is BurnAggregate['calendar'] {
+  if (!value || typeof value !== 'object') return false;
+  const calendar = value as Partial<BurnAggregate['calendar']>;
+  if (typeof calendar.timeZone !== 'string' || !isCalendarRange(calendar.bucketRange)) return false;
+  if (!calendar.evaluationRange || typeof calendar.evaluationRange !== 'object') return false;
+  return typeof calendar.evaluationRange.start === 'string'
+    && (calendar.evaluationRange.end === null || typeof calendar.evaluationRange.end === 'string');
+}
+
+function isCalendarRange(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  const range = value as Record<string, unknown>;
+  return typeof range.start === 'string'
+    && typeof range.end === 'string'
+    && typeof range.startDate === 'string'
+    && typeof range.endDateExclusive === 'string';
 }
 
 function toError(prefix: string, error: unknown): Error {

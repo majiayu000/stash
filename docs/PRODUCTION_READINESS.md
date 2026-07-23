@@ -12,6 +12,9 @@ The product is already useful as a local workbench:
 - Quick Capture, CLI capture, inbox triage, Today, recurrence, reminders,
   project knowledge, skills, session detail, dispatcher, analytics, weekly
   review, settings, and budgets are wired to real backend data.
+- One server-authoritative IANA time zone now governs calendar workflows,
+  analytics buckets, Weekly Review ranges, and exported date labels. Persisted
+  instants remain UTC and calendar-only fields remain `YYYY-MM-DD`.
 - Local verification on 2026-05-19:
   - `bun run typecheck` passed.
   - `bun run client:build` passed with only the Vite chunk-size warning.

@@ -6,6 +6,19 @@ import { openDatabaseMigrated } from '../db/connection.js';
 import { AgentSessionCache } from './session-cache.js';
 import { ClaudeSource } from './claude/scanner.js';
 import { SessionScanWorker } from './session-scan-worker.js';
+import type { BurnAggregationRequest } from '../domain/analytics/burn.js';
+
+function burnRequest(
+  input: Pick<BurnAggregationRequest, 'startMs' | 'days' | 'rates'>,
+): BurnAggregationRequest {
+  return {
+    ...input,
+    bucketEndMs: Date.parse('2026-05-17T00:00:00.000Z'),
+    startDate: '2026-05-10',
+    endDateExclusive: '2026-05-17',
+    timeZone: 'UTC',
+  };
+}
 
 describe('SessionScanWorker', () => {
   test('returns an empty scan from the worker when configured roots are absent', async () => {
@@ -113,7 +126,34 @@ describe('SessionScanWorker', () => {
     try {
       globalThis.Worker = InvalidPayloadWorker as unknown as typeof Worker;
       const scanner = new SessionScanWorker({ roots: {} });
-      await expect(scanner.aggregateBurn({ startMs: 0, days: 1, rates: [] })).rejects.toThrow(
+      await expect(scanner.aggregateBurn(burnRequest({ startMs: 0, days: 1, rates: [] }))).rejects.toThrow(
+        'session scan worker returned an unreadable response',
+      );
+    } finally {
+      globalThis.Worker = originalWorker;
+    }
+  });
+
+  test('rejects a Burn payload without authoritative calendar metadata', async () => {
+    const originalWorker = globalThis.Worker;
+    class MissingCalendarWorker {
+      onmessage: ((event: MessageEvent) => void) | null = null;
+      onerror: ((event: ErrorEvent) => void) | null = null;
+      onmessageerror: ((event: MessageEvent) => void) | null = null;
+
+      terminate(): void {}
+      postMessage(request: { id: number }): void {
+        const { calendar: _calendar, ...result } = emptyBurnAggregate();
+        this.onmessage?.(new MessageEvent('message', {
+          data: { id: request.id, kind: 'burn', result },
+        }));
+      }
+    }
+
+    try {
+      globalThis.Worker = MissingCalendarWorker as unknown as typeof Worker;
+      const scanner = new SessionScanWorker({ roots: {} });
+      await expect(scanner.aggregateBurn(burnRequest({ startMs: 0, days: 1, rates: [] }))).rejects.toThrow(
         'session scan worker returned an unreadable response',
       );
     } finally {
@@ -169,7 +209,7 @@ describe('SessionScanWorker', () => {
     try {
       globalThis.Worker = BurnResponseWorker as unknown as typeof Worker;
       const scanner = new SessionScanWorker({ roots: {} });
-      await expect(scanner.aggregateBurn({ startMs: 0, days: 1, rates: [] }))
+      await expect(scanner.aggregateBurn(burnRequest({ startMs: 0, days: 1, rates: [] })))
         .resolves.toEqual(emptyBurnAggregate());
       expect(gc).not.toHaveBeenCalled();
     } finally {
@@ -189,11 +229,11 @@ describe('SessionScanWorker', () => {
       utimesSync(sourcePath, oldMtime, oldMtime);
       const scanner = new SessionScanWorker({ roots: { claude: root } });
 
-      const result = await scanner.aggregateBurn({
+      const result = await scanner.aggregateBurn(burnRequest({
         startMs: Date.parse('2026-05-10T00:00:00.000Z'),
         days: 7,
         rates: [{ model: 'custom-model', inputPerM: 10, outputPerM: 20 }],
-      });
+      }));
 
       expect(result.totals).toEqual({ tokens: 150, cost: 0.002, sessions: 1 });
       expect(result.dailySpend.find((bucket) => bucket.date === '2026-05-14')?.tokens).toBe(150);
@@ -226,11 +266,11 @@ describe('SessionScanWorker', () => {
         roots: { claude: join(root, 'claude') },
         cacheDbPath: dbPath,
       });
-      await expect(scanner.aggregateBurn({
+      await expect(scanner.aggregateBurn(burnRequest({
         startMs: Date.parse('2026-05-10T00:00:00.000Z'),
         days: 7,
         rates: [],
-      })).rejects.toThrow(`invalid agent usage cache for claude:${sourcePath}`);
+      }))).rejects.toThrow(`invalid agent usage cache for claude:${sourcePath}`);
     } finally {
       db.close();
       rmSync(root, { recursive: true, force: true });
@@ -263,7 +303,7 @@ describe('SessionScanWorker', () => {
       globalThis.Worker = CrashWorker as unknown as typeof Worker;
       const scanner = new SessionScanWorker({ roots: {} });
       const scan = scanner.scan('full', {});
-      const burn = scanner.aggregateBurn({ startMs: 0, days: 1, rates: [] });
+      const burn = scanner.aggregateBurn(burnRequest({ startMs: 0, days: 1, rates: [] }));
       active?.crash();
 
       await expect(scan).rejects.toThrow('session scan worker crashed: boom');
@@ -371,6 +411,16 @@ function emptyScanResult() {
 
 function emptyBurnAggregate() {
   return {
+    calendar: {
+      timeZone: 'UTC',
+      bucketRange: {
+        start: '1970-01-01T00:00:00.000Z',
+        end: '1970-01-02T00:00:00.000Z',
+        startDate: '1970-01-01',
+        endDateExclusive: '1970-01-02',
+      },
+      evaluationRange: { start: '1970-01-01T00:00:00.000Z', end: null },
+    },
     totals: { tokens: 0, cost: 0, sessions: 0 },
     dailySpend: [],
     hourlyHeatmap: Array.from({ length: 7 }, () => Array<number>(24).fill(0)),

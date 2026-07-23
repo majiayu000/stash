@@ -32,6 +32,7 @@ export interface WorkItemsRouterDeps {
   areaService?: AreaService;
   journal?: JournalService;
   clock?: Clock;
+  time_zone?: string;
 }
 
 export function createWorkItemsRouter(
@@ -42,6 +43,7 @@ export function createWorkItemsRouter(
 ): Hono {
   const r = new Hono();
   const clock = deps.clock ?? systemClock;
+  const time_zone = deps.time_zone ?? 'UTC';
 
   r.get('/', (c) => {
     try {
@@ -96,7 +98,7 @@ export function createWorkItemsRouter(
     try {
       const { raw } = CaptureBody.parse(await c.req.json());
       const areas = deps.areaService?.list() ?? [];
-      const parsed = parseCaptureInput(raw, { areas, nowIso: clock.nowIso() });
+      const parsed = parseCaptureInput(raw, { areas, nowIso: clock.nowIso(), time_zone });
       const item = service.create({
         title: parsed.title || raw.trim(),
         projectId: parsed.projectId,
@@ -111,7 +113,7 @@ export function createWorkItemsRouter(
         rawInput: raw,
         status: 'inbox',
       });
-      return c.json({ data: item, parsed: buildCapturePreview(parsed, areas) }, 201);
+      return c.json({ data: item, parsed: buildCapturePreview(parsed, areas, time_zone) }, 201);
     } catch (e) {
       return handleError(c, e);
     }
@@ -122,8 +124,8 @@ export function createWorkItemsRouter(
     try {
       const { raw } = CaptureBody.parse(await c.req.json());
       const areas = deps.areaService?.list() ?? [];
-      const parsed = parseCaptureInput(raw, { areas, nowIso: clock.nowIso() });
-      return c.json({ parsed: buildCapturePreview(parsed, areas) });
+      const parsed = parseCaptureInput(raw, { areas, nowIso: clock.nowIso(), time_zone });
+      return c.json({ parsed: buildCapturePreview(parsed, areas, time_zone) });
     } catch (e) {
       return handleError(c, e);
     }

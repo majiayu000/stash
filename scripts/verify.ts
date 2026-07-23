@@ -72,6 +72,7 @@ async function createIsolatedE2eEnv(
     STASH_E2E_AI_PROVIDER_PORT: String(aiProviderPort),
     STASH_E2E_API_URL: `http://localhost:${serverPort}/api`,
     STASH_E2E_DB_PATH: join(tmpdir(), `stash-e2e-${process.pid}-${Date.now()}.db`),
+    STASH_E2E_CLIENT_MODE: 'preview',
   };
 }
 

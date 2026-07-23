@@ -1,12 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import type { FeatureAdvancedRow, UpdateWorkItemInput, WeeklySnapshot, WorkItem } from '@stash/shared';
+import { add_calendar_days, type FeatureAdvancedRow, type UpdateWorkItemInput, type WeeklySnapshot, type WorkItem } from '@stash/shared';
 import { getWeeklySnapshot } from '../../api/analytics';
 import * as workItemsApi from '../../api/work-items';
 import { CountUp, ParticleField, ShinyText } from '../../components/effects';
 import { fmt, type WBData, type WBProject } from '../data';
 import { LoadErrorPanel, SessionRow, Topbar, toError } from '../shared';
-import { todayIso } from './work.lifecycle';
 import { buildWeeklyReviewMarkdown } from './weekly-review.export';
 import { dateInRange, isIsoWeekLabel, nextIsoWeekRange, shiftIsoWeek, type IsoWeekRange, type WeekdaySlot } from './weekly-review.week';
 
@@ -150,6 +149,9 @@ export function WeeklyReviewPage({ data }: { data: WBData; reload: () => void })
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.5rem', fontWeight: 700, marginTop: 2 }}>
                 <ShinyText>{week.week} — stash workbench</ShinyText>
               </div>
+              <div data-testid="weekly-calendar-range" style={{ fontFamily: 'var(--font-mono)', fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: 4 }}>
+                {week.calendar.range.startDate}–{add_calendar_days(week.calendar.range.endDateExclusive, -1)} · {week.calendar.timeZone}
+              </div>
             </div>
             <button className="wr-nav" type="button" aria-label="next week" onClick={() => navigateWeek(1)}>›</button>
           </div>
@@ -266,7 +268,11 @@ export function WeeklyReviewPage({ data }: { data: WBData; reload: () => void })
                       disabled={mutatingId === it.id}
                       onOpen={() => navigate(`/todos/${it.id}`)}
                       onKeep={() => applyStaleAction(it, {}, 'stale item kept')}
-                      onToday={() => applyStaleAction(it, { status: 'planned', todayPinned: true, scheduledFor: todayIso() }, 'stale item scheduled for today')}
+                      onToday={() => applyStaleAction(it, {
+                        status: 'planned',
+                        todayPinned: true,
+                        scheduledForRelative: 'today',
+                      }, 'stale item scheduled for today')}
                       onNextWeek={() => applyStaleAction(it, { status: 'planned', todayPinned: false, scheduledFor: nextWeek.days[0]!.isoDate }, 'stale item scheduled for next week')}
                       onSomeday={() => applyStaleAction(it, { status: 'someday', todayPinned: false, scheduledFor: null, startAt: null, dueAt: null }, 'stale item moved to someday')}
                       onDrop={() => applyStaleAction(it, { status: 'dropped', todayPinned: false }, 'stale item dropped')}

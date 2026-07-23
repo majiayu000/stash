@@ -19,7 +19,7 @@ describe('Weekly review markdown export', () => {
     });
 
     expect(markdown).toContain('# Weekly Review 2026-W20');
-    expect(markdown).toContain('Range: 2026-05-11 to 2026-05-17');
+    expect(markdown).toContain('Range: 2026-05-11 to 2026-05-17 (UTC)');
     expect(markdown).toContain('### Aurora');
     expect(markdown).toContain('- [x] Ship weekly review actions');
     expect(markdown).toContain('## Stale Work');
@@ -31,6 +31,15 @@ describe('Weekly review markdown export', () => {
 });
 
 const weekly: WeeklySnapshot = {
+  calendar: {
+    timeZone: 'UTC',
+    range: {
+      start: '2026-05-11T00:00:00.000Z',
+      end: '2026-05-18T00:00:00.000Z',
+      startDate: '2026-05-11',
+      endDateExclusive: '2026-05-18',
+    },
+  },
   week: '2026-W20',
   rangeStart: '2026-05-11T00:00:00.000Z',
   rangeEnd: '2026-05-18T00:00:00.000Z',

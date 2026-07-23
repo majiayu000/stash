@@ -1,4 +1,14 @@
-import type { Area, Priority, WorkItemKind } from '@stash/shared';
+import {
+  add_calendar_days,
+  calendar_date_at,
+  calendar_day_of_week,
+  parse_calendar_date,
+  zoned_date_time_to_instant,
+  zoned_parts,
+  type Area,
+  type Priority,
+  type WorkItemKind,
+} from '@stash/shared';
 
 /**
  * SPEC v0.3 §3b + v0.5 §7.1 — inline token parser for quick capture.
@@ -48,6 +58,8 @@ export interface ParserContext {
   areas: Area[];
   /** "Now" for relative dates; ISO timestamp. */
   nowIso: string;
+  /** Authoritative calendar zone used for relative dates and wall-clock times. */
+  time_zone: string;
 }
 
 const TOKEN_RE =
@@ -69,7 +81,7 @@ export function parseCaptureInput(raw: string, ctx: ParserContext): ParsedCaptur
   let dueAt: string | undefined;
   let timeOfDay: TimeOfDay | undefined;
   let estimateMinutes: number | undefined;
-  const today = iso(todayUtc(ctx.nowIso));
+  const today = calendar_date_at(ctx.nowIso, ctx.time_zone);
 
   const stripped = raw.replace(TOKEN_RE, (match) => {
     const lower = match.toLowerCase();
@@ -98,13 +110,13 @@ export function parseCaptureInput(raw: string, ctx: ParserContext): ParsedCaptur
       return '';
     }
     if (lower.startsWith('!!')) {
-      const date = parseDateToken(match.slice(2), ctx.nowIso);
+      const date = parseDateToken(match.slice(2), ctx.nowIso, ctx.time_zone);
       if (date) dueAt = date;
       else unresolved.push(match);
       return '';
     }
     if (lower.startsWith('!')) {
-      const date = parseDateToken(match.slice(1), ctx.nowIso);
+      const date = parseDateToken(match.slice(1), ctx.nowIso, ctx.time_zone);
       if (date) scheduledFor = date;
       else unresolved.push(match);
       return '';
@@ -120,7 +132,7 @@ export function parseCaptureInput(raw: string, ctx: ParserContext): ParsedCaptur
       return '';
     }
 
-    const date = parseDateToken(match, ctx.nowIso);
+    const date = parseDateToken(match, ctx.nowIso, ctx.time_zone);
     if (date) {
       scheduledFor = date;
       if (match === '今晚') timeOfDay = { hour: 20, minute: 0 };
@@ -135,7 +147,9 @@ export function parseCaptureInput(raw: string, ctx: ParserContext): ParsedCaptur
   });
 
   const title = stripped.replace(/\s+/g, ' ').trim();
-  const startAt = timeOfDay ? formatDateTime(scheduledFor ?? today, timeOfDay) : undefined;
+  const startAt = timeOfDay
+    ? formatDateTime(scheduledFor ?? today, timeOfDay, ctx.time_zone)
+    : undefined;
   if (startAt && !scheduledFor) scheduledFor = today;
 
   return {
@@ -153,7 +167,11 @@ export function parseCaptureInput(raw: string, ctx: ParserContext): ParsedCaptur
   };
 }
 
-export function buildCapturePreview(parsed: ParsedCapture, areas: Area[]): ParsedCapturePreview {
+export function buildCapturePreview(
+  parsed: ParsedCapture,
+  areas: Area[],
+  time_zone: string,
+): ParsedCapturePreview {
   const projectName = parsed.projectId
     ? areas.find((a) => a.id === parsed.projectId)?.name
     : undefined;
@@ -165,7 +183,14 @@ export function buildCapturePreview(parsed: ParsedCapture, areas: Area[]): Parse
   if (parsed.priority) chips.push({ type: 'pri', label: `^${parsed.priority}`, value: parsed.priority });
   if (parsed.scheduledFor) chips.push({ type: 'date', label: `scheduled ${parsed.scheduledFor}`, value: parsed.scheduledFor });
   if (parsed.dueAt) chips.push({ type: 'due', label: `due ${parsed.dueAt}`, value: parsed.dueAt });
-  if (parsed.startAt) chips.push({ type: 'time', label: `start ${parsed.startAt.slice(11, 16)}`, value: parsed.startAt });
+  if (parsed.startAt) {
+    const local = zoned_parts(parsed.startAt, time_zone);
+    chips.push({
+      type: 'time',
+      label: `start ${pad(local.hour)}:${pad(local.minute)}`,
+      value: parsed.startAt,
+    });
+  }
   if (parsed.estimateMinutes !== undefined) {
     chips.push({ type: 'est', label: `estimate ${formatEstimate(parsed.estimateMinutes)}`, value: String(parsed.estimateMinutes) });
   }
@@ -189,22 +214,22 @@ function normalizeProjectToken(raw: string): string {
  *   +3d, +2w
  *   due-today / due-tomorrow / due-<weekday> are tolerated for the !! prefix
  */
-export function parseDateToken(raw: string, nowIso: string): string | undefined {
+export function parseDateToken(raw: string, nowIso: string, time_zone: string): string | undefined {
   const phrase = raw.toLowerCase().replace(/^due-/, '').replace(/_/g, '-').trim();
-  const today = todayUtc(nowIso);
+  const today = calendar_date_at(nowIso, time_zone);
 
-  if (phrase === 'today' || phrase === '今天' || phrase === '今晚') return iso(today);
+  if (phrase === 'today' || phrase === '今天' || phrase === '今晚') return today;
   if (phrase === 'tomorrow' || phrase === 'tomo' || phrase === 'tom' || phrase === '明天') {
-    return iso(today + 86_400_000);
+    return add_calendar_days(today, 1);
   }
-  if (phrase === '后天') return iso(today + 2 * 86_400_000);
-  if (phrase === '大后天') return iso(today + 3 * 86_400_000);
+  if (phrase === '后天') return add_calendar_days(today, 2);
+  if (phrase === '大后天') return add_calendar_days(today, 3);
 
   const offsetMatch = /^\+(\d+)([dw])$/.exec(phrase);
   if (offsetMatch) {
     const n = Number(offsetMatch[1]);
     const days = offsetMatch[2] === 'w' ? n * 7 : n;
-    return iso(today + days * 86_400_000);
+    return add_calendar_days(today, days);
   }
 
   const isoMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(phrase);
@@ -222,7 +247,7 @@ export function parseDateToken(raw: string, nowIso: string): string | undefined 
   const chineseWeekdayMap: Record<string, number> = {
     一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 日: 0, 天: 0,
   };
-  if (phrase === '下周') return iso(today + daysUntilWeekday(today, 1) * 86_400_000);
+  if (phrase === '下周') return add_calendar_days(today, daysUntilWeekday(today, 1));
   const chineseWeekday = /^(下)?周([一二三四五六日天])$/.exec(phrase);
   const chineseNext = chineseWeekday?.[1] === '下';
   if (chineseWeekday) targetDow = chineseWeekdayMap[chineseWeekday[2]!];
@@ -230,7 +255,7 @@ export function parseDateToken(raw: string, nowIso: string): string | undefined 
 
   let delta = daysUntilWeekday(today, targetDow);
   if (next || chineseNext) delta += 7; // "next-fri" / "下周五" -> Friday of next week.
-  return iso(today + delta * 86_400_000);
+  return add_calendar_days(today, delta);
 }
 
 function parseTimeToken(raw: string): TimeOfDay | undefined {
@@ -259,22 +284,19 @@ function validTime(hour: number, minute: number): TimeOfDay | undefined {
   return { hour, minute };
 }
 
-function todayUtc(nowIso: string): number {
-  const now = new Date(nowIso);
-  return Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
-}
-
-function daysUntilWeekday(today: number, targetDow: number): number {
-  const todayDow = new Date(today).getUTCDay();
+function daysUntilWeekday(today: string, targetDow: number): number {
+  const todayDow = calendar_day_of_week(today);
   let delta = (targetDow - todayDow + 7) % 7;
   if (delta === 0) delta = 7;
   return delta;
 }
 
-function formatDateTime(date: string, time: TimeOfDay): string {
-  const hh = String(time.hour).padStart(2, '0');
-  const mm = String(time.minute).padStart(2, '0');
-  return `${date}T${hh}:${mm}:00.000Z`;
+function formatDateTime(date: string, time: TimeOfDay, time_zone: string): string {
+  const instant = zoned_date_time_to_instant(
+    { ...parse_calendar_date(date), hour: time.hour, minute: time.minute, second: 0 },
+    time_zone,
+  );
+  return new Date(instant).toISOString();
 }
 
 function formatEstimate(minutes: number): string {
@@ -282,6 +304,6 @@ function formatEstimate(minutes: number): string {
   return `${minutes}m`;
 }
 
-function iso(ms: number): string {
-  return new Date(ms).toISOString().slice(0, 10);
+function pad(value: number): string {
+  return String(value).padStart(2, '0');
 }

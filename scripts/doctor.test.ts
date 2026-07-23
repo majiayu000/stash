@@ -111,6 +111,7 @@ function testConfig(overrides: Partial<Config>): Config {
     backupDir: '/tmp/backups',
     claudeRoot: '/tmp/claude',
     codexRoot: '/tmp/codex',
+    time_zone: 'UTC',
     inMemoryDb: false,
     ...overrides,
   };

@@ -10,7 +10,7 @@ export interface InboxApi {
   error: Error | undefined;
   reload: () => void;
   capture: (title: string, extras?: Partial<CreateWorkItemInput>) => Promise<WorkItem>;
-  planToday: (id: string, today: string) => Promise<WorkItem>;
+  planToday: (id: string) => Promise<WorkItem>;
   someday: (id: string) => Promise<WorkItem>;
   drop: (id: string) => Promise<WorkItem>;
 }
@@ -31,8 +31,11 @@ export function useInbox(): InboxApi {
   );
 
   const planToday = useCallback(
-    async (id: string, today: string) => {
-      const item = await updateWorkItem(id, { status: 'planned', scheduledFor: today });
+    async (id: string) => {
+      const item = await updateWorkItem(id, {
+        status: 'planned',
+        scheduledForRelative: 'today',
+      });
       state.reload();
       return item;
     },

@@ -1,6 +1,7 @@
 import { existsSync } from 'fs';
 import { homedir } from 'os';
 import { dirname, join } from 'path';
+import { assert_time_zone } from '@stash/shared';
 
 function envInt(name: string, fallback: number): number {
   const raw = process.env[name];
@@ -92,6 +93,7 @@ export interface Config {
   claudeRoot: string;
   codexRoot: string;
   allowedOrigins: string[];
+  time_zone: string;
   // When true, the connection layer creates an in-memory DB for tests.
   inMemoryDb: boolean;
   // Controls whether /api/sessions/start may spawn a real agent CLI.
@@ -107,6 +109,18 @@ export interface Config {
 
 export function loadConfig(overrides: Partial<Config> = {}): Config {
   const dbPath = overrides.dbPath ?? envPath('STASH_DB_PATH', defaultDbPath());
+  const requested_time_zone = overrides.time_zone
+    ?? envPath('STASH_TIME_ZONE', Intl.DateTimeFormat().resolvedOptions().timeZone);
+  let time_zone: string;
+  try {
+    time_zone = assert_time_zone(requested_time_zone);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `${message}; set STASH_TIME_ZONE to UTC or an exact canonical IANA time zone`,
+      { cause: error },
+    );
+  }
   return {
     host: envLoopbackHost('STASH_HOST', '127.0.0.1'),
     port: envInt('PORT', 4174),
@@ -125,6 +139,7 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
       timeoutMs: envInt('STASH_AI_TIMEOUT_MS', 30_000),
     },
     ...overrides,
+    time_zone,
   };
 }
 

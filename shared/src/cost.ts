@@ -1,3 +1,5 @@
+import type { CalendarRange } from './calendar.js';
+
 /**
  * Per-million-token rates (USD). Sources: published Anthropic/OpenAI rate cards.
  * Hardcoded defaults; future PR adds settings-override.
@@ -58,6 +60,14 @@ export interface ProjectBurnRow {
 }
 
 export interface BurnSnapshot {
+  calendar: {
+    timeZone: string;
+    bucketRange: CalendarRange;
+    evaluationRange: {
+      start: string;
+      end: string | null;
+    };
+  };
   totals: { tokens: number; cost: number; sessions: number };
   dailySpend: DailySpendBucket[];
   hourlyHeatmap: number[][];
@@ -81,9 +91,13 @@ export interface DoneProjectRow {
 }
 
 export interface WeeklySnapshot {
+  calendar: {
+    timeZone: string;
+    range: CalendarRange;
+  };
   week: string;            // ISO week label, e.g. "2026-W19"
-  rangeStart: string;      // ISO datetime (Mon 00:00 UTC)
-  rangeEnd: string;        // ISO datetime (next Mon 00:00 UTC, exclusive)
+  rangeStart: string;      // UTC ISO instant for configured-zone Monday 00:00
+  rangeEnd: string;        // UTC ISO instant for next configured-zone Monday 00:00, exclusive
   doneCount: number;
   focusHours: number;
   featuresAdvanced: FeatureAdvancedRow[];
