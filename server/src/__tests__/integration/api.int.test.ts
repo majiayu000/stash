@@ -6,13 +6,16 @@ import { migrate } from '../../db/migrate.js';
 import { createApp } from '../../web/app-factory.js';
 import type { Hono } from 'hono';
 
-function setupApp(options: { allowedOrigins?: string[] } = {}): { app: Hono; db: Database } {
+function setupApp(
+  options: { allowedOrigins?: string[]; time_zone?: string } = {},
+): { app: Hono; db: Database } {
   const db = openDatabase({ path: ':memory:', inMemory: true });
   migrate(db);
   const app = createApp({
     db,
     clock: fixedClock('2026-05-14T10:00:00.000Z'),
     allowedOrigins: options.allowedOrigins,
+    time_zone: options.time_zone,
   });
   return { app, db };
 }
@@ -42,6 +45,19 @@ describe('GET /health', () => {
     const res = await jsonRequest(app, 'GET', '/health');
     expect(res.status).toBe(200);
     expect(res.body.ok).toBe(true);
+  });
+});
+
+describe('GET /api/runtime', () => {
+  test('returns the authoritative zone and local calendar date', async () => {
+    const { app } = setupApp({ time_zone: 'America/Los_Angeles' });
+    const res = await jsonRequest(app, 'GET', '/api/runtime');
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      timeZone: 'America/Los_Angeles',
+      calendarDate: '2026-05-14',
+      now: '2026-05-14T10:00:00.000Z',
+    });
   });
 });
 

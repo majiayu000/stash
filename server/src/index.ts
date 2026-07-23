@@ -17,6 +17,7 @@ const app = createApp({
   db,
   claudeRoot: config.claudeRoot,
   codexRoot: config.codexRoot,
+  time_zone: config.time_zone,
   allowedOrigins: config.allowedOrigins,
   sessionSpawnMode: config.sessionSpawnMode,
   aiProvider: config.aiProvider,

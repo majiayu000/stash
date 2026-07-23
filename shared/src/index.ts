@@ -1,5 +1,6 @@
 export * from './id.js';
 export * from './clock.js';
+export * from './calendar.js';
 export * from './work-item.js';
 export * from './area.js';
 export * from './project.js';

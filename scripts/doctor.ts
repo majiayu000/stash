@@ -29,6 +29,11 @@ export async function runDoctor(options: DoctorOptions): Promise<Check[]> {
 
   return [
     checkBunVersion(options.bunVersion ?? Bun.version),
+    {
+      name: 'calendar time zone',
+      status: 'ok',
+      detail: config.time_zone,
+    },
     pathCheck({
       name: 'db dir',
       path: dirname(config.dbPath),
