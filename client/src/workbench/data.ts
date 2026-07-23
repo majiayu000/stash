@@ -4,6 +4,7 @@
 
 import type { AgentSession, Area, Priority, WorkItem, WorkItemKind } from '@stash/shared';
 import type { SourceHealthError } from '../api/agent-sessions';
+import type { RuntimeMetadata } from '../api/runtime';
 
 export interface WBProject {
   id: string;
@@ -71,6 +72,7 @@ export interface WBStats {
 }
 
 export interface WBData {
+  runtime: RuntimeMetadata;
   projects: WBProject[];
   sessions: WBSession[];
   todos: WBTodo[];
@@ -121,10 +123,6 @@ function sessionState(s: AgentSession): WBSession['state'] {
   return 'idle';
 }
 
-function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
 /**
  * Activity-only fallback for surfaces that do not receive usage telemetry.
  * These values are estimates, not measured token/cost/duration values, and no
@@ -144,6 +142,7 @@ export function estimateSessionActivity(toolCount: number, messageCount: number)
  * read from this consistent shape; reshape lives in one place.
  */
 export interface AdaptInput {
+  runtime: RuntimeMetadata;
   items: WorkItem[];
   sessions: AgentSession[];
   sourceErrors: SourceHealthError[];
@@ -152,7 +151,7 @@ export interface AdaptInput {
 }
 
 export function adaptToWorkbenchData(input: AdaptInput): WBData {
-  const today = todayIso();
+  const today = input.runtime.calendarDate;
   const areasById = new Map(input.areas.map((a) => [a.id, a]));
 
   // Areas are the durable project registry. Workboard groups only exist after a
@@ -259,5 +258,12 @@ export function adaptToWorkbenchData(input: AdaptInput): WBData {
     todosDone: todos.filter((t) => t.done).length,
   };
 
-  return { projects, sessions, todos, stats, sourceErrors: input.sourceErrors };
+  return {
+    runtime: input.runtime,
+    projects,
+    sessions,
+    todos,
+    stats,
+    sourceErrors: input.sourceErrors,
+  };
 }

@@ -346,7 +346,17 @@ export function SessionRow({
   );
 }
 
-export function TodoItem({ t, projects, showProject = true }: { t: WBTodo; projects: WBProject[]; showProject?: boolean }) {
+export function TodoItem({
+  t,
+  projects,
+  calendarDate,
+  showProject = true,
+}: {
+  t: WBTodo;
+  projects: WBProject[];
+  calendarDate: string;
+  showProject?: boolean;
+}) {
   const proj = projects.find((p) => p.id === t.project);
   const isIdea = t.kind === 'idea';
   const navigate = useNavigate();
@@ -354,13 +364,12 @@ export function TodoItem({ t, projects, showProject = true }: { t: WBTodo; proje
   // work-item status, not on absence of project (planned items can also lack a project).
   const inboxAttr = t.status === 'inbox' ? { 'data-inbox-item': t.id } : {};
   const nowIso = new Date().toISOString();
-  const today = nowIso.slice(0, 10);
   const isToday =
     !t.done &&
     (t.todayPinned ||
       (t.startAt !== undefined && t.startAt <= nowIso) ||
-      (t.dueAt !== undefined && t.dueAt < nowIso) ||
-      t.scheduledFor === today);
+      (t.dueAt !== undefined && t.dueAt < calendarDate) ||
+      t.scheduledFor === calendarDate);
   const todayAttr = isToday ? { 'data-today-item': t.id } : {};
 
   async function toggleDone(e: React.MouseEvent | React.KeyboardEvent) {

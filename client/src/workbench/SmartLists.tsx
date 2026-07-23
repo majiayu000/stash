@@ -46,14 +46,14 @@ function persistSaved(lists: SavedList[]) {
   try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(lists)); } catch { /* quota */ }
 }
 
-function resolveFilter(f: WorkItemFilter): WorkItemFilter {
-  // __now__ marker → real ISO timestamp at query time (so "overdue" is always live)
+function resolveFilter(f: WorkItemFilter, calendar_date: string): WorkItemFilter {
+  // __now__ marker → authoritative server calendar date.
   const copy: WorkItemFilter = { ...f };
-  if (copy.dueBefore === '__now__') copy.dueBefore = new Date().toISOString();
+  if (copy.dueBefore === '__now__') copy.dueBefore = calendar_date;
   return copy;
 }
 
-export function SmartLists() {
+export function SmartLists({ calendarDate }: { calendarDate: string }) {
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState<SavedList | null>(null);
   const [results, setResults] = useState<WorkItem[]>([]);
@@ -88,7 +88,7 @@ export function SmartLists() {
       const next: Record<string, number> = {};
       await Promise.all(all.map(async (l) => {
         try {
-          const rows = await listWorkItems(resolveFilter(l.filter));
+          const rows = await listWorkItems(resolveFilter(l.filter, calendarDate));
           if (!cancelled) next[l.id] = rows.length;
         } catch (error) {
           next[l.id] = 0;
@@ -101,13 +101,13 @@ export function SmartLists() {
     function onChange() { refresh(); }
     window.addEventListener('stash:captured', onChange);
     return () => { cancelled = true; window.removeEventListener('stash:captured', onChange); };
-  }, [open, saved]);
+  }, [calendarDate, open, saved]);
 
   // Pull rows when a chip is active.
   useEffect(() => {
     if (!active) { setResults([]); return; }
     let cancelled = false;
-    listWorkItems(resolveFilter(active.filter))
+    listWorkItems(resolveFilter(active.filter, calendarDate))
       .then((rows) => { if (!cancelled) setResults(rows); })
       .catch((error) => {
         if (!cancelled) {
@@ -116,7 +116,7 @@ export function SmartLists() {
         }
       });
     return () => { cancelled = true; };
-  }, [active]);
+  }, [active, calendarDate]);
 
   function pick(it: WorkItem) {
     setOpen(false); setActive(null);

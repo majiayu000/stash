@@ -11,23 +11,21 @@ export interface TodoBoardGroups {
   done: WBTodo[];
 }
 
-export function todayIso(now = new Date()): string {
-  return now.toISOString().slice(0, 10);
-}
-
 export function groupTodosForBoard(
   todos: WBTodo[],
   liveProjectIds: ReadonlySet<string>,
+  calendar_date: string,
   now = new Date(),
 ): TodoBoardGroups {
-  const today = todayIso(now);
   const nowIso = now.toISOString();
   const open = todos.filter((todo) => !todo.done && todo.status !== 'done');
 
   const inbox = sortByCreated(open.filter((todo) => todo.status === 'inbox'));
   const doing = sortByCreated(open.filter((todo) => todo.status === 'active' || isLiveProjectTodo(todo, liveProjectIds)));
   const todayItems = sortToday(
-    open.filter((todo) => todo.status !== 'active' && !isLiveProjectTodo(todo, liveProjectIds) && isTodayTodo(todo, today, nowIso)),
+    open.filter((todo) => todo.status !== 'active'
+      && !isLiveProjectTodo(todo, liveProjectIds)
+      && isTodayTodo(todo, calendar_date, nowIso)),
   );
   const assigned = new Set([...inbox, ...doing, ...todayItems].map((todo) => todo.id));
   const later = sortByCreated(open.filter((todo) => !assigned.has(todo.id)));
@@ -36,7 +34,7 @@ export function groupTodosForBoard(
   return { inbox, today: todayItems, doing, later, done };
 }
 
-export function moveInputForColumn(column: TodoBoardColumn, today = todayIso()): UpdateWorkItemInput {
+export function moveInputForColumn(column: TodoBoardColumn): UpdateWorkItemInput {
   switch (column) {
     case 'inbox':
       return {
@@ -48,7 +46,11 @@ export function moveInputForColumn(column: TodoBoardColumn, today = todayIso()):
         sortOrder: null,
       };
     case 'today':
-      return { status: 'planned', todayPinned: true, scheduledFor: today };
+      return {
+        status: 'planned',
+        todayPinned: true,
+        scheduledForRelative: 'today',
+      };
     case 'doing':
       return { status: 'active', todayPinned: false, scheduledFor: null, sortOrder: null };
     case 'later':
@@ -71,12 +73,12 @@ function isLiveProjectTodo(todo: WBTodo, liveProjectIds: ReadonlySet<string>): b
   return Boolean(todo.project && liveProjectIds.has(todo.project));
 }
 
-function isTodayTodo(todo: WBTodo, today: string, nowIso: string): boolean {
+function isTodayTodo(todo: WBTodo, calendar_date: string, nowIso: string): boolean {
   if (todo.status === 'done' || todo.status === 'dropped') return false;
   if (todo.todayPinned) return true;
   if (todo.startAt && todo.startAt <= nowIso) return true;
-  if (todo.dueAt && todo.dueAt < nowIso) return true;
-  return todo.scheduledFor === today;
+  if (todo.dueAt && todo.dueAt < calendar_date) return true;
+  return todo.scheduledFor === calendar_date;
 }
 
 function sortToday(items: WBTodo[]): WBTodo[] {

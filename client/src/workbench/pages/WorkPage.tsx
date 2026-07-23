@@ -10,7 +10,6 @@ import {
   doneMoveInput,
   groupTodosForBoard,
   moveInputForColumn,
-  todayIso,
   type TodoBoardColumn,
 } from './work.lifecycle';
 import { workPageStyles } from './work.styles';
@@ -46,7 +45,7 @@ export function WorkPage({ data, reload }: { data: WBData; reload: () => void })
   const [insightsOpen, setInsightsOpen] = useState(readInsightsOpen);
 
   const liveProjectIds = new Set(sessions.filter((s) => s.state === 'live').map((s) => s.project));
-  const board = groupTodosForBoard(todos, liveProjectIds);
+  const board = groupTodosForBoard(todos, liveProjectIds, data.runtime.calendarDate);
   const openTodos = todos.filter((t) => !t.done).length;
 
   function showFeedback(message: string, tone: 'ok' | 'error' = 'ok') {
@@ -135,10 +134,10 @@ export function WorkPage({ data, reload }: { data: WBData; reload: () => void })
         {/* Main split: 4-column board + right rail */}
         <div id="inbox-board" className="ce-board-shell" data-testid="work-board-shell">
           <div className="ce-board-grid">
-            <BoardCol icon="📥" name="inbox"  tone="inbox"   hint="ideas & quick captures"      items={board.inbox}  projects={projects} onFeedback={showFeedback} />
-            <BoardCol icon="🌅" name="today"  tone="due"     hint="planned for today"           items={board.today}  projects={projects} onFeedback={showFeedback} />
-            <BoardCol icon="🚧" name="doing"  tone="active"  hint="active or live-agent work"   items={board.doing}  projects={projects} live onFeedback={showFeedback} />
-            <BoardCol icon="📅" name="later"  tone="someday" hint="planned · waiting · someday" items={board.later}  projects={projects} onFeedback={showFeedback} />
+            <BoardCol icon="📥" name="inbox"  tone="inbox"   hint="ideas & quick captures"      items={board.inbox}  projects={projects} calendarDate={data.runtime.calendarDate} onFeedback={showFeedback} />
+            <BoardCol icon="🌅" name="today"  tone="due"     hint="planned for today"           items={board.today}  projects={projects} calendarDate={data.runtime.calendarDate} onFeedback={showFeedback} />
+            <BoardCol icon="🚧" name="doing"  tone="active"  hint="active or live-agent work"   items={board.doing}  projects={projects} calendarDate={data.runtime.calendarDate} live onFeedback={showFeedback} />
+            <BoardCol icon="📅" name="later"  tone="someday" hint="planned · waiting · someday" items={board.later}  projects={projects} calendarDate={data.runtime.calendarDate} onFeedback={showFeedback} />
           </div>
 
           <div className="ce-side-rail">
@@ -187,7 +186,12 @@ export function WorkPage({ data, reload }: { data: WBData; reload: () => void })
                 )}
               </div>
             </div>
-            <DoneDropZone items={board.done} projects={projects} onFeedback={showFeedback} />
+            <DoneDropZone
+              items={board.done}
+              projects={projects}
+              calendarDate={data.runtime.calendarDate}
+              onFeedback={showFeedback}
+            />
           </div>
         </div>
         <WorkInsights
@@ -259,7 +263,12 @@ function WorkInsights({
 function colCreateOpts(col: TodoBoardColumn): Partial<Parameters<typeof createWorkItem>[0]> {
   switch (col) {
     case 'inbox':  return { kind: 'idea', status: 'inbox' };
-    case 'today':  return { kind: 'task', status: 'planned', todayPinned: true, scheduledFor: todayIso() };
+    case 'today':  return {
+      kind: 'task',
+      status: 'planned',
+      todayPinned: true,
+      scheduledForRelative: 'today',
+    };
     case 'doing':  return { kind: 'task', status: 'active' };
     case 'later':  return { kind: 'task', status: 'planned' };
   }
@@ -284,6 +293,7 @@ function BoardCol({
   count,
   live,
   projects,
+  calendarDate,
   onFeedback,
 }: {
   icon: string;
@@ -294,6 +304,7 @@ function BoardCol({
   count?: number;
   live?: boolean;
   projects: WBProject[];
+  calendarDate: string;
   onFeedback: (message: string, tone?: 'ok' | 'error') => void;
 }) {
   const c = count ?? items.length;
@@ -360,9 +371,21 @@ function BoardCol({
         {items.length === 0 ? (
           <div className="board-col-empty">{emptyCopyFor(name)}</div>
         ) : draggable ? (
-          <DraggableList items={items} projects={projects} onFeedback={onFeedback} />
+          <DraggableList
+            items={items}
+            projects={projects}
+            calendarDate={calendarDate}
+            onFeedback={onFeedback}
+          />
         ) : (
-          items.map((t) => <DraggableRow key={t.id} t={t} projects={projects} />)
+          items.map((t) => (
+            <DraggableRow
+              key={t.id}
+              t={t}
+              projects={projects}
+              calendarDate={calendarDate}
+            />
+          ))
         )}
         <button className="todo-add" type="button" onClick={addToCol}>+ add</button>
       </div>
@@ -371,7 +394,15 @@ function BoardCol({
 }
 
 /** Wrap a TodoItem in an outer <div> that supports HTML5 drag for cross-column moves. */
-function DraggableRow({ t, projects }: { t: WBTodo; projects: WBProject[] }) {
+function DraggableRow({
+  t,
+  projects,
+  calendarDate,
+}: {
+  t: WBTodo;
+  projects: WBProject[];
+  calendarDate: string;
+}) {
   const [dragging, setDragging] = useState(false);
   return (
     <div
@@ -384,7 +415,7 @@ function DraggableRow({ t, projects }: { t: WBTodo; projects: WBProject[] }) {
       onDragEnd={() => setDragging(false)}
       style={{ opacity: dragging ? 0.4 : 1, cursor: 'grab' }}
     >
-      <TodoItem t={t} projects={projects} />
+      <TodoItem t={t} projects={projects} calendarDate={calendarDate} />
     </div>
   );
 }
@@ -398,10 +429,12 @@ function DraggableRow({ t, projects }: { t: WBTodo; projects: WBProject[] }) {
 function DraggableList({
   items,
   projects,
+  calendarDate,
   onFeedback,
 }: {
   items: WBTodo[];
   projects: WBProject[];
+  calendarDate: string;
   onFeedback: (message: string, tone?: 'ok' | 'error') => void;
 }) {
   const [order, setOrder] = useState<WBTodo[]>(items);
@@ -476,7 +509,7 @@ function DraggableList({
           onDragEnd={() => setDraggingId(null)}
           style={{ opacity: draggingId === t.id ? 0.4 : 1, cursor: 'grab' }}
         >
-          <TodoItem t={t} projects={projects} />
+          <TodoItem t={t} projects={projects} calendarDate={calendarDate} />
         </div>
       ))}
     </>
@@ -486,10 +519,12 @@ function DraggableList({
 function DoneDropZone({
   items,
   projects,
+  calendarDate,
   onFeedback,
 }: {
   items: WBTodo[];
   projects: WBProject[];
+  calendarDate: string;
   onFeedback: (message: string, tone?: 'ok' | 'error') => void;
 }) {
   const [dragOver, setDragOver] = useState(false);
@@ -531,7 +566,13 @@ function DoneDropZone({
       <div className="done-drop-copy">Drop finished work here. Recent completions stay reviewable in Weekly Review.</div>
       <div className="done-drop-list work-scroll-region">
         {items.slice(0, 3).map((todo) => (
-          <TodoItem key={todo.id} t={todo} projects={projects} showProject={false} />
+          <TodoItem
+            key={todo.id}
+            t={todo}
+            projects={projects}
+            calendarDate={calendarDate}
+            showProject={false}
+          />
         ))}
         {items.length === 0 && <div className="board-col-empty">No completed items yet.</div>}
       </div>

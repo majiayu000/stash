@@ -121,7 +121,7 @@ export function TodoDetailPage({ data, reload }: { data: WBData; reload: () => v
       flashSaved(`✕ ${e instanceof Error ? e.message : String(e)}`);
     } finally { runInFlightRef.current = false; setIsCreatingRun(false); }
   }
-  async function save<K extends 'title' | 'description' | 'priority' | 'status' | 'dueAt' | 'projectId' | 'areaId' | 'labels' | 'recurrence' | 'reminderAt'>(field: K, value: WorkItem[K]) {
+  async function save<K extends 'title' | 'description' | 'priority' | 'status' | 'dueAt' | 'projectId' | 'areaId' | 'labels' | 'recurrence'>(field: K, value: WorkItem[K]) {
     if (!item) return;
     if (item[field] === value) return;
     const optimistic = { ...item, [field]: value };
@@ -134,6 +134,22 @@ export function TodoDetailPage({ data, reload }: { data: WBData; reload: () => v
     } catch (e) {
       setItem(item); // revert
       flashSaved(`✕ ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+  async function saveReminder(local_date_time: string) {
+    if (!item) return;
+    try {
+      const updated = await updateWorkItem(
+        item.id,
+        local_date_time
+          ? { reminderLocalDateTime: local_date_time }
+          : { reminderAt: null },
+      );
+      setItem(updated);
+      flashSaved('saved');
+      reload();
+    } catch (error) {
+      flashSaved(`✕ ${error instanceof Error ? error.message : String(error)}`);
     }
   }
   function flashSaved(msg: string) {
@@ -703,8 +719,10 @@ export function TodoDetailPage({ data, reload }: { data: WBData; reload: () => v
                 <MetaRow k="remind" v={
                   <input
                     type="datetime-local"
-                    value={item?.reminderAt ? toLocalDateTime(item.reminderAt) : ''}
-                    onChange={(e) => save('reminderAt', e.target.value ? new Date(e.target.value).toISOString() : undefined)}
+                    value={item?.reminderAt
+                      ? toLocalDateTime(item.reminderAt, data.runtime.timeZone)
+                      : ''}
+                    onChange={(e) => { void saveReminder(e.target.value); }}
                     disabled={!item}
                     style={{ background: 'transparent', border: 0, color: item?.reminderAt ? 'var(--neon-pink)' : 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: '0.78rem', cursor: 'pointer', colorScheme: 'dark' }}
                     data-testid="td-remind"

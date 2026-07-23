@@ -2,6 +2,12 @@ import { describe, expect, test } from 'vitest';
 import type { AgentSession, Area } from '@stash/shared';
 import { adaptToWorkbenchData, estimateSessionActivity } from './data';
 
+const runtime = {
+  timeZone: 'UTC',
+  calendarDate: '2026-07-10',
+  now: '2026-07-10T08:00:00.000Z',
+};
+
 const agentSession: AgentSession = {
   id: 'session-1',
   provider: 'codex',
@@ -36,6 +42,7 @@ describe('workbench activity estimates', () => {
 
   test('adapts sessions and aggregate stats without a false 24h shape', () => {
     const data = adaptToWorkbenchData({
+      runtime,
       items: [],
       sessions: [agentSession],
       sourceErrors: [],
@@ -68,6 +75,7 @@ describe('workbench activity estimates', () => {
 
   test('keeps durable areas visible before they receive a work item', () => {
     const data = adaptToWorkbenchData({
+      runtime,
       items: [],
       sessions: [],
       sourceErrors: [],

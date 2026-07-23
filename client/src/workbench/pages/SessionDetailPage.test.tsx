@@ -31,6 +31,7 @@ function session(overrides: Partial<WBSession> = {}): WBSession {
 
 function renderSessionDetailPage(sessionValue = session()) {
   const data: WBData = {
+    runtime: { timeZone: 'UTC', calendarDate: '2026-07-11', now: '2026-07-11T00:00:00.000Z' },
     projects: [],
     sessions: [sessionValue],
     todos: [],

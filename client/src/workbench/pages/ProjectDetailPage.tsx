@@ -317,7 +317,12 @@ export function ProjectDetailPage({ data }: { data: WBData; reload: () => void }
             )}
 
             <FeaturesSidebar p={p} />
-            <TodosSidebar p={p} myTodos={myTodos} projects={projects} />
+            <TodosSidebar
+              p={p}
+              myTodos={myTodos}
+              projects={projects}
+              calendarDate={data.runtime.calendarDate}
+            />
             <SessionsSidebar mySessions={mySessions} projects={projects} />
           </div>
         </div>
@@ -350,7 +355,16 @@ function FeaturesSidebar({ p }: { p: WBProject }) {
   );
 }
 
-function TodosSidebar({ myTodos, projects }: { p: WBProject; myTodos: WBData['todos']; projects: WBData['projects'] }) {
+function TodosSidebar({
+  myTodos,
+  projects,
+  calendarDate,
+}: {
+  p: WBProject;
+  myTodos: WBData['todos'];
+  projects: WBData['projects'];
+  calendarDate: string;
+}) {
   return (
     <div className="surface">
       <div className="sec-head" style={{ marginBottom: '0.6rem' }}>
@@ -360,7 +374,15 @@ function TodosSidebar({ myTodos, projects }: { p: WBProject; myTodos: WBData['to
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
         {myTodos.length === 0
           ? <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)' }}>none</div>
-          : myTodos.map((t) => <TodoItem key={t.id} t={t} projects={projects} showProject={false} />)}
+          : myTodos.map((t) => (
+            <TodoItem
+              key={t.id}
+              t={t}
+              projects={projects}
+              calendarDate={calendarDate}
+              showProject={false}
+            />
+          ))}
       </div>
     </div>
   );

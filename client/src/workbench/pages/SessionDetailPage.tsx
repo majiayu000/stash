@@ -135,7 +135,14 @@ export function SessionDetailPage({ data }: { data: WBData; reload: () => void }
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {relatedTodos.length === 0
                   ? <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)' }}>(none)</div>
-                  : relatedTodos.map((t) => <TodoItem key={t.id} t={t} projects={projects} />)}
+                  : relatedTodos.map((t) => (
+                    <TodoItem
+                      key={t.id}
+                      t={t}
+                      projects={projects}
+                      calendarDate={data.runtime.calendarDate}
+                    />
+                  ))}
               </div>
             </div>
 

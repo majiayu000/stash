@@ -43,8 +43,17 @@ export type WorkbenchPage =
   | 'settings'
   | 'settings-skills';
 
-function renderPage(page: WorkbenchPage, data: WBData, reload: () => void): ReactNode {
+function renderPage(
+  page: WorkbenchPage,
+  data: WBData,
+  reload: () => void,
+  calendar_blocked: boolean,
+  calendar_error: Error | undefined,
+): ReactNode {
   const props = { data, reload };
+  if (calendar_blocked && (page === 'work' || page === 'review')) {
+    return <CalendarRefreshBlock error={calendar_error} onRetry={reload} />;
+  }
   switch (page) {
     case 'work': return <WorkPage {...props} />;
     case 'todo-detail': return <TodoDetailPage {...props} />;
@@ -62,7 +71,7 @@ function renderPage(page: WorkbenchPage, data: WBData, reload: () => void): Reac
 }
 
 export function Workbench({ page }: { page: WorkbenchPage }) {
-  const { data, loading, error, reload, revalidate } = useWorkbenchData();
+  const { data, loading, error, calendarBlocked, reload, revalidate } = useWorkbenchData();
   const location = useLocation();
 
   useEffect(() => {
@@ -125,7 +134,7 @@ export function Workbench({ page }: { page: WorkbenchPage }) {
       <InboxTriage />
       <DecisionInbox reload={reload} />
       <SearchPalette />
-      <SmartLists />
+      <SmartLists calendarDate={data.runtime.calendarDate} />
       <ReminderTicker />
       <TodayTriage />
       <SourceHealthBanner errors={data.sourceErrors} onRetry={reload} />
@@ -134,10 +143,30 @@ export function Workbench({ page }: { page: WorkbenchPage }) {
 
       <main id="main-content" className="workbench-main">
         <SectionNavigation page={page} />
-        {renderPage(page, data, reload)}
+        {renderPage(page, data, reload, calendarBlocked, error)}
       </main>
 
       <style>{workbenchStyles}</style>
+    </div>
+  );
+}
+
+function CalendarRefreshBlock({
+  error,
+  onRetry,
+}: {
+  error: Error | undefined;
+  onRetry: () => void;
+}) {
+  return (
+    <div className="app-load-error" role="alert" data-testid="calendar-refresh-block">
+      <h1>Calendar data needs a server refresh.</h1>
+      <p>
+        {error
+          ? `The refresh failed: ${error.message}`
+          : 'The configured-zone day changed. Refreshing Today and Later before showing them.'}
+      </p>
+      <button type="button" onClick={onRetry}>Retry calendar refresh</button>
     </div>
   );
 }
