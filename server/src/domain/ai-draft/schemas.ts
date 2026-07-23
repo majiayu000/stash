@@ -3,12 +3,20 @@ import {
   AI_GENERATION_FEATURES,
   AI_RUN_SOURCE_KINDS,
   DRAFT_SOURCE_KINDS,
+  parse_calendar_date,
   PRIORITIES,
   WORK_ITEM_KINDS,
   WORK_ITEM_STATUSES,
 } from '@stash/shared';
 
 const nonEmptyString = z.string().trim().min(1);
+const CalendarDateSchema = z.string().superRefine((value, ctx) => {
+  try {
+    parse_calendar_date(value);
+  } catch {
+    ctx.addIssue({ code: 'custom', message: 'expected Gregorian calendar date YYYY-MM-DD' });
+  }
+});
 
 export const SourceSpanSchema = z.object({
   label: z.string().optional(),
@@ -51,8 +59,8 @@ export const CreateDecisionDraftSchema = z.object({
   proposedKind: z.enum(WORK_ITEM_KINDS).optional(),
   proposedPriority: z.enum(PRIORITIES).optional(),
   proposedLabels: z.array(z.string()).optional(),
-  proposedScheduledFor: z.string().optional(),
-  proposedDueAt: z.string().optional(),
+  proposedScheduledFor: CalendarDateSchema.optional(),
+  proposedDueAt: CalendarDateSchema.optional(),
   proposedChecklist: z.array(ChecklistItemSchema).optional(),
   sortOrder: z.number().optional(),
   reviewFlags: z.array(z.enum(['high_risk', 'unclear', 'missing_source_span'])).optional(),
@@ -66,8 +74,8 @@ export const AcceptDecisionDraftSchema = z.object({
   kind: z.enum(WORK_ITEM_KINDS).optional(),
   priority: z.enum(PRIORITIES).optional(),
   labels: z.array(z.string()).optional(),
-  scheduledFor: z.string().optional(),
-  dueAt: z.string().optional(),
+  scheduledFor: CalendarDateSchema.optional(),
+  dueAt: CalendarDateSchema.optional(),
   checklist: z.array(ChecklistItemSchema).optional(),
   reviewed: z.literal(true).optional(),
 });

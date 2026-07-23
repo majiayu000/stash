@@ -18,6 +18,34 @@ function setupAiDraftTest() {
 }
 
 describe('AiDraftService', () => {
+  test('rejects invalid calendar dates before draft persistence or acceptance', () => {
+    const { drafts, workItems } = setupAiDraftTest();
+    const run = drafts.createRun({
+      feature: 'manual_split',
+      sourceKind: 'manual_split',
+      provider: 'local-test',
+      promptHash: 'calendar-validation',
+      status: 'succeeded',
+    });
+    expect(() => drafts.createDrafts(run.id, [{
+      sourceKind: 'manual_split',
+      proposedTitle: 'invalid proposed date',
+      proposedScheduledFor: '2026-02-30',
+    }])).toThrow();
+    expect(drafts.listDrafts({ runId: run.id })).toEqual([]);
+
+    const [draft] = drafts.createDrafts(run.id, [{
+      sourceKind: 'manual_split',
+      proposedTitle: 'valid proposed date',
+      proposedScheduledFor: '2026-06-18',
+    }]);
+    expect(() => drafts.acceptDrafts(run.id, {
+      drafts: [{ draftId: draft!.id, dueAt: '2026-06-18T00:00:00.000Z' }],
+    })).toThrow();
+    expect(workItems.list()).toEqual([]);
+    expect(drafts.getDraft(draft!.id)?.status).toBe('draft');
+  });
+
   test('persists successful runs and draft source evidence', () => {
     const { workItems, drafts } = setupAiDraftTest();
     const idea = workItems.create({ title: 'Launch a local AI todo loop', kind: 'idea' });

@@ -94,6 +94,14 @@ describe('WorkItemService.create', () => {
       reminderAt: '2026-05-14T10:00:00.000Z',
       reminderLocalDateTime: '2026-05-14T18:00',
     })).toThrow(ValidationError);
+    expect(() => service.create({
+      title: 'bad date',
+      dueAt: '2026-02-30',
+    })).toThrow(ValidationError);
+    expect(() => service.create({
+      title: 'bad instant',
+      startAt: '2026-05-14',
+    })).toThrow(ValidationError);
   });
 });
 

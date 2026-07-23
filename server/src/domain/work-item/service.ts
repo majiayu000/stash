@@ -1,13 +1,10 @@
 import type { Database } from 'bun:sqlite';
 import {
-  add_calendar_days,
   assert_time_zone,
   calendar_date_at,
-  parse_local_date_time,
   STATUS_TRANSITIONS,
   systemClock,
   ulid,
-  zoned_date_time_to_instant,
   type ChecklistItem,
   type Clock,
   type CreateWorkItemInput,
@@ -18,6 +15,7 @@ import {
 } from '@stash/shared';
 import { nextInstanceFromCompleted } from './recurrence.js';
 import { WorkItemRepository, type ListFilter } from './repository.js';
+import { resolve_work_item_calendar_fields } from './calendar-input.js';
 
 export class WorkItemNotFoundError extends Error {
   constructor(id: string) {
@@ -264,33 +262,11 @@ export class WorkItemService {
   private resolve_calendar_fields(
     input: CreateWorkItemInput | UpdateWorkItemInput,
   ): { scheduled_for?: string; reminder_at?: string } {
-    if (input.scheduledFor !== undefined && input.scheduledForRelative !== undefined) {
-      throw new ValidationError('scheduledFor and scheduledForRelative are mutually exclusive');
+    try {
+      return resolve_work_item_calendar_fields(input, this.clock, this.time_zone);
+    } catch (error) {
+      throw new ValidationError(error instanceof Error ? error.message : String(error));
     }
-    if (input.reminderAt !== undefined && input.reminderLocalDateTime !== undefined) {
-      throw new ValidationError('reminderAt and reminderLocalDateTime are mutually exclusive');
-    }
-
-    let scheduled_for: string | undefined;
-    if (input.scheduledForRelative !== undefined) {
-      const today = calendar_date_at(this.clock.now(), this.time_zone);
-      scheduled_for = input.scheduledForRelative === 'tomorrow'
-        ? add_calendar_days(today, 1)
-        : today;
-    }
-
-    let reminder_at: string | undefined;
-    if (input.reminderLocalDateTime !== undefined) {
-      try {
-        reminder_at = new Date(zoned_date_time_to_instant(
-          parse_local_date_time(input.reminderLocalDateTime),
-          this.time_zone,
-        )).toISOString();
-      } catch (error) {
-        throw new ValidationError(error instanceof Error ? error.message : String(error));
-      }
-    }
-    return { scheduled_for, reminder_at };
   }
 
   /**
