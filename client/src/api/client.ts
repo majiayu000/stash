@@ -16,6 +16,12 @@ export class ApiError extends Error {
 }
 
 export const API_BASE = '/api';
+export const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
+
+export interface ApiRequestOptions {
+  signal?: AbortSignal;
+  timeoutMs?: number;
+}
 
 async function parseResponse<T>(res: Response): Promise<T> {
   if (res.status === 204) return undefined as T;
@@ -64,20 +70,61 @@ function errorMessage(res: Response, body: unknown): string {
   return res.statusText || `request failed with ${res.status}`;
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+async function request<T>(
+  path: string,
+  init?: RequestInit,
+  options: ApiRequestOptions = {},
+): Promise<T> {
+  const controller = new AbortController();
+  const timeoutMs = options.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+  let abortReason: 'timeout' | 'caller' | undefined;
+  let timeout: number | undefined;
+  const initiateAbort = (reason: 'timeout' | 'caller') => {
+    if (abortReason) return;
+    abortReason = reason;
+    if (reason === 'caller' && timeout !== undefined) window.clearTimeout(timeout);
+    if (reason === 'timeout') options.signal?.removeEventListener('abort', onCallerAbort);
+    controller.abort(reason === 'caller' ? options.signal?.reason : undefined);
+  };
+  const onCallerAbort = () => initiateAbort('caller');
+  if (options.signal?.aborted) onCallerAbort();
+  else options.signal?.addEventListener('abort', onCallerAbort, { once: true });
+  if (!abortReason) timeout = window.setTimeout(() => initiateAbort('timeout'), timeoutMs);
+
   try {
-    return await parseResponse<T>(await fetch(`${API_BASE}${path}`, init));
+    return await parseResponse<T>(await fetch(`${API_BASE}${path}`, {
+      ...init,
+      signal: controller.signal,
+    }));
   } catch (error) {
     if (error instanceof ApiError) throw error;
+    if (abortReason === 'timeout') {
+      throw new ApiError(
+        0,
+        'REQUEST_TIMEOUT',
+        `request timed out after ${timeoutMs}ms`,
+        { timeoutMs },
+      );
+    }
+    if (abortReason === 'caller' || options.signal?.aborted) {
+      throw new ApiError(0, 'REQUEST_ABORTED', 'request was aborted by the caller');
+    }
     throw new ApiError(
       0,
       'NETWORK_ERROR',
       error instanceof Error ? error.message : String(error),
     );
+  } finally {
+    if (timeout !== undefined) window.clearTimeout(timeout);
+    options.signal?.removeEventListener('abort', onCallerAbort);
   }
 }
 
-export async function apiGet<T>(path: string, query?: Record<string, string | string[] | undefined>): Promise<T> {
+export async function apiGet<T>(
+  path: string,
+  query?: Record<string, string | string[] | undefined>,
+  options?: ApiRequestOptions,
+): Promise<T> {
   const qs = query
     ? '?' +
       Object.entries(query)
@@ -86,33 +133,33 @@ export async function apiGet<T>(path: string, query?: Record<string, string | st
         .map(([k, v]) => `${encodeURIComponent(k!)}=${encodeURIComponent(v!)}`)
         .join('&')
     : '';
-  return request<T>(`${path}${qs}`);
+  return request<T>(`${path}${qs}`, undefined, options);
 }
 
-export async function apiPost<T>(path: string, body: unknown): Promise<T> {
+export async function apiPost<T>(path: string, body: unknown, options?: ApiRequestOptions): Promise<T> {
   return request<T>(path, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
-  });
+  }, options);
 }
 
-export async function apiPatch<T>(path: string, body: unknown): Promise<T> {
+export async function apiPatch<T>(path: string, body: unknown, options?: ApiRequestOptions): Promise<T> {
   return request<T>(path, {
     method: 'PATCH',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
-  });
+  }, options);
 }
 
-export async function apiPut<T>(path: string, body: unknown): Promise<T> {
+export async function apiPut<T>(path: string, body: unknown, options?: ApiRequestOptions): Promise<T> {
   return request<T>(path, {
     method: 'PUT',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
-  });
+  }, options);
 }
 
-export async function apiDelete<T>(path: string): Promise<T> {
-  return request<T>(path, { method: 'DELETE' });
+export async function apiDelete<T>(path: string, options?: ApiRequestOptions): Promise<T> {
+  return request<T>(path, { method: 'DELETE' }, options);
 }

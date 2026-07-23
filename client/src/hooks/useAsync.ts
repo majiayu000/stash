@@ -15,31 +15,31 @@ export function useAsync<T>(fn: () => Promise<T>, deps: unknown[] = []): AsyncSt
   const [error, setError] = useState<Error | undefined>(undefined);
   const [loading, setLoading] = useState(true);
   const [tick, setTick] = useState(0);
-  const cancelledRef = useRef(false);
+  const generationRef = useRef(0);
 
   const reload = useCallback(() => setTick((t) => t + 1), []);
 
   useEffect(() => {
-    cancelledRef.current = false;
+    const generation = ++generationRef.current;
     setLoading(true);
     fn()
       .then((v) => {
-        if (!cancelledRef.current) {
+        if (generationRef.current === generation) {
           setData(v);
           setError(undefined);
         }
       })
       .catch((e: unknown) => {
-        if (!cancelledRef.current) {
+        if (generationRef.current === generation) {
           setError(e instanceof Error ? e : new Error(String(e)));
         }
       })
       .finally(() => {
-        if (!cancelledRef.current) setLoading(false);
+        if (generationRef.current === generation) setLoading(false);
       });
 
     return () => {
-      cancelledRef.current = true;
+      if (generationRef.current === generation) generationRef.current += 1;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [...deps, tick]);

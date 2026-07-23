@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, test, vi } from 'vitest';
-import { apiGet, ApiError } from './client';
+import { apiGet } from './client';
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 function mockFetch(response: Response): void {
@@ -59,5 +61,57 @@ describe('api client errors', () => {
       code: 'NETWORK_ERROR',
       message: 'failed to fetch',
     });
+  });
+
+  test('keeps timeout classification when caller aborts before delayed fetch rejection', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('fetch', vi.fn((_input: RequestInfo | URL, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => {
+          window.setTimeout(() => reject(new DOMException('aborted', 'AbortError')), 100);
+        }, { once: true });
+      })));
+
+    const caller = new AbortController();
+    const request = apiGet('/overview', undefined, {
+      signal: caller.signal,
+      timeoutMs: 25,
+    });
+    const assertion = expect(request).rejects.toMatchObject({
+      name: 'ApiError',
+      status: 0,
+      code: 'REQUEST_TIMEOUT',
+      details: { timeoutMs: 25 },
+    });
+    await vi.advanceTimersByTimeAsync(25);
+    caller.abort();
+    await vi.advanceTimersByTimeAsync(100);
+
+    await assertion;
+  });
+
+  test('keeps caller classification when timeout would precede delayed fetch rejection', async () => {
+    vi.useFakeTimers();
+    const caller = new AbortController();
+    vi.stubGlobal('fetch', vi.fn((_input: RequestInfo | URL, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => {
+          window.setTimeout(() => reject(new DOMException('aborted', 'AbortError')), 100);
+        }, { once: true });
+      })));
+
+    const request = apiGet('/overview', undefined, {
+      signal: caller.signal,
+      timeoutMs: 25,
+    });
+    const assertion = expect(request).rejects.toMatchObject({
+      name: 'ApiError',
+      status: 0,
+      code: 'REQUEST_ABORTED',
+    });
+    caller.abort();
+    await vi.advanceTimersByTimeAsync(125);
+
+    await assertion;
   });
 });
