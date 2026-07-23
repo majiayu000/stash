@@ -1,13 +1,20 @@
 import {
+  add_calendar_days,
+  assert_time_zone,
+  calendar_date_at,
+  calendar_day_of_week,
   DEFAULT_MODEL_RATES,
   eventCost,
+  format_calendar_date,
   type AgentSession,
   type BurnSnapshot,
   type Clock,
   type DailySpendBucket,
   type ModelRate,
   type UsageEvent,
+  range_from_dates,
   systemClock,
+  zoned_parts,
 } from '@stash/shared';
 import type {
   AgentSourceAggregator,
@@ -21,15 +28,21 @@ export interface BurnServiceDeps {
   areaService: AreaService;
   clock?: Clock;
   rates?: ModelRate[];
+  time_zone?: string;
 }
 
 export interface BurnQuery {
   days?: number;
+  endMs?: number;
 }
 
 export interface BurnAggregationRequest {
   startMs: number;
-  beforeMs?: number;
+  bucketEndMs: number;
+  endMs?: number;
+  startDate: string;
+  endDateExclusive: string;
+  timeZone: string;
   days: number;
   rates: ModelRate[];
 }
@@ -48,6 +61,7 @@ interface CompactProjectBurn {
 }
 
 export interface BurnAggregate {
+  calendar: BurnSnapshot['calendar'];
   totals: BurnSnapshot['totals'];
   dailySpend: DailySpendBucket[];
   hourlyHeatmap: number[][];
@@ -67,12 +81,14 @@ export class BurnService {
   private readonly areaService: AreaService;
   private readonly clock: Clock;
   private readonly rates: ModelRate[];
+  private readonly time_zone: string;
 
   constructor(deps: BurnServiceDeps) {
     this.aggregator = deps.aggregator;
     this.areaService = deps.areaService;
     this.clock = deps.clock ?? systemClock;
     this.rates = deps.rates ?? DEFAULT_MODEL_RATES;
+    this.time_zone = assert_time_zone(deps.time_zone ?? 'UTC');
   }
 
   snapshot(q: BurnQuery = {}, scanResult?: AggregateResult): BurnSnapshot {
@@ -101,7 +117,11 @@ export class BurnService {
     const scan = scanResult ?? this.aggregator.scan({});
     return aggregateBurnFromScan(this.aggregator, scan, {
       startMs,
-      beforeMs: endMs,
+      bucketEndMs: endMs,
+      endMs,
+      startDate: calendar_date_at(startMs, this.time_zone),
+      endDateExclusive: calendar_date_at(endMs, this.time_zone),
+      timeZone: this.time_zone,
       days: 1,
       rates: this.rates,
     }).totals;
@@ -109,8 +129,23 @@ export class BurnService {
 
   private rollingRequest(q: BurnQuery): BurnAggregationRequest {
     const days = clampDays(q.days);
+    const current_date = calendar_date_at(this.clock.now(), this.time_zone);
+    const start_date = add_calendar_days(current_date, -(days - 1));
+    const end_date_exclusive = add_calendar_days(current_date, 1);
+    const bucket_range = range_from_dates(start_date, end_date_exclusive, this.time_zone);
+    const requested_end = valid_end_ms(q.endMs);
+    if (requested_end !== undefined && requested_end <= Date.parse(bucket_range.start)) {
+      throw new RangeError('endMs must be after the burn range start');
+    }
     return {
-      startMs: startOfDayUtcMs(new Date(this.clock.now())) - (days - 1) * 86_400_000,
+      startMs: Date.parse(bucket_range.start),
+      bucketEndMs: requested_end ?? Date.parse(bucket_range.end),
+      endMs: requested_end,
+      startDate: start_date,
+      endDateExclusive: requested_end === undefined
+        ? end_date_exclusive
+        : calendar_date_at(requested_end, this.time_zone),
+      timeZone: this.time_zone,
       days,
       rates: this.rates,
     };
@@ -119,6 +154,7 @@ export class BurnService {
   private finalize(aggregate: BurnAggregate): BurnSnapshot {
     const totalTokens = aggregate.totals.tokens;
     return {
+      calendar: aggregate.calendar,
       totals: aggregate.totals,
       dailySpend: aggregate.dailySpend,
       hourlyHeatmap: aggregate.hourlyHeatmap,
@@ -173,20 +209,24 @@ class BurnAccumulator {
   private readonly models = new Map<string, { tokens: number; cost: number }>();
   private readonly projects = new Map<string, MutableProjectBurn>();
   private readonly sources = new Set<string>();
+  private readonly daily_index_by_date: Map<string, number>;
 
   constructor(private readonly request: BurnAggregationRequest) {
     this.dailySpend = Array.from({ length: request.days }, (_, index) => ({
-      date: isoDate(request.startMs + index * 86_400_000),
+      date: add_calendar_days(request.startDate, index),
       tokens: 0,
       cost: 0,
     }));
+    this.daily_index_by_date = new Map(
+      this.dailySpend.map((bucket, index) => [bucket.date, index]),
+    );
   }
 
   addSession(session: AgentSession, usage: UsageEvent[]): void {
     for (const event of usage) {
       const eventMs = Date.parse(event.ts);
       if (Number.isNaN(eventMs) || eventMs < this.request.startMs) continue;
-      if (this.request.beforeMs !== undefined && eventMs >= this.request.beforeMs) continue;
+      if (this.request.endMs !== undefined && eventMs >= this.request.endMs) continue;
 
       const tokens = event.inputTokens + event.outputTokens;
       const cost = eventCost(event, this.request.rates);
@@ -194,17 +234,20 @@ class BurnAccumulator {
       this.totals.cost += cost;
       this.sources.add(event.sourcePath);
 
-      const dailyIndex = Math.floor((eventMs - this.request.startMs) / 86_400_000);
-      const daily = this.dailySpend[dailyIndex];
-      if (daily) {
-        daily.tokens += tokens;
-        daily.cost += cost;
-      }
+      if (eventMs < this.request.bucketEndMs) {
+        const local = zoned_parts(eventMs, this.request.timeZone);
+        const calendar_date = format_calendar_date(local);
+        const daily_index = this.daily_index_by_date.get(calendar_date);
+        const daily = daily_index === undefined ? undefined : this.dailySpend[daily_index];
+        if (daily) {
+          daily.tokens += tokens;
+          daily.cost += cost;
+        }
 
-      const date = new Date(eventMs);
-      const weekday = (date.getUTCDay() + 6) % 7;
-      const hourly = this.hourlyHeatmap[weekday];
-      if (hourly) hourly[date.getUTCHours()] = (hourly[date.getUTCHours()] ?? 0) + tokens;
+        const weekday = (calendar_day_of_week(calendar_date) + 6) % 7;
+        const hourly = this.hourlyHeatmap[weekday];
+        if (hourly) hourly[local.hour] = (hourly[local.hour] ?? 0) + tokens;
+      }
 
       const model = this.models.get(event.model) ?? { tokens: 0, cost: 0 };
       model.tokens += tokens;
@@ -235,6 +278,21 @@ class BurnAccumulator {
       sessions: value.sources.size,
     })).sort((a, b) => b.tokens - a.tokens);
     return {
+      calendar: {
+        timeZone: this.request.timeZone,
+        bucketRange: {
+          start: new Date(this.request.startMs).toISOString(),
+          end: new Date(this.request.bucketEndMs).toISOString(),
+          startDate: this.request.startDate,
+          endDateExclusive: this.request.endDateExclusive,
+        },
+        evaluationRange: {
+          start: new Date(this.request.startMs).toISOString(),
+          end: this.request.endMs === undefined
+            ? null
+            : new Date(this.request.endMs).toISOString(),
+        },
+      },
       totals: this.totals,
       dailySpend: this.dailySpend,
       hourlyHeatmap: this.hourlyHeatmap,
@@ -252,10 +310,8 @@ function clampDays(days: number | undefined): number {
   return Math.floor(days);
 }
 
-function startOfDayUtcMs(date: Date): number {
-  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
-}
-
-function isoDate(ms: number): string {
-  return new Date(ms).toISOString().slice(0, 10);
+function valid_end_ms(value: number | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  if (!Number.isFinite(value)) throw new RangeError('endMs must be a finite epoch millisecond');
+  return value;
 }

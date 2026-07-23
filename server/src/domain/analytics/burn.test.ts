@@ -67,11 +67,20 @@ describe('BurnService', () => {
     areaService = new AreaService({ db, clock: fixedClock(at) });
   });
 
-  function build(sessions: AgentSession[], usage: Record<string, UsageEvent[]>): BurnService {
+  function build(
+    sessions: AgentSession[],
+    usage: Record<string, UsageEvent[]>,
+    time_zone = 'UTC',
+  ): BurnService {
     const sources = new Map<AgentProvider, { source: AgentSource; root: string }>();
     sources.set('claude', { source: new FakeSource('claude', sessions, usage), root: '/fake' });
     const aggregator = new AgentSourceAggregator(sources);
-    return new BurnService({ aggregator, areaService, clock: fixedClock(at) });
+    return new BurnService({
+      aggregator,
+      areaService,
+      clock: fixedClock(at),
+      time_zone,
+    });
   }
 
   test('empty input produces zeroed snapshot of requested width', () => {
@@ -116,6 +125,82 @@ describe('BurnService', () => {
     };
     const snap = build([s], usage).snapshot({ days: 7 });
     expect(snap.hourlyHeatmap[3]?.[9]).toBe(1500);
+  });
+
+  test('buckets dates and hours in the configured zone across UTC midnight', () => {
+    const sourcePath = '/shanghai.jsonl';
+    const session = makeSession({ sourcePath });
+    const snap = build([session], {
+      [sourcePath]: [
+        {
+          ts: '2026-05-13T16:30:00.000Z',
+          model: 'claude-sonnet-4-6',
+          inputTokens: 100,
+          outputTokens: 50,
+          sourcePath,
+        },
+      ],
+    }, 'Asia/Shanghai').snapshot({ days: 2 });
+
+    expect(snap.dailySpend.find((bucket) => bucket.date === '2026-05-14')?.tokens).toBe(150);
+    expect(snap.hourlyHeatmap[3]?.[0]).toBe(150);
+    expect(snap.calendar).toEqual({
+      timeZone: 'Asia/Shanghai',
+      bucketRange: {
+        start: '2026-05-12T16:00:00.000Z',
+        end: '2026-05-14T16:00:00.000Z',
+        startDate: '2026-05-13',
+        endDateExclusive: '2026-05-15',
+      },
+      evaluationRange: {
+        start: '2026-05-12T16:00:00.000Z',
+        end: null,
+      },
+    });
+  });
+
+  test('uses exact DST bucket ranges and combines repeated local hours', () => {
+    const sourcePath = '/dst.jsonl';
+    const session = makeSession({
+      sourcePath,
+      lastActiveAt: '2026-11-01T10:00:00.000Z',
+    });
+    const service = new BurnService({
+      aggregator: new AgentSourceAggregator(new Map([[
+        'claude',
+        {
+          source: new FakeSource('claude', [session], {
+            [sourcePath]: [
+              {
+                ts: '2026-11-01T05:30:00.000Z',
+                model: 'claude-sonnet-4-6',
+                inputTokens: 100,
+                outputTokens: 0,
+                sourcePath,
+              },
+              {
+                ts: '2026-11-01T06:30:00.000Z',
+                model: 'claude-sonnet-4-6',
+                inputTokens: 200,
+                outputTokens: 0,
+                sourcePath,
+              },
+            ],
+          }),
+          root: '/fake',
+        },
+      ]])),
+      areaService,
+      clock: fixedClock('2026-11-01T12:00:00.000Z'),
+      time_zone: 'America/New_York',
+    });
+    const snap = service.snapshot({ days: 1 });
+
+    expect(Date.parse(snap.calendar.bucketRange.end)
+      - Date.parse(snap.calendar.bucketRange.start)).toBe(25 * 3_600_000);
+    expect(snap.hourlyHeatmap[6]?.[1]).toBe(300);
+    expect(snap.dailySpend[0]).toMatchObject({ date: '2026-11-01', tokens: 300 });
+    expect(snap.dailySpend[0]?.cost).toBeCloseTo(0.0009, 12);
   });
 
   test('model mix aggregates by model with share', () => {
@@ -188,6 +273,38 @@ describe('BurnService', () => {
     expect(snap.totals).toMatchObject({ tokens: 150, sessions: 1 });
     expect(snap.dailySpend).toEqual([{ date: '2026-05-14', tokens: 0, cost: 0 }]);
     expect(snap.modelMix[0]?.tokens).toBe(150);
+    expect(snap.calendar.evaluationRange.end).toBeNull();
+  });
+
+  test('bounded callers use the same end for buckets and evaluation totals', () => {
+    const sourcePath = '/bounded.jsonl';
+    const session = makeSession({
+      sourcePath,
+      lastActiveAt: '2026-05-16T00:00:00.000Z',
+    });
+    const endMs = Date.parse('2026-05-15T00:00:00.000Z');
+    const snap = build([session], {
+      [sourcePath]: [
+        {
+          ts: '2026-05-14T23:59:59.999Z',
+          model: 'claude-sonnet-4-6',
+          inputTokens: 100,
+          outputTokens: 0,
+          sourcePath,
+        },
+        {
+          ts: '2026-05-15T00:00:00.000Z',
+          model: 'claude-sonnet-4-6',
+          inputTokens: 999,
+          outputTokens: 0,
+          sourcePath,
+        },
+      ],
+    }).snapshot({ days: 1, endMs });
+
+    expect(snap.totals.tokens).toBe(100);
+    expect(snap.calendar.bucketRange.end).toBe('2026-05-15T00:00:00.000Z');
+    expect(snap.calendar.evaluationRange.end).toBe('2026-05-15T00:00:00.000Z');
   });
 
   test('totalsBetween uses exact half-open boundaries', () => {

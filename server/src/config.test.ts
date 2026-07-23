@@ -103,6 +103,7 @@ describe('loadConfig local API security', () => {
 
     process.env.STASH_TIME_ZONE = '+01:00';
     expect(() => loadConfig({ dbPath: ':memory:' })).toThrow('unsupported IANA time zone');
+    expect(() => loadConfig({ dbPath: ':memory:' })).toThrow('set STASH_TIME_ZONE');
 
     process.env.STASH_TIME_ZONE = 'US/Pacific';
     expect(() => loadConfig({ dbPath: ':memory:' })).toThrow('unsupported IANA time zone');

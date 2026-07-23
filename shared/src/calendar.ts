@@ -20,16 +20,19 @@ export interface CalendarRange {
 }
 
 const formatter_cache = new Map<string, Intl.DateTimeFormat>();
+const validated_time_zones = new Set<string>();
 const DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
 const LOCAL_DATE_TIME_PATTERN =
   /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/;
 
 export function assert_time_zone(value: string): string {
+  if (validated_time_zones.has(value)) return value;
   const supported = Intl.supportedValuesOf('timeZone');
   if (value !== 'UTC' && !supported.includes(value)) {
     throw new Error(`unsupported IANA time zone: ${value}`);
   }
   new Intl.DateTimeFormat('en-CA', { timeZone: value }).format();
+  validated_time_zones.add(value);
   return value;
 }
 

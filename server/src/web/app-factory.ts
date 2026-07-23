@@ -164,13 +164,14 @@ export function createApp(ctx: AppContext): Hono {
         cacheDbPath: ctx.db.filename,
       });
   const aggregator = new AgentSourceAggregator(sources, scanExecutor);
-  const burnService = new BurnService({ aggregator, areaService, clock });
+  const burnService = new BurnService({ aggregator, areaService, clock, time_zone });
   const weeklyService = new WeeklyReviewService({
     workItemService,
     areaService,
     aggregator,
     burnService,
     clock,
+    time_zone,
   });
 
   const localClientOrigins = resolveAllowedOrigins(ctx.allowedOrigins);

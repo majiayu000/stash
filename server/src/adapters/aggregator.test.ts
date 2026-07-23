@@ -112,7 +112,15 @@ describe('AgentSourceAggregator.scanAsync', () => {
       cacheReadPerM: 3,
       cacheWritePerM: 4,
     }];
-    const request: BurnAggregationRequest = { startMs: 100, days: 30, rates };
+    const request: BurnAggregationRequest = {
+      startMs: 100,
+      bucketEndMs: 200,
+      startDate: '1970-01-01',
+      endDateExclusive: '1970-01-02',
+      timeZone: 'UTC',
+      days: 30,
+      rates,
+    };
 
     const first = aggregator.aggregateBurnAsync(request);
     const same = aggregator.aggregateBurnAsync({ ...request, rates: [...rates] });
@@ -121,12 +129,17 @@ describe('AgentSourceAggregator.scanAsync', () => {
       ...request,
       rates: [{ ...rates[0]!, outputPerM: 20 }],
     });
+    const differentZone = aggregator.aggregateBurnAsync({
+      ...request,
+      timeZone: 'Asia/Shanghai',
+    });
 
     expect(first).toBe(same);
     expect(first).not.toBe(differentWindow);
     expect(first).not.toBe(differentRates);
-    await Promise.all([first, same, differentWindow, differentRates]);
-    expect(executor.burnRequests).toHaveLength(3);
+    expect(first).not.toBe(differentZone);
+    await Promise.all([first, same, differentWindow, differentRates, differentZone]);
+    expect(executor.burnRequests).toHaveLength(4);
   });
 
   test('clears failed Burn singleflight entries so callers can retry', async () => {
@@ -139,7 +152,15 @@ describe('AgentSourceAggregator.scanAsync', () => {
       },
     };
     const aggregator = new AgentSourceAggregator(new Map(), executor);
-    const request: BurnAggregationRequest = { startMs: 100, days: 30, rates: [] };
+    const request: BurnAggregationRequest = {
+      startMs: 100,
+      bucketEndMs: 200,
+      startDate: '1970-01-01',
+      endDateExclusive: '1970-01-02',
+      timeZone: 'UTC',
+      days: 30,
+      rates: [],
+    };
 
     await expect(aggregator.aggregateBurnAsync(request)).rejects.toThrow('burn failed');
     await expect(aggregator.aggregateBurnAsync(request)).rejects.toThrow('burn failed');
@@ -149,6 +170,16 @@ describe('AgentSourceAggregator.scanAsync', () => {
 
 function emptyBurnAggregate(): BurnAggregate {
   return {
+    calendar: {
+      timeZone: 'UTC',
+      bucketRange: {
+        start: '1970-01-01T00:00:00.000Z',
+        end: '1970-01-02T00:00:00.000Z',
+        startDate: '1970-01-01',
+        endDateExclusive: '1970-01-02',
+      },
+      evaluationRange: { start: '1970-01-01T00:00:00.000Z', end: null },
+    },
     totals: { tokens: 0, cost: 0, sessions: 0 },
     dailySpend: [],
     hourlyHeatmap: Array.from({ length: 7 }, () => Array<number>(24).fill(0)),

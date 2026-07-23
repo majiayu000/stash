@@ -1,5 +1,14 @@
 import {
+  add_calendar_days,
+  assert_time_zone,
+  calendar_date_at,
+  calendar_day_of_week,
+  format_calendar_date,
+  parse_calendar_date,
+  range_from_dates,
   systemClock,
+  zoned_parts,
+  type CalendarRange,
   type Clock,
   type DoneProjectRow,
   type FeatureAdvancedRow,
@@ -17,6 +26,7 @@ export interface WeeklyReviewServiceDeps {
   aggregator: AgentSourceAggregator;
   burnService: BurnService;
   clock?: Clock;
+  time_zone?: string;
 }
 
 export interface WeeklyQuery {
@@ -26,20 +36,28 @@ export interface WeeklyQuery {
 
 export class WeeklyReviewService {
   private readonly clock: Clock;
+  private readonly time_zone: string;
 
   constructor(private readonly deps: WeeklyReviewServiceDeps) {
     this.clock = deps.clock ?? systemClock;
+    this.time_zone = assert_time_zone(deps.time_zone ?? 'UTC');
   }
 
   snapshot(q: WeeklyQuery = {}, scanResult?: AggregateResult): WeeklySnapshot {
-    const { startMs, endMs, label } = resolveWeek(q.week, this.clock);
-    const prevStartMs = startMs - 7 * 86_400_000;
+    const { startMs, endMs, label, range } = resolveWeek(q.week, this.clock, this.time_zone);
+    const previous_range = range_from_dates(
+      add_calendar_days(range.startDate, -7),
+      range.startDate,
+      this.time_zone,
+    );
+    const prevStartMs = Date.parse(previous_range.start);
 
     const { doneItems, doneByProject, featuresAdvanced } = this.collectDoneWork(startMs, endMs);
     const { sessionsByDay, focusHours, sessionsThisWeek, sessionsPrevWeek } = this.collectSessions(
       startMs,
       endMs,
       prevStartMs,
+      range.startDate,
       scanResult,
     );
 
@@ -50,6 +68,7 @@ export class WeeklyReviewService {
     const sessions: WoWPair = { now: sessionsThisWeek, prev: sessionsPrevWeek };
 
     return {
+      calendar: { timeZone: this.time_zone, range },
       week: label,
       rangeStart: new Date(startMs).toISOString(),
       rangeEnd: new Date(endMs).toISOString(),
@@ -63,8 +82,12 @@ export class WeeklyReviewService {
   }
 
   async snapshotAsync(q: WeeklyQuery = {}): Promise<{ data: WeeklySnapshot; cache: AggregateResult['cache'] }> {
-    const { startMs } = resolveWeek(q.week, this.clock);
-    const prevStartMs = startMs - 7 * 86_400_000;
+    const { range } = resolveWeek(q.week, this.clock, this.time_zone);
+    const prevStartMs = Date.parse(range_from_dates(
+      add_calendar_days(range.startDate, -7),
+      range.startDate,
+      this.time_zone,
+    ).start);
     const scan = await this.deps.aggregator.scanActivityAsync({ modifiedSinceMs: prevStartMs });
     if (scan.errors.length > 0) {
       const first = scan.errors[0]!;
@@ -115,6 +138,7 @@ export class WeeklyReviewService {
     startMs: number,
     endMs: number,
     prevStartMs: number,
+    start_date: string,
     scanResult?: AggregateResult,
   ): {
     sessionsByDay: number[];
@@ -133,8 +157,9 @@ export class WeeklyReviewService {
       if (Number.isNaN(t)) continue;
       if (t >= startMs && t < endMs) {
         thisSet.add(s.sourcePath);
-        const dow = Math.floor((t - startMs) / 86_400_000);
-        if (dow >= 0 && dow < 7) {
+        const session_date = calendar_date_at(t, this.time_zone);
+        const dow = date_index_in_week(session_date, start_date);
+        if (dow !== undefined) {
           sessionsByDay[dow] = (sessionsByDay[dow] ?? 0) + 1;
         }
       } else if (t >= prevStartMs && t < startMs) {
@@ -145,7 +170,7 @@ export class WeeklyReviewService {
         for (const u of this.deps.aggregator.getUsageForScan(scanResult, s.provider, s.sourcePath)) {
           const ut = Date.parse(u.ts);
           if (Number.isNaN(ut) || ut < startMs || ut >= endMs) continue;
-          hourBuckets.add(hourKey(ut));
+          hourBuckets.add(hourKey(ut, this.time_zone));
         }
       }
     }
@@ -159,34 +184,41 @@ export class WeeklyReviewService {
   }
 }
 
-function hourKey(ms: number): string {
-  const d = new Date(ms);
-  return `${d.getUTCFullYear()}-${d.getUTCMonth()}-${d.getUTCDate()}-${d.getUTCHours()}`;
+function hourKey(ms: number, time_zone: string): string {
+  const local = zoned_parts(ms, time_zone);
+  return `${format_calendar_date(local)}-${String(local.hour).padStart(2, '0')}`;
 }
 
-interface ResolvedWeek { startMs: number; endMs: number; label: string }
+interface ResolvedWeek {
+  startMs: number;
+  endMs: number;
+  label: string;
+  range: CalendarRange;
+}
 
-export function resolveWeek(input: string | undefined, clock: Clock): ResolvedWeek {
+export function resolveWeek(
+  input: string | undefined,
+  clock: Clock,
+  time_zone: string,
+): ResolvedWeek {
+  assert_time_zone(time_zone);
+  let label: string;
   if (input) {
     if (!isValidIsoWeekLabel(input)) throw new RangeError(`invalid ISO week: ${input}`);
-    const m = /^(\d{4})-W(\d{2})$/.exec(input);
-    if (!m?.[1] || !m[2]) throw new RangeError(`invalid ISO week: ${input}`);
-    const year = Number(m[1]);
-    const week = Number(m[2]);
-    const monMs = isoWeekStartMs(year, week);
-    return {
-      startMs: monMs,
-      endMs: monMs + 7 * 86_400_000,
-      label: `${year}-W${String(week).padStart(2, '0')}`,
-    };
+    label = input;
+  } else {
+    label = iso_week_label_for_date(calendar_date_at(clock.now(), time_zone));
   }
-  const now = new Date(clock.now());
-  const { year, week } = isoWeekOf(now);
-  const monMs = isoWeekStartMs(year, week);
+  const match = /^(\d{4})-W(\d{2})$/.exec(label);
+  if (!match?.[1] || !match[2]) throw new RangeError(`invalid ISO week: ${label}`);
+  const start_date = iso_week_start_date(Number(match[1]), Number(match[2]));
+  const end_date = add_calendar_days(start_date, 7);
+  const range = range_from_dates(start_date, end_date, time_zone);
   return {
-    startMs: monMs,
-    endMs: monMs + 7 * 86_400_000,
-    label: `${year}-W${String(week).padStart(2, '0')}`,
+    startMs: Date.parse(range.start),
+    endMs: Date.parse(range.end),
+    label,
+    range,
   };
 }
 
@@ -196,25 +228,33 @@ export function isValidIsoWeekLabel(input: string): boolean {
   const year = Number(match[1]);
   const week = Number(match[2]);
   if (week < 1 || week > 53) return false;
-  const resolved = isoWeekOf(new Date(isoWeekStartMs(year, week)));
-  return resolved.year === year && resolved.week === week;
+  return iso_week_label_for_date(iso_week_start_date(year, week)) === input;
 }
 
 /** ISO 8601 week-numbering: Monday-anchored, week 1 contains the year's first Thursday. */
-function isoWeekStartMs(isoYear: number, isoWeek: number): number {
-  const jan4 = Date.UTC(isoYear, 0, 4);
-  const jan4Dow = (new Date(jan4).getUTCDay() + 6) % 7; // 0 = Mon
-  const week1Mon = jan4 - jan4Dow * 86_400_000;
-  return week1Mon + (isoWeek - 1) * 7 * 86_400_000;
+function iso_week_start_date(iso_year: number, iso_week: number): string {
+  const jan4 = format_calendar_date({ year: iso_year, month: 1, day: 4 });
+  const jan4_monday_index = (calendar_day_of_week(jan4) + 6) % 7;
+  return add_calendar_days(jan4, -jan4_monday_index + (iso_week - 1) * 7);
 }
 
-function isoWeekOf(d: Date): { year: number; week: number } {
-  const target = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
-  const dayNum = (target.getUTCDay() + 6) % 7; // 0 = Mon
-  target.setUTCDate(target.getUTCDate() - dayNum + 3); // shift to Thursday of that week
-  const firstThursday = Date.UTC(target.getUTCFullYear(), 0, 4);
-  const firstThursdayDow = (new Date(firstThursday).getUTCDay() + 6) % 7;
-  const firstThursdayDate = firstThursday - firstThursdayDow * 86_400_000 + 3 * 86_400_000;
-  const week = 1 + Math.round((target.getTime() - firstThursdayDate) / (7 * 86_400_000));
-  return { year: target.getUTCFullYear(), week };
+function iso_week_label_for_date(date: string): string {
+  const monday_index = (calendar_day_of_week(date) + 6) % 7;
+  const monday = add_calendar_days(date, -monday_index);
+  const thursday = add_calendar_days(monday, 3);
+  const iso_year = parse_calendar_date(thursday).year;
+  const week_one = iso_week_start_date(iso_year, 1);
+  for (let week = 1; week <= 53; week += 1) {
+    if (add_calendar_days(week_one, (week - 1) * 7) === monday) {
+      return `${iso_year}-W${String(week).padStart(2, '0')}`;
+    }
+  }
+  throw new RangeError(`cannot resolve ISO week for ${date}`);
+}
+
+function date_index_in_week(date: string, start_date: string): number | undefined {
+  for (let index = 0; index < 7; index += 1) {
+    if (add_calendar_days(start_date, index) === date) return index;
+  }
+  return undefined;
 }

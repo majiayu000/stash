@@ -193,7 +193,11 @@ function burnKey(request: BurnAggregationRequest): string {
   return JSON.stringify({
     kind: 'burn',
     startMs: request.startMs,
-    beforeMs: request.beforeMs ?? null,
+    bucketEndMs: request.bucketEndMs,
+    endMs: request.endMs ?? null,
+    startDate: request.startDate,
+    endDateExclusive: request.endDateExclusive,
+    timeZone: request.timeZone,
     days: request.days,
     rates: request.rates,
   });

@@ -111,7 +111,16 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
   const dbPath = overrides.dbPath ?? envPath('STASH_DB_PATH', defaultDbPath());
   const requested_time_zone = overrides.time_zone
     ?? envPath('STASH_TIME_ZONE', Intl.DateTimeFormat().resolvedOptions().timeZone);
-  const time_zone = assert_time_zone(requested_time_zone);
+  let time_zone: string;
+  try {
+    time_zone = assert_time_zone(requested_time_zone);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `${message}; set STASH_TIME_ZONE to UTC or an exact canonical IANA time zone`,
+      { cause: error },
+    );
+  }
   return {
     host: envLoopbackHost('STASH_HOST', '127.0.0.1'),
     port: envInt('PORT', 4174),

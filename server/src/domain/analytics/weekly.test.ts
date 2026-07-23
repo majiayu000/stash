@@ -44,28 +44,51 @@ function makeSession(o: Partial<AgentSession>): AgentSession {
 
 describe('resolveWeek', () => {
   test('parses YYYY-Www', () => {
-    const w = resolveWeek('2026-W20', fixedClock('2026-05-14T12:00:00.000Z'));
+    const w = resolveWeek('2026-W20', fixedClock('2026-05-14T12:00:00.000Z'), 'UTC');
     expect(w.label).toBe('2026-W20');
     expect(w.endMs - w.startMs).toBe(7 * 86_400_000);
   });
 
   test('falls back to current week of the clock', () => {
     // 2026-05-14 (Thu) is in ISO week 20
-    const w = resolveWeek(undefined, fixedClock('2026-05-14T12:00:00.000Z'));
+    const w = resolveWeek(undefined, fixedClock('2026-05-14T12:00:00.000Z'), 'UTC');
     expect(w.label).toBe('2026-W20');
   });
 
   test('week 1 of an ISO year starts on the right Monday', () => {
     // ISO 2026-W01 starts Mon 2025-12-29 (or 2026-01-05 if 2026 starts on Mon).
     // Our test year 2026: Jan 1 falls on Thursday => ISO W01 starts Mon Dec 29 2025.
-    const w = resolveWeek('2026-W01', fixedClock('2026-05-14T12:00:00.000Z'));
+    const w = resolveWeek('2026-W01', fixedClock('2026-05-14T12:00:00.000Z'), 'UTC');
     expect(new Date(w.startMs).toISOString().slice(0, 10)).toBe('2025-12-29');
   });
 
+  test('uses configured-zone ISO dates and exact cross-DST week ranges', () => {
+    const new_york = resolveWeek(
+      '2026-W10',
+      fixedClock('2026-03-05T12:00:00.000Z'),
+      'America/New_York',
+    );
+    expect(new_york.range).toEqual({
+      start: '2026-03-02T05:00:00.000Z',
+      end: '2026-03-09T04:00:00.000Z',
+      startDate: '2026-03-02',
+      endDateExclusive: '2026-03-09',
+    });
+    expect(new_york.endMs - new_york.startMs).toBe(167 * 3_600_000);
+
+    const los_angeles = resolveWeek(
+      undefined,
+      fixedClock('2026-01-01T07:30:00.000Z'),
+      'America/Los_Angeles',
+    );
+    expect(los_angeles.label).toBe('2026-W01');
+    expect(los_angeles.range.startDate).toBe('2025-12-29');
+  });
+
   test('rejects out-of-range and nonexistent ISO weeks', () => {
-    expect(() => resolveWeek('2026-W00', fixedClock('2026-05-14T12:00:00.000Z'))).toThrow('invalid ISO week');
-    expect(() => resolveWeek('2026-W99', fixedClock('2026-05-14T12:00:00.000Z'))).toThrow('invalid ISO week');
-    expect(() => resolveWeek('2021-W53', fixedClock('2026-05-14T12:00:00.000Z'))).toThrow('invalid ISO week');
+    expect(() => resolveWeek('2026-W00', fixedClock('2026-05-14T12:00:00.000Z'), 'UTC')).toThrow('invalid ISO week');
+    expect(() => resolveWeek('2026-W99', fixedClock('2026-05-14T12:00:00.000Z'), 'UTC')).toThrow('invalid ISO week');
+    expect(() => resolveWeek('2021-W53', fixedClock('2026-05-14T12:00:00.000Z'), 'UTC')).toThrow('invalid ISO week');
   });
 });
 
@@ -85,17 +108,24 @@ describe('WeeklyReviewService', () => {
     sessions: AgentSession[] = [],
     usage: Record<string, UsageEvent[]> = {},
     sourceOverride?: FakeSource,
+    time_zone = 'UTC',
   ): WeeklyReviewService {
     const sources = new Map<AgentProvider, { source: AgentSource; root: string }>();
     sources.set('claude', { source: sourceOverride ?? new FakeSource('claude', sessions, usage), root: '/' });
     const aggregator = new AgentSourceAggregator(sources);
-    const burnService = new BurnService({ aggregator, areaService, clock: fixedClock(at) });
+    const burnService = new BurnService({
+      aggregator,
+      areaService,
+      clock: fixedClock(at),
+      time_zone,
+    });
     return new WeeklyReviewService({
       workItemService,
       areaService,
       aggregator,
       burnService,
       clock: fixedClock(at),
+      time_zone,
     });
   }
 
@@ -143,6 +173,34 @@ describe('WeeklyReviewService', () => {
     expect(snap.sessionsByDay[0]).toBe(2); // Monday
     expect(snap.sessionsByDay[2]).toBe(1); // Wednesday
     expect(snap.sessionsByDay.reduce((a, b) => a + b, 0)).toBe(3);
+  });
+
+  test('classifies session days by configured local date at the UTC boundary', () => {
+    const sessions = [
+      makeSession({
+        id: 'before-local-week',
+        sourcePath: '/before-local-week',
+        lastActiveAt: '2026-05-11T06:30:00.000Z',
+      }),
+      makeSession({
+        id: 'local-monday',
+        sourcePath: '/local-monday',
+        lastActiveAt: '2026-05-11T07:30:00.000Z',
+      }),
+    ];
+    const snap = build(sessions, {}, undefined, 'America/Los_Angeles')
+      .snapshot({ week: '2026-W20' });
+
+    expect(snap.sessionsByDay).toEqual([1, 0, 0, 0, 0, 0, 0]);
+    expect(snap.calendar).toEqual({
+      timeZone: 'America/Los_Angeles',
+      range: {
+        start: '2026-05-11T07:00:00.000Z',
+        end: '2026-05-18T07:00:00.000Z',
+        startDate: '2026-05-11',
+        endDateExclusive: '2026-05-18',
+      },
+    });
   });
 
   test('focusHours counts distinct active hours from usage events', () => {

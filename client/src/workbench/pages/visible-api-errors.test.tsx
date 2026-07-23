@@ -2,6 +2,7 @@ import { render, screen } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
+import type { BurnSnapshot, WeeklySnapshot } from '@stash/shared';
 import { getBurnSnapshot, getWeeklySnapshot } from '../../api/analytics';
 import { listBudgets } from '../../api/budgets';
 import { listSkills } from '../../api/skills';
@@ -103,3 +104,72 @@ describe('page API load errors', () => {
     expect(screen.getByText('skills exploded')).toBeInTheDocument();
   });
 });
+
+describe('analytics calendar labels', () => {
+  test('Usage review distinguishes bucket dates from unbounded evaluation totals', async () => {
+    vi.mocked(getBurnSnapshot).mockResolvedValue(burnSnapshot);
+
+    renderPage(<UsageReviewPage data={data} reload={vi.fn()} />);
+
+    expect(await screen.findByTestId('usage-bucket-range')).toHaveTextContent(
+      '2026-06-12–2026-07-11 · Asia/Shanghai',
+    );
+    expect(screen.getByTestId('usage-evaluation-range')).toHaveTextContent(
+      'from 2026-06-12 onward · Asia/Shanghai',
+    );
+    expect(screen.getByText('cost · current calendar day')).toBeInTheDocument();
+  });
+
+  test('Weekly review displays the exact configured-zone calendar range', async () => {
+    vi.mocked(getWeeklySnapshot).mockResolvedValue(weeklySnapshot);
+
+    renderPage(<WeeklyReviewPage data={data} reload={vi.fn()} />);
+
+    expect(await screen.findByTestId('weekly-calendar-range')).toHaveTextContent(
+      '2026-07-06–2026-07-12 · America/Los_Angeles',
+    );
+  });
+});
+
+const burnSnapshot: BurnSnapshot = {
+  calendar: {
+    timeZone: 'Asia/Shanghai',
+    bucketRange: {
+      start: '2026-06-11T16:00:00.000Z',
+      end: '2026-07-11T16:00:00.000Z',
+      startDate: '2026-06-12',
+      endDateExclusive: '2026-07-12',
+    },
+    evaluationRange: { start: '2026-06-11T16:00:00.000Z', end: null },
+  },
+  totals: { tokens: 100, cost: 1, sessions: 1 },
+  dailySpend: [{ date: '2026-07-11', tokens: 100, cost: 1 }],
+  hourlyHeatmap: Array.from({ length: 7 }, () => Array<number>(24).fill(0)),
+  modelMix: [{ model: 'gpt-5', share: 1, tokens: 100, cost: 1 }],
+  perProjectLeaderboard: [],
+};
+
+const weeklySnapshot: WeeklySnapshot = {
+  calendar: {
+    timeZone: 'America/Los_Angeles',
+    range: {
+      start: '2026-07-06T07:00:00.000Z',
+      end: '2026-07-13T07:00:00.000Z',
+      startDate: '2026-07-06',
+      endDateExclusive: '2026-07-13',
+    },
+  },
+  week: '2026-W28',
+  rangeStart: '2026-07-06T07:00:00.000Z',
+  rangeEnd: '2026-07-13T07:00:00.000Z',
+  doneCount: 0,
+  focusHours: 0,
+  featuresAdvanced: [],
+  sessionsByDay: Array<number>(7).fill(0),
+  donePerProject: [],
+  wow: {
+    tokens: { now: 0, prev: 0 },
+    cost: { now: 0, prev: 0 },
+    sessions: { now: 0, prev: 0 },
+  },
+};

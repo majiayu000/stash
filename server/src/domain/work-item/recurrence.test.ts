@@ -118,7 +118,7 @@ describe('WorkItemService.today canonical query', () => {
     const service = new WorkItemService({ db, clock: fixedClock('2026-05-14T10:00:00.000Z') });
     const pinned    = service.create({ title: 'pin',   todayPinned: true });
     const sched     = service.create({ title: 'sched', scheduledFor: '2026-05-14' });
-    const overdue   = service.create({ title: 'over',  dueAt: '2026-05-10T00:00:00.000Z' });
+    const overdue   = service.create({ title: 'over',  dueAt: '2026-05-10' });
     const future    = service.create({ title: 'next',  scheduledFor: '2026-05-20' });
     service.create({ title: 'someday',  status: 'someday' });
 

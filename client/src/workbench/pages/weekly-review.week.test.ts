@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { isoWeekRange, nextIsoWeekRange, shiftIsoWeek } from './weekly-review.week';
+import { isIsoWeekLabel, isoWeekRange, nextIsoWeekRange, shiftIsoWeek } from './weekly-review.week';
 
 describe('Weekly review ISO week helpers', () => {
   test('builds the current week range and weekday slots', () => {
@@ -21,6 +21,11 @@ describe('Weekly review ISO week helpers', () => {
     expect(shiftIsoWeek('2026-W20', -1)).toBe('2026-W19');
     expect(shiftIsoWeek('2026-W20', 1)).toBe('2026-W21');
     expect(shiftIsoWeek('2026-W01', -1)).toBe('2025-W52');
+  });
+
+  test('rejects syntactically valid week labels that do not exist', () => {
+    expect(isIsoWeekLabel('2025-W53')).toBe(false);
+    expect(() => isoWeekRange('2025-W53')).toThrow('invalid ISO week');
   });
 
   test('returns the persisted planning range for the next week', () => {

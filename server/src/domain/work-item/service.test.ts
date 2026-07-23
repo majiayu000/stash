@@ -249,7 +249,7 @@ describe('WorkItemService.update', () => {
       context: 'ctx',
       scheduledFor: '2026-05-14',
       startAt: '2026-05-14T09:00:00.000Z',
-      dueAt: '2026-05-14T18:00:00.000Z',
+      dueAt: '2026-05-14',
       sortOrder: 1000,
     });
 

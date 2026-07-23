@@ -213,6 +213,25 @@ migration-safety details.
 Claude/Codex JSONL roots: `CLAUDE_ROOT` (default `~/.claude`), `CODEX_ROOT`
 (default `~/.codex`).
 
+stash uses one server-authoritative IANA calendar time zone for Today,
+relative capture, reminders, recurrence, Burn buckets, and Weekly Review.
+It defaults to the host's canonical zone. Set an exact IANA identifier when the
+server should use another zone:
+
+```sh
+STASH_TIME_ZONE=Asia/Shanghai bun run server:dev
+```
+
+`UTC` and exact names returned by `Intl.supportedValuesOf("timeZone")` are
+accepted. Offset-only names and legacy aliases fail startup instead of silently
+falling back. `bun run doctor` prints the active zone.
+
+Persisted calendar dates (`scheduledFor`, `dueAt`, `reviewAt`, and
+`recurrence.until`) use `YYYY-MM-DD`. Persisted instants (`reminderAt`,
+`startAt`, and audit timestamps) are UTC ISO 8601 values ending in `Z`.
+Changing `STASH_TIME_ZONE` changes future relative-date interpretation and
+analytics bucketing; it does not rewrite stored dates or timestamps.
+
 ## Tests
 
 ```sh
@@ -262,9 +281,11 @@ Current highest-priority gaps:
 - Session detail: real transcript / tool-call summary / files-touched
 - Decision candidate extraction from JSONL (accept/ignore inline)
 - Connected session starter: composes a prompt and spawns Claude / Codex
-- Analytics: 30-day burn (daily spend / hourly heatmap / model mix / per-project)
-  with Codex token-usage extracted from rollout JSONLs
-- Weekly review snapshot (WoW pairs, focus hours, done-by-project, stale digest)
+- Analytics: configured-zone rolling burn (daily spend / hourly heatmap / model
+  mix / per-project) with explicit bucket/evaluation ranges and Codex
+  token-usage extracted from rollout JSONLs
+- Configured-zone ISO Weekly Review snapshot (WoW pairs, focus hours,
+  done-by-project, stale digest)
 - Settings: 7 themes, notifications opt-in, budgets, and skills
 - Persisted budgets (scope × period uniqueness, 409 on conflict)
 

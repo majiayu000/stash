@@ -314,3 +314,48 @@ describe('overview API', () => {
     expect(kinds).toContain('blocked');
   });
 });
+
+describe('analytics calendar metadata', () => {
+  test('describes Burn bucket and evaluation consumers independently', async () => {
+    const { app } = setupApp({ time_zone: 'Asia/Shanghai' });
+    const res = await jsonRequest(app, 'GET', '/api/analytics/burn?days=1');
+    expect(res.status).toBe(200);
+    expect(res.body.data.calendar).toEqual({
+      timeZone: 'Asia/Shanghai',
+      bucketRange: {
+        start: '2026-05-13T16:00:00.000Z',
+        end: '2026-05-14T16:00:00.000Z',
+        startDate: '2026-05-14',
+        endDateExclusive: '2026-05-15',
+      },
+      evaluationRange: {
+        start: '2026-05-13T16:00:00.000Z',
+        end: null,
+      },
+    });
+  });
+
+  test('returns exact Weekly zone/range metadata', async () => {
+    const { app } = setupApp({ time_zone: 'America/Los_Angeles' });
+    const res = await jsonRequest(app, 'GET', '/api/analytics/weekly?week=2026-W20');
+    expect(res.status).toBe(200);
+    expect(res.body.data.calendar).toEqual({
+      timeZone: 'America/Los_Angeles',
+      range: {
+        start: '2026-05-11T07:00:00.000Z',
+        end: '2026-05-18T07:00:00.000Z',
+        startDate: '2026-05-11',
+        endDateExclusive: '2026-05-18',
+      },
+    });
+    expect(res.body.data.rangeStart).toBe(res.body.data.calendar.range.start);
+    expect(res.body.data.rangeEnd).toBe(res.body.data.calendar.range.end);
+  });
+
+  test('rejects malformed bounded Burn requests', async () => {
+    const { app } = setupApp();
+    const res = await jsonRequest(app, 'GET', '/api/analytics/burn?endMs=not-a-number');
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('VALIDATION');
+  });
+});

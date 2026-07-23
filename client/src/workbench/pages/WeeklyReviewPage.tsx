@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import type { FeatureAdvancedRow, UpdateWorkItemInput, WeeklySnapshot, WorkItem } from '@stash/shared';
+import { add_calendar_days, type FeatureAdvancedRow, type UpdateWorkItemInput, type WeeklySnapshot, type WorkItem } from '@stash/shared';
 import { getWeeklySnapshot } from '../../api/analytics';
 import * as workItemsApi from '../../api/work-items';
 import { CountUp, ParticleField, ShinyText } from '../../components/effects';
@@ -148,6 +148,9 @@ export function WeeklyReviewPage({ data }: { data: WBData; reload: () => void })
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>this week · review</div>
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.5rem', fontWeight: 700, marginTop: 2 }}>
                 <ShinyText>{week.week} — stash workbench</ShinyText>
+              </div>
+              <div data-testid="weekly-calendar-range" style={{ fontFamily: 'var(--font-mono)', fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: 4 }}>
+                {week.calendar.range.startDate}–{add_calendar_days(week.calendar.range.endDateExclusive, -1)} · {week.calendar.timeZone}
               </div>
             </div>
             <button className="wr-nav" type="button" aria-label="next week" onClick={() => navigateWeek(1)}>›</button>

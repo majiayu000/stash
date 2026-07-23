@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import type { Budget, BurnSnapshot, ProjectBurnRow } from '@stash/shared';
+import { add_calendar_days, type Budget, type BurnSnapshot, type ProjectBurnRow } from '@stash/shared';
 import { getBurnSnapshot } from '../../api/analytics';
 import { listBudgets } from '../../api/budgets';
 import { CountUp } from '../../components/effects';
@@ -93,7 +93,25 @@ export function UsageReviewPage({ data }: { data: WBData; reload: () => void }) 
       </div>
     );
   }
-  if (!snap || snap.dailySpend.every((d) => d.cost === 0)) {
+  if (!snap) {
+    return (
+      <div className="dashboard-canvas">
+        <div className="inner">
+          <Topbar data={data} />
+          <LoadErrorPanel
+            title="analytics returned no data"
+            endpoint="/api/analytics/burn?days=30"
+            error={new Error('analytics response was empty')}
+            onRetry={() => setRetryTick((t) => t + 1)}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  const bucketRangeLabel = calendarRangeLabel(snap);
+  const evaluationRangeLabel = evaluationLabel(snap);
+  if (snap.dailySpend.every((d) => d.cost === 0)) {
     return (
       <div className="dashboard-canvas">
         <div className="inner">
@@ -101,6 +119,7 @@ export function UsageReviewPage({ data }: { data: WBData; reload: () => void }) 
           <div style={{ padding: '4rem 2rem', textAlign: 'center', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
             <div style={{ fontSize: '1.8rem', marginBottom: '0.7rem', opacity: 0.5 }}>📊</div>
             <div>no usage data yet — analytics will appear once Claude/Codex sessions log token usage.</div>
+            <div style={{ marginTop: '0.55rem', fontSize: '0.7rem' }}>{bucketRangeLabel}</div>
             <button
               type="button"
               className="burn-settings-link"
@@ -118,7 +137,7 @@ export function UsageReviewPage({ data }: { data: WBData; reload: () => void }) 
   }
 
   const dailyCosts = snap.dailySpend.map((d) => d.cost);
-  const monthTotal = snap.totals.cost;
+  const evaluationTotal = snap.totals.cost;
   const lastWeek = dailyCosts.slice(-7).reduce((a, b) => a + b, 0);
   const prevWeek = dailyCosts.slice(-14, -7).reduce((a, b) => a + b, 0);
   const wow = prevWeek === 0 ? 0 : ((lastWeek - prevWeek) / prevWeek) * 100;
@@ -128,7 +147,7 @@ export function UsageReviewPage({ data }: { data: WBData; reload: () => void }) 
   const cost24h = dailyCosts[dailyCosts.length - 1] ?? 0;
   const avgSessionTokens = snap.totals.sessions > 0 ? Math.round(snap.totals.tokens / snap.totals.sessions) : 0;
   const monthlyBudget = budgets.find((budget) => budget.scope === 'all' && budget.period === 'month');
-  const budgetPercent = monthlyBudget ? Math.min(100, (monthTotal / monthlyBudget.capUsd) * 100) : 0;
+  const budgetPercent = monthlyBudget ? Math.min(100, (evaluationTotal / monthlyBudget.capUsd) * 100) : 0;
 
   return (
     <div className="dashboard-canvas">
@@ -138,10 +157,10 @@ export function UsageReviewPage({ data }: { data: WBData; reload: () => void }) 
         {/* Top KPIs */}
         <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 1fr 1fr', gap: '1rem', marginBottom: '1.25rem' }}>
           <div className="surface" style={{ padding: '1.2rem 1.4rem' }}>
-            <div className="stat-tile-label">last 30 days · spend</div>
+            <div className="stat-tile-label" data-testid="usage-evaluation-range">indexed spend · {evaluationRangeLabel}</div>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.6rem', marginTop: '0.4rem' }}>
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: '2.6rem', fontWeight: 700, background: 'var(--gradient-primary)', WebkitBackgroundClip: 'text', backgroundClip: 'text', WebkitTextFillColor: 'transparent', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
-                <CountUp to={monthTotal} duration={1400} format={(n: number) => '$' + n.toFixed(2)} />
+                <CountUp to={evaluationTotal} duration={1400} format={(n: number) => '$' + n.toFixed(2)} />
               </div>
               <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.85rem', color: wow > 0 ? 'var(--neon-pink)' : 'var(--neon-green)' }}>
                 {wow > 0 ? '↑' : '↓'} {Math.abs(wow).toFixed(0)}% w/w
@@ -157,8 +176,8 @@ export function UsageReviewPage({ data }: { data: WBData; reload: () => void }) 
             </div>
           </div>
 
-          <StatTile label="tokens · 7d" tone="purple" value={totalTokens7d} format={(n: number) => fmt.k(Math.round(n))} foot={<span>across {snap.totals.sessions} sessions</span>} />
-          <StatTile label="cost · 24h"  tone="green"  value={cost24h}       format={(n: number) => '$' + n.toFixed(2)} foot={<span>this week <span className="up">${lastWeek.toFixed(2)}</span></span>} />
+          <StatTile label="tokens · last 7 calendar days" tone="purple" value={totalTokens7d} format={(n: number) => fmt.k(Math.round(n))} foot={<span>{snap.calendar.timeZone}</span>} />
+          <StatTile label="cost · current calendar day"  tone="green"  value={cost24h}       format={(n: number) => '$' + n.toFixed(2)} foot={<span>7 calendar days <span className="up">${lastWeek.toFixed(2)}</span></span>} />
           <StatTile label="avg session" tone="orange" value={avgSessionTokens} format={(n: number) => fmt.k(Math.round(n)) + ' tok'} foot={<span>over all sessions</span>} />
         </div>
 
@@ -167,7 +186,7 @@ export function UsageReviewPage({ data }: { data: WBData; reload: () => void }) 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', minHeight: 0, overflowY: 'auto' }}>
             <div className="surface">
               <div className="sec-head" style={{ marginBottom: '0.8rem' }}>
-                <span className="prompt">&gt;</span> daily spend <span className="count">— last 30 days</span>
+                <span className="prompt">&gt;</span> daily spend <span className="count" data-testid="usage-bucket-range">— {bucketRangeLabel}</span>
                 <span className="right">$ usd</span>
               </div>
               <DailySpendChart data={dailyCosts} />
@@ -175,7 +194,7 @@ export function UsageReviewPage({ data }: { data: WBData; reload: () => void }) 
 
             <div className="surface">
               <div className="sec-head" style={{ marginBottom: '0.8rem' }}>
-                <span className="prompt">&gt;</span> per-project · last 30d
+                <span className="prompt">&gt;</span> per-project · {evaluationRangeLabel}
               </div>
               {snap.perProjectLeaderboard.length === 0 ? (
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)' }}>no per-project usage yet</div>
@@ -186,7 +205,7 @@ export function UsageReviewPage({ data }: { data: WBData; reload: () => void }) 
 
             <div className="surface">
               <div className="sec-head" style={{ marginBottom: '0.8rem' }}>
-                <span className="prompt">&gt;</span> activity heatmap <span className="count">— last 7 days, hourly</span>
+                <span className="prompt">&gt;</span> activity heatmap <span className="count">— {bucketRangeLabel}, hourly</span>
               </div>
               <Heatmap data={heatFlat} />
             </div>
@@ -195,7 +214,7 @@ export function UsageReviewPage({ data }: { data: WBData; reload: () => void }) 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', minHeight: 0, overflowY: 'auto' }}>
             <div className="surface">
               <div className="sec-head" style={{ marginBottom: '0.8rem' }}>
-                <span className="prompt">&gt;</span> by model · last 30d
+                <span className="prompt">&gt;</span> by model · {evaluationRangeLabel}
               </div>
               <ModelDonut mix={modelMix} totalTokens={snap.totals.tokens} />
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: '1rem' }}>
@@ -254,6 +273,18 @@ export function UsageReviewPage({ data }: { data: WBData; reload: () => void }) 
       <style>{usageReviewStyles}</style>
     </div>
   );
+}
+
+function calendarRangeLabel(snap: BurnSnapshot): string {
+  const { bucketRange, timeZone } = snap.calendar;
+  return `${bucketRange.startDate}–${add_calendar_days(bucketRange.endDateExclusive, -1)} · ${timeZone}`;
+}
+
+function evaluationLabel(snap: BurnSnapshot): string {
+  if (snap.calendar.evaluationRange.end === null) {
+    return `from ${snap.calendar.bucketRange.startDate} onward · ${snap.calendar.timeZone}`;
+  }
+  return calendarRangeLabel(snap);
 }
 
 function flattenHeatmap(grid: number[][]): number[] {
