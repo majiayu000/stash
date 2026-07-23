@@ -15,7 +15,7 @@ function area(id: string, name: string): Area {
 }
 
 const AREAS: Area[] = [area('a1', 'aurora'), area('a2', 'borealis'), area('a3', 'AI tooling'), area('a4', '家庭')];
-const CTX = { areas: AREAS, nowIso: NOW };
+const CTX = { areas: AREAS, nowIso: NOW, time_zone: 'UTC' };
 
 describe('parseCaptureInput', () => {
   test('plain title is preserved with no tokens', () => {
@@ -133,7 +133,7 @@ describe('parseCaptureInput', () => {
 
   test('buildCapturePreview exposes normalized server chip labels', () => {
     const parsed = parseCaptureInput('明天下午3点半 修门 #家庭 @家务 :system ^p2 *30m', CTX);
-    const preview = buildCapturePreview(parsed, AREAS);
+    const preview = buildCapturePreview(parsed, AREAS, 'UTC');
     expect(preview.projectName).toBe('家庭');
     expect(preview.chips).toEqual([
       { type: 'proj', label: '#家庭', value: 'a4' },
@@ -149,47 +149,47 @@ describe('parseCaptureInput', () => {
 
 describe('parseDateToken', () => {
   test('today / tomorrow', () => {
-    expect(parseDateToken('today', NOW)).toBe('2026-05-14');
-    expect(parseDateToken('tomorrow', NOW)).toBe('2026-05-15');
-    expect(parseDateToken('tomo', NOW)).toBe('2026-05-15');
+    expect(parseDateToken('today', NOW, 'UTC')).toBe('2026-05-14');
+    expect(parseDateToken('tomorrow', NOW, 'UTC')).toBe('2026-05-15');
+    expect(parseDateToken('tomo', NOW, 'UTC')).toBe('2026-05-15');
   });
 
   test('weekday yields next occurrence (Thu → Fri = +1, Thu → Thu = +7)', () => {
-    expect(parseDateToken('fri', NOW)).toBe('2026-05-15'); // +1
-    expect(parseDateToken('thu', NOW)).toBe('2026-05-21'); // +7 (same-day → next week)
-    expect(parseDateToken('mon', NOW)).toBe('2026-05-18'); // +4
+    expect(parseDateToken('fri', NOW, 'UTC')).toBe('2026-05-15'); // +1
+    expect(parseDateToken('thu', NOW, 'UTC')).toBe('2026-05-21'); // +7 (same-day → next week)
+    expect(parseDateToken('mon', NOW, 'UTC')).toBe('2026-05-18'); // +4
   });
 
   test('next-<weekday> always +7 from "this <weekday>"', () => {
-    expect(parseDateToken('next-fri', NOW)).toBe('2026-05-22');
-    expect(parseDateToken('next-mon', NOW)).toBe('2026-05-25');
+    expect(parseDateToken('next-fri', NOW, 'UTC')).toBe('2026-05-22');
+    expect(parseDateToken('next-mon', NOW, 'UTC')).toBe('2026-05-25');
   });
 
   test('ISO date passes through', () => {
-    expect(parseDateToken('2026-05-20', NOW)).toBe('2026-05-20');
+    expect(parseDateToken('2026-05-20', NOW, 'UTC')).toBe('2026-05-20');
   });
 
   test('Chinese relative dates and weekdays', () => {
-    expect(parseDateToken('今天', NOW)).toBe('2026-05-14');
-    expect(parseDateToken('明天', NOW)).toBe('2026-05-15');
-    expect(parseDateToken('后天', NOW)).toBe('2026-05-16');
-    expect(parseDateToken('大后天', NOW)).toBe('2026-05-17');
-    expect(parseDateToken('周一', NOW)).toBe('2026-05-18');
-    expect(parseDateToken('下周', NOW)).toBe('2026-05-18');
-    expect(parseDateToken('下周一', NOW)).toBe('2026-05-25');
+    expect(parseDateToken('今天', NOW, 'UTC')).toBe('2026-05-14');
+    expect(parseDateToken('明天', NOW, 'UTC')).toBe('2026-05-15');
+    expect(parseDateToken('后天', NOW, 'UTC')).toBe('2026-05-16');
+    expect(parseDateToken('大后天', NOW, 'UTC')).toBe('2026-05-17');
+    expect(parseDateToken('周一', NOW, 'UTC')).toBe('2026-05-18');
+    expect(parseDateToken('下周', NOW, 'UTC')).toBe('2026-05-18');
+    expect(parseDateToken('下周一', NOW, 'UTC')).toBe('2026-05-25');
   });
 
   test('+N day/week offsets', () => {
-    expect(parseDateToken('+3d', NOW)).toBe('2026-05-17');
-    expect(parseDateToken('+2w', NOW)).toBe('2026-05-28');
+    expect(parseDateToken('+3d', NOW, 'UTC')).toBe('2026-05-17');
+    expect(parseDateToken('+2w', NOW, 'UTC')).toBe('2026-05-28');
   });
 
   test('due-<phrase> normalised (used by !! tokens)', () => {
-    expect(parseDateToken('due-tomorrow', NOW)).toBe('2026-05-15');
-    expect(parseDateToken('due-fri', NOW)).toBe('2026-05-15');
+    expect(parseDateToken('due-tomorrow', NOW, 'UTC')).toBe('2026-05-15');
+    expect(parseDateToken('due-fri', NOW, 'UTC')).toBe('2026-05-15');
   });
 
   test('garbage returns undefined', () => {
-    expect(parseDateToken('blorp', NOW)).toBeUndefined();
+    expect(parseDateToken('blorp', NOW, 'UTC')).toBeUndefined();
   });
 });

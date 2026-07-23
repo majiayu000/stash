@@ -107,7 +107,7 @@ export function createApp(ctx: AppContext): Hono {
     ctx.time_zone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
   );
   const areaService = new AreaService({ db: ctx.db, clock });
-  const workItemService = new WorkItemService({ db: ctx.db, clock });
+  const workItemService = new WorkItemService({ db: ctx.db, clock, time_zone });
   const sessionLinks = new WorkItemSessionService({ db: ctx.db, clock });
   const evidenceService = new EvidenceService({ db: ctx.db, clock });
   const skillService = new SkillService({ db: ctx.db, clock });
@@ -196,9 +196,14 @@ export function createApp(ctx: AppContext): Hono {
   app.route('/api/meeting-triage', createMeetingTriageRouter({ db: ctx.db, ai: aiProviderService, clock }));
   app.route(
     '/api/work-items',
-    createWorkItemsRouter(workItemService, sessionLinks, evidenceService, { areaService, journal: journalService, clock }),
+    createWorkItemsRouter(workItemService, sessionLinks, evidenceService, {
+      areaService,
+      journal: journalService,
+      clock,
+      time_zone,
+    }),
   );
-  app.route('/api/overview', createOverviewRouter(workItemService, clock));
+  app.route('/api/overview', createOverviewRouter(workItemService, clock, time_zone));
   app.route('/api/agent-sessions', createAgentSessionsRouter(aggregator, sessionLinks, decisionCandidateService));
   app.route('/api/workboard', createWorkboardRouter(workItemService, sessionLinks, aggregator));
   app.route('/api/evidence', createEvidenceRouter(evidenceService, sessionLinks, aggregator));

@@ -21,6 +21,8 @@ export interface CalendarRange {
 
 const formatter_cache = new Map<string, Intl.DateTimeFormat>();
 const DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
+const LOCAL_DATE_TIME_PATTERN =
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/;
 
 export function assert_time_zone(value: string): string {
   const supported = Intl.supportedValuesOf('timeZone');
@@ -64,6 +66,28 @@ export function parse_calendar_date(value: string): CalendarDateParts {
   };
   assert_calendar_parts(parts);
   return parts;
+}
+
+export function parse_local_date_time(value: string): ZonedDateTimeParts {
+  const match = LOCAL_DATE_TIME_PATTERN.exec(value);
+  if (!match) throw new Error(`invalid local date-time: ${value}`);
+  const parts: ZonedDateTimeParts = {
+    year: Number(match[1]),
+    month: Number(match[2]),
+    day: Number(match[3]),
+    hour: Number(match[4]),
+    minute: Number(match[5]),
+    second: 0,
+  };
+  assert_wall_parts(parts);
+  return parts;
+}
+
+export function assert_utc_instant(value: string): string {
+  if (!value.endsWith('Z') || !Number.isFinite(new Date(value).getTime())) {
+    throw new Error(`invalid UTC instant: ${value}`);
+  }
+  return value;
 }
 
 export function format_calendar_date(parts: CalendarDateParts): string {
