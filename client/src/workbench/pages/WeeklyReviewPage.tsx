@@ -5,8 +5,12 @@ import { getWeeklySnapshot } from '../../api/analytics';
 import * as workItemsApi from '../../api/work-items';
 import { CountUp, ParticleField, ShinyText } from '../../components/effects';
 import { fmt, type WBData, type WBProject } from '../data';
-import { LoadErrorPanel, SessionRow, Topbar, toError } from '../shared';
+import { LoadErrorPanel, Topbar, toError } from '../shared';
 import { buildWeeklyReviewMarkdown } from './weekly-review.export';
+import {
+  useWeeklyReviewSessions,
+  WeeklyReviewSessions,
+} from './weekly-review.sessions';
 import { dateInRange, isIsoWeekLabel, nextIsoWeekRange, shiftIsoWeek, type IsoWeekRange, type WeekdaySlot } from './weekly-review.week';
 
 /**
@@ -20,7 +24,8 @@ import { dateInRange, isIsoWeekLabel, nextIsoWeekRange, shiftIsoWeek, type IsoWe
 export function WeeklyReviewPage({ data }: { data: WBData; reload: () => void }) {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { projects, sessions } = data;
+  const { projects } = data;
+  const session_state = useWeeklyReviewSessions(data);
   const requestedWeek = searchParams.get('week');
   const selectedWeek = isIsoWeekLabel(requestedWeek) ? requestedWeek : undefined;
   const [week, setWeek] = useState<WeeklySnapshot | null>(null);
@@ -75,7 +80,7 @@ export function WeeklyReviewPage({ data }: { data: WBData; reload: () => void })
   if (loading) {
     return (
       <div className="dashboard-canvas">
-        <div className="inner"><Topbar data={data} /><div style={{ padding: '4rem', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>loading weekly review…</div></div>
+        <div className="inner"><Topbar data={session_state.displayData} /><div style={{ padding: '4rem', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>loading weekly review…</div></div>
       </div>
     );
   }
@@ -83,7 +88,7 @@ export function WeeklyReviewPage({ data }: { data: WBData; reload: () => void })
     return (
       <div className="dashboard-canvas">
         <div className="inner">
-          <Topbar data={data} />
+          <Topbar data={session_state.displayData} />
           <LoadErrorPanel
             title="weekly review failed to load"
             endpoint="/api/analytics/weekly + /api/work-items?status=done + /api/work-items/stale?days=30"
@@ -178,7 +183,7 @@ export function WeeklyReviewPage({ data }: { data: WBData; reload: () => void })
   return (
     <div className="dashboard-canvas">
       <div className="inner" style={{ overflow: 'hidden', height: '100%' }}>
-        <Topbar data={data} />
+        <Topbar data={session_state.displayData} />
 
         <div className="wr-head">
           <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
@@ -330,11 +335,7 @@ export function WeeklyReviewPage({ data }: { data: WBData; reload: () => void })
               <div className="sec-head" style={{ marginBottom: '0.75rem' }}>
                 <span className="prompt">&gt;</span> top sessions
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', overflowY: 'auto' }}>
-                {sessions.filter((s) => s.state !== 'error').slice(0, 3).length === 0
-                  ? <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)' }}>(no sessions this week)</div>
-                  : sessions.filter((s) => s.state !== 'error').slice(0, 3).map((s) => <SessionRow key={`${s.provider}:${s.id}`} s={s} projects={projects} compact />)}
-              </div>
+              <WeeklyReviewSessions projects={projects} state={session_state} />
             </div>
           </div>
         </div>

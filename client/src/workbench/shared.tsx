@@ -116,7 +116,13 @@ function pathPart(value: string | undefined): string | undefined {
 export function Topbar({ data, right, tag }: { data: WBData; right?: ReactNode; tag?: ReactNode }) {
   const navigate = useNavigate();
   const { stats } = data;
-  const status_line = tag ?? `> ${stats.projects} projects · ${stats.activeSessions} live · ${fmt.cost(stats.totalEstimatedCost)} estimated cost`;
+  const sessions_ready = data.sessionDataState === undefined || data.sessionDataState === 'ready';
+  const session_status = data.sessionDataState === 'error'
+    ? 'sessions unavailable'
+    : data.sessionDataState === 'loading'
+      ? 'sessions loading'
+      : `${stats.activeSessions} live · ${fmt.cost(stats.totalEstimatedCost)} estimated cost`;
+  const status_line = tag ?? `> ${stats.projects} projects · ${session_status}`;
   return (
     <div className="topbar">
       <div className="topbar-main">
@@ -135,19 +141,21 @@ export function Topbar({ data, right, tag }: { data: WBData; right?: ReactNode; 
         <div className="topbar-stats" data-testid="topbar-stats">
           <div className="tb-stat">
             <span className="tb-stat-val gradient">
-              {stats.activeSessions}
+              {sessions_ready ? stats.activeSessions : '—'}
             </span>
-            <span className="tb-stat-label"><LiveDot /> &nbsp; live</span>
+            <span className="tb-stat-label">
+              {sessions_ready ? <><LiveDot /> &nbsp; live</> : session_status}
+            </span>
           </div>
           <div className="tb-stat">
             <span className="tb-stat-val gradient">
-              {fmt.k(stats.totalEstimatedTokens)}
+              {sessions_ready ? fmt.k(stats.totalEstimatedTokens) : '—'}
             </span>
             <span className="tb-stat-label">estimated tokens</span>
           </div>
           <div className="tb-stat">
             <span className="tb-stat-val gradient">
-              {fmt.cost(stats.totalEstimatedCost)}
+              {sessions_ready ? fmt.cost(stats.totalEstimatedCost) : '—'}
             </span>
             <span className="tb-stat-label">estimated cost</span>
           </div>

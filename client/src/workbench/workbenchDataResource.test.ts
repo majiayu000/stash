@@ -36,12 +36,14 @@ describe('SharedRefreshResource', () => {
     expect(resource.getSnapshot().data).toBe('second');
   });
 
-  test('shares an in-flight request and runs at most one trailing forced refresh', async () => {
+  test('shares in-flight requests and coalesces one follow-up per request boundary', async () => {
     const primary = deferred<string>();
     const trailing = deferred<string>();
+    const postTrailing = deferred<string>();
     const fetcher = vi.fn()
       .mockReturnValueOnce(primary.promise)
-      .mockReturnValueOnce(trailing.promise);
+      .mockReturnValueOnce(trailing.promise)
+      .mockReturnValueOnce(postTrailing.promise);
     const resource = new SharedRefreshResource(fetcher, { freshnessMs: 30 });
 
     const cycle = resource.revalidate();
@@ -58,11 +60,16 @@ describe('SharedRefreshResource', () => {
     await Promise.resolve();
     expect(fetcher).toHaveBeenCalledTimes(2);
     void resource.refresh();
+    void resource.refresh();
     trailing.resolve('trailing');
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    postTrailing.resolve('post-trailing');
     await cycle;
 
-    expect(fetcher).toHaveBeenCalledTimes(2);
-    expect(resource.getSnapshot().data).toBe('trailing');
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    expect(resource.getSnapshot().data).toBe('post-trailing');
   });
 
   test('retains the successful snapshot when a refresh fails', async () => {
@@ -78,6 +85,42 @@ describe('SharedRefreshResource', () => {
       data: 'cached',
       loading: false,
       error: new Error('refresh failed'),
+    });
+  });
+
+  test('invalidates a cached snapshot without eagerly fetching', async () => {
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce('cached')
+      .mockResolvedValueOnce('refreshed');
+    const resource = new SharedRefreshResource(fetcher, { freshnessMs: 30_000 });
+
+    await resource.revalidate();
+    resource.invalidate();
+
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(resource.getSnapshot()).toMatchObject({
+      data: 'cached',
+      updatedAt: undefined,
+    });
+
+    await resource.revalidate();
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(resource.getSnapshot().data).toBe('refreshed');
+  });
+
+  test('keeps an in-flight result stale when invalidated after its request starts', async () => {
+    const request = deferred<string>();
+    const fetcher = vi.fn().mockReturnValue(request.promise);
+    const resource = new SharedRefreshResource(fetcher, { freshnessMs: 30_000 });
+
+    const cycle = resource.revalidate();
+    resource.invalidate();
+    request.resolve('possibly stale');
+    await cycle;
+
+    expect(resource.getSnapshot()).toMatchObject({
+      data: 'possibly stale',
+      updatedAt: undefined,
     });
   });
 });

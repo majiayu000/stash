@@ -13,8 +13,8 @@ export interface SharedRefreshResourceOptions {
 type Listener = () => void;
 
 /**
- * A single bounded refresh cycle: one primary request and, when a forced
- * invalidation arrives during it, at most one trailing request.
+ * A shared refresh cycle that coalesces forced refreshes arriving during each
+ * in-flight request into one pending follow-up request.
  */
 export class SharedRefreshResource<T> {
   private state: RefreshResourceState<T> = {
@@ -25,8 +25,8 @@ export class SharedRefreshResource<T> {
   };
   private readonly listeners = new Set<Listener>();
   private cycle: Promise<void> | undefined;
-  private trailingRequested = false;
-  private runningTrailing = false;
+  private forcedRefreshPending = false;
+  private invalidationVersion = 0;
   private readonly now: () => number;
 
   constructor(
@@ -52,6 +52,13 @@ export class SharedRefreshResource<T> {
     return this.request(true);
   }
 
+  invalidate(): void {
+    this.invalidationVersion += 1;
+    if (this.state.updatedAt !== undefined) {
+      this.update({ ...this.state, updatedAt: undefined });
+    }
+  }
+
   private isFresh(): boolean {
     return this.state.updatedAt !== undefined
       && this.now() - this.state.updatedAt < this.options.freshnessMs;
@@ -59,29 +66,28 @@ export class SharedRefreshResource<T> {
 
   private request(force: boolean): Promise<void> {
     if (this.cycle) {
-      if (force && !this.runningTrailing) this.trailingRequested = true;
+      if (force) this.forcedRefreshPending = true;
       return this.cycle;
     }
 
     const work = this.runCycle();
     this.cycle = work.finally(() => {
       this.cycle = undefined;
-      this.trailingRequested = false;
-      this.runningTrailing = false;
+      this.forcedRefreshPending = false;
     });
     return this.cycle;
   }
 
   private async runCycle(): Promise<void> {
     await this.fetchOnce();
-    if (this.trailingRequested) {
-      this.trailingRequested = false;
-      this.runningTrailing = true;
+    while (this.forcedRefreshPending) {
+      this.forcedRefreshPending = false;
       await this.fetchOnce();
     }
   }
 
   private async fetchOnce(): Promise<void> {
+    const requestVersion = this.invalidationVersion;
     this.update({ ...this.state, loading: true });
     try {
       const data = await this.fetcher();
@@ -89,7 +95,9 @@ export class SharedRefreshResource<T> {
         data,
         error: undefined,
         loading: false,
-        updatedAt: this.now(),
+        updatedAt: requestVersion === this.invalidationVersion
+          ? this.now()
+          : undefined,
       });
     } catch (error) {
       this.update({
