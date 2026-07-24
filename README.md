@@ -257,9 +257,12 @@ The current production plan is tracked in
 
 Current highest-priority gaps:
 - General stale-while-refresh responses for every session-derived route remain
-  deferred. Filesystem scans, transcript pages, decision extraction, and Burn
-  aggregation run in a Worker; shared workbench snapshots, singleflight, and
-  per-file cache keep repeat navigation bounded.
+  deferred. Weekly Review now renders its core data without waiting for its
+  independent session-list refresh, shares one selected-week request through a
+  30-second client cache, and exposes session loading/failure/retry states.
+  Filesystem scans, transcript pages, decision extraction, and Burn aggregation
+  run in a Worker; shared workbench snapshots, singleflight, and per-file cache
+  keep repeat navigation bounded.
 - Release packaging is still personal-use only; no public OSS license is granted.
 
 ## What ships vs what's deferred

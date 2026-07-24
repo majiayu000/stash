@@ -21,10 +21,11 @@ The product is already useful as a local workbench:
 - Local verification on 2026-07-24:
   - `bun run typecheck` passed.
   - `bun run client:build` passed.
-  - `bun run test:all` passed: 385 server tests and 97 client tests.
-  - General browser verification passed 45 Playwright tests, with the large
-    Weekly performance case intentionally isolated from that group.
-  - The independent 3,000-history cold Weekly gate passed in 1,874ms against
+  - `bun run test:all` passed: 7 root tests, 385 server tests, and 105 client
+    tests.
+  - General browser verification passed 45 Playwright tests, with 1 large
+    Weekly performance case intentionally skipped and run separately.
+  - The independent 3,000-history cold Weekly gate passed in 1,901ms against
     the unchanged 3-second assertion.
 
 This is enough for personal source-checkout use. It is not a public
@@ -89,7 +90,11 @@ Plan:
 3. Done: store usage per session and aggregate Burn inside the scan Worker
    without moving raw window-level events to the API thread.
 4. Done: add an in-process singleflight guard so concurrent requests share one scan.
-5. Partial: workbench callers share bounded stale snapshots; a general backend
+5. Partial: Weekly Review renders runtime/work/area data without waiting for
+   its independent session-list refresh, shares one selected-week request
+   through a 30-second client cache, and exposes session-list
+   loading/failure/retry states.
+   Other workbench callers share bounded stale snapshots; a general backend
    stale response with `isRefreshing: true` remains deferred.
 6. Add route-level timing logs and response metadata for cache hit/miss.
 
@@ -101,6 +106,9 @@ Verified on 2026-07-24:
   each with an explicit `previewTruncated` flag. The previous 100-session
   fixture produced a 52,488,701-byte list response and blocked browser work.
 - Large transcript pages remain independently bounded to 512 KiB.
+- The 3,000-history Weekly page became interactive in 1,901ms without waiting
+  for the independent session-list refresh; the original 3-second assertion
+  was not relaxed.
 
 Done when:
 
