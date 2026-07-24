@@ -56,6 +56,74 @@ describe('GET /api/agent-sessions', () => {
     expect(res.status).toBe(200);
     expect(res.body.data.every((s: any) => s.provider === 'claude')).toBe(true);
   });
+
+  test('bounds session previews while preserving richer transcript access', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'stash-bounded-session-preview-'));
+    const project_dir = join(root, 'projects', 'large-preview');
+    mkdirSync(project_dir, { recursive: true });
+    const source_path = join(project_dir, 'large-preview.jsonl');
+    const complete_prompt = `start-${'界🙂'.repeat(90_000)}-end`;
+    writeFileSync(
+      source_path,
+      `${JSON.stringify({
+        ...claudeUserRecord('large-preview', '2026-05-14T08:00:00.000Z'),
+        message: { role: 'user', content: complete_prompt },
+      })}\n`,
+    );
+    const { app, db } = setupApp({ claudeRoot: root });
+    try {
+      const response = await app.request('/api/agent-sessions?provider=claude');
+      const response_text = await response.text();
+      const body = JSON.parse(response_text);
+      const session = body.data.find((row: any) => row.id === 'large-preview');
+
+      expect(response.status).toBe(200);
+      expect(Buffer.byteLength(session.initialPrompt)).toBeLessThanOrEqual(4 * 1024);
+      expect(Buffer.byteLength(session.lastMessage)).toBeLessThanOrEqual(4 * 1024);
+      expect(Buffer.byteLength(response_text)).toBeLessThan(16 * 1024);
+      expect(session.initialPrompt).toEndWith('…');
+      expect(session.initialPrompt).not.toContain('�');
+      expect(session.previewTruncated).toBe(true);
+
+      const detail = await jsonReq(
+        app,
+        'GET',
+        '/api/agent-sessions/claude/large-preview',
+      );
+      expect(detail.status).toBe(200);
+      expect(Buffer.byteLength(detail.body.data.initialPrompt)).toBeLessThanOrEqual(4 * 1024);
+      expect(detail.body.data.previewTruncated).toBe(true);
+
+      const item = await jsonReq(app, 'POST', '/api/work-items', {
+        title: 'large session work item',
+        projectId: '/tmp/project',
+      });
+      await jsonReq(app, 'POST', `/api/work-items/${item.body.data.id}/link-session`, {
+        provider: 'claude',
+        sessionId: 'large-preview',
+      });
+      const workboard = await app.request('/api/workboard');
+      const workboard_text = await workboard.text();
+      const workboard_body = JSON.parse(workboard_text);
+      const linked_session = workboard_body.data.projects[0].sessions[0];
+      expect(Buffer.byteLength(linked_session.initialPrompt)).toBeLessThanOrEqual(4 * 1024);
+      expect(Buffer.byteLength(workboard_text)).toBeLessThan(16 * 1024);
+
+      const transcript = await jsonReq(
+        app,
+        'GET',
+        '/api/agent-sessions/claude/large-preview/events?limit=1',
+      );
+      expect(transcript.status).toBe(200);
+      expect(transcript.body.data[0].text).toStartWith('start-');
+      expect(transcript.body.data[0].text.length).toBeGreaterThan(session.initialPrompt.length);
+      expect(transcript.body.data[0].truncated).toBe(true);
+      expect(transcript.body.page.hasMore).toBe(false);
+    } finally {
+      db.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('GET /api/agent-sessions/:provider/:id/events', () => {

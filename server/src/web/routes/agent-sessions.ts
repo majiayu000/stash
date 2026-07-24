@@ -9,6 +9,7 @@ import {
   MAX_SESSION_EVENT_PAGE_LIMIT,
 } from '../../adapters/session-event-page.js';
 import { handleError } from '../errors.js';
+import { bound_session_list_item } from '../session-payload.js';
 
 const ProviderQuery = z.object({
   provider: z.enum(['claude', 'codex', 'all']).optional(),
@@ -44,9 +45,9 @@ export function createAgentSessionsRouter(
         provider: provider ?? 'all',
         limitPerSource: 100,
       });
-      const data = sessions.map((s) => ({
-        ...s,
-        linkedWorkItemIds: links.workItemsForSession(s.provider, s.id),
+      const data = sessions.map((session) => ({
+        ...bound_session_list_item(session),
+        linkedWorkItemIds: links.workItemsForSession(session.provider, session.id),
       }));
       return c.json({ data, errors, count: data.length, cache });
     } catch (e) {
@@ -82,7 +83,7 @@ export function createAgentSessionsRouter(
       if (!found) return c.json({ error: { code: 'NOT_FOUND', message: 'session not found' } }, 404);
       return c.json({
         data: {
-          ...found,
+          ...bound_session_list_item(found),
           linkedWorkItemIds: links.workItemsForSession(found.provider, found.id),
         },
         cache,

@@ -14,7 +14,11 @@
 
 import { mkdirSync, writeFileSync } from 'fs';
 import { dirname, join } from 'path';
-import { systemClock } from '../../shared/src/index.js';
+import {
+  add_calendar_days,
+  calendar_date_at,
+  systemClock,
+} from '../../shared/src/index.js';
 import { loadConfig } from '../src/config.js';
 import { openDatabaseMigrated } from '../src/db/connection.js';
 import { AreaService } from '../src/domain/area/service.js';
@@ -22,20 +26,21 @@ import { ProjectKnowledgeService } from '../src/domain/project-knowledge/service
 import { SkillService } from '../src/domain/skill/service.js';
 import { WorkItemService } from '../src/domain/work-item/service.js';
 
-const NOW = new Date();
-function daysAgo(n: number): string { const d = new Date(NOW); d.setDate(d.getDate() - n); return d.toISOString(); }
-function daysAhead(n: number): string { const d = new Date(NOW); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); }
+const clock = systemClock;
+const config = loadConfig();
+const NOW = clock.now();
+const TODAY = calendar_date_at(NOW, config.time_zone);
+function daysAgo(n: number): string { return new Date(NOW - n * 86_400_000).toISOString(); }
+function daysAhead(n: number): string { return add_calendar_days(TODAY, n); }
 function rel(n: number): string { return daysAhead(n); }
 
-const config = loadConfig();
 const db = openDatabaseMigrated({
   path: config.dbPath,
   inMemory: config.inMemoryDb,
   backupDir: config.backupDir,
 });
-const clock = systemClock;
 const areas = new AreaService({ db, clock });
-const items = new WorkItemService({ db, clock });
+const items = new WorkItemService({ db, clock, time_zone: config.time_zone });
 const skills = new SkillService({ db, clock });
 const kb = new ProjectKnowledgeService({ db, clock });
 
@@ -180,7 +185,7 @@ if (exists > 0) {
     { title: 'resume hit-testing branch',  projectName: 'borealis', kind: 'feature', status: 'active', priority: 'p1', labels: ['canvas'], scheduledFor: rel(0), todayPinned: true },
     { title: 'reply to sam re contract',   kind: 'task', status: 'planned', priority: 'p1', labels: ['admin'], scheduledFor: rel(0), todayPinned: true },
     // This week — planned
-    { title: 'audit-log column migration', projectName: 'aurora', kind: 'feature', status: 'planned', priority: 'p1', labels: ['db', 'auth'], scheduledFor: rel(1), dueAt: daysAhead(3) + 'T17:00:00.000Z' },
+    { title: 'audit-log column migration', projectName: 'aurora', kind: 'feature', status: 'planned', priority: 'p1', labels: ['db', 'auth'], scheduledFor: rel(1), dueAt: daysAhead(3) },
     { title: 'metrics dash skeleton',      projectName: 'aurora', kind: 'task', status: 'planned', priority: 'p2', labels: ['ops'], scheduledFor: rel(2) },
     { title: 'port lexer fixtures',        projectName: 'terra-cli', kind: 'task', status: 'planned', priority: 'p2', scheduledFor: rel(2), labels: ['lexer'] },
     { title: 'pan/zoom inertia review',    projectName: 'pixel', kind: 'task', status: 'planned', priority: 'p2', scheduledFor: rel(3), labels: ['polish'] },
@@ -195,8 +200,8 @@ if (exists > 0) {
     { title: 'use Tailscale for multi-device sync?', kind: 'research', status: 'inbox', priority: 'p2', labels: ['infra'] },
     { title: 'investigate: cron jobs in bun',  kind: 'research', status: 'inbox', priority: 'p3' },
     // Overdue
-    { title: 'renew SSL cert',             projectName: 'aurora', kind: 'chore', status: 'planned', priority: 'p1', dueAt: daysAhead(-1) + 'T17:00:00.000Z', labels: ['ops'] },
-    { title: 'review last Q invoices',     projectName: 'personal', kind: 'chore', status: 'planned', priority: 'p2', dueAt: daysAhead(-3) + 'T17:00:00.000Z' },
+    { title: 'renew SSL cert',             projectName: 'aurora', kind: 'chore', status: 'planned', priority: 'p1', dueAt: daysAhead(-1), labels: ['ops'] },
+    { title: 'review last Q invoices',     projectName: 'personal', kind: 'chore', status: 'planned', priority: 'p2', dueAt: daysAhead(-3) },
     // Someday — parking lot
     { title: 'rewrite the CLI in Rust',    projectName: 'terra-cli', kind: 'idea', status: 'someday', priority: 'p3' },
     { title: 'experiment: model-agnostic dispatch', kind: 'idea', status: 'someday', priority: 'p3' },

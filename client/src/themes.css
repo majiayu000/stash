@@ -9,8 +9,6 @@
      3) Paper override rules — flat Primer/GitHub look
      4) Mono override rules — brutalist B&W with hard offset shadows */
 
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Outfit:wght@300;400;500;600;700&display=swap');
-
 /* ─── 1) Cyber default (root) ─────────────────────────────────────────── */
 :root {
   --bg-void:      #050508;

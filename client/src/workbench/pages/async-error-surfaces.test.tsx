@@ -139,6 +139,9 @@ describe('high-value optional surface failures', () => {
     expect(screen.getByRole('link', { name: /notifications/ })).toHaveAttribute('href', '#settings-notifications');
     expect(screen.getByRole('link', { name: /budgets/ })).toHaveAttribute('href', '#settings-budgets');
     expect(screen.getByRole('button', { name: 'Apply Cyber neon theme' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByText('environment variables')).toBeInTheDocument();
+    expect(screen.getByText(/server zone: UTC/)).toBeInTheDocument();
+    expect(screen.queryByText('~/.stash/config.toml')).not.toBeInTheDocument();
     expect(screen.queryByText('integrations')).not.toBeInTheDocument();
     expect(screen.queryByText('quick toggles')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'connect' })).not.toBeInTheDocument();

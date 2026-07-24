@@ -52,7 +52,7 @@ export function AppNavigation() {
 
       <div className="app-navigation-help">
         <kbd>⌘K</kbd>
-        <span>Search anything</span>
+        <span>Search tasks</span>
       </div>
 
       <style>{appNavigationStyles}</style>

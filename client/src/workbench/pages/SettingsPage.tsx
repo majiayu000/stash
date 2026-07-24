@@ -18,7 +18,7 @@ const THEME_INFO: ThemeDescriptor[] = [
   { id: 'amber',     name: 'Amber CRT',          desc: 'Vintage amber phosphor. Single-hue warm orange. Cosy + serious.',                                          hex: ['#ffaa00', '#ff7700', '#cc6600', '#ffcc44'] },
   { id: 'glacier',   name: 'Glacier',            desc: "Light mode that doesn't look like a different product. Cool blue + violet, soft surfaces.",                  hex: ['#0072ce', '#6633cc', '#c026d3', '#059669'] },
   { id: 'paper',     name: 'Paper · square',     desc: 'Clean white, high contrast, square corners. GitHub Primer vibes — flat, hairline borders, no glow.',        hex: ['#0969da', '#1a7f37', '#8250df', '#cf222e'] },
-  { id: 'mono',      name: 'Mono · terminal',    desc: 'Pure black & white. Square frames, brutalist hard shadows, JetBrains Mono everywhere. State by weight + fill, not color.', hex: ['#000000', '#404040', '#909090', '#cccccc'] },
+  { id: 'mono',      name: 'Mono · terminal',    desc: 'Pure black & white. Square frames, brutalist hard shadows, monospace everywhere. State by weight + fill, not color.', hex: ['#000000', '#404040', '#909090', '#cccccc'] },
 ];
 
 /** Settings backed by real application state. */
@@ -39,8 +39,9 @@ export function SettingsPage({ data }: { data: WBData; reload: () => void }) {
               <SettingsRail item="💳 budgets" target="settings-budgets" />
             </div>
             <div style={{ marginTop: '1rem', padding: '0.7rem 0.6rem', background: 'rgba(0,255,242,0.04)', border: '1px dashed rgba(0,255,242,0.2)', borderRadius: 'var(--radius-md)', fontFamily: 'var(--font-mono)', fontSize: '0.66rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-              <span style={{ color: 'var(--neon-cyan)' }}>$</span> config at <br />
-              <code style={{ color: 'var(--neon-green)' }}>~/.stash/config.toml</code>
+              <span style={{ color: 'var(--neon-cyan)' }}>$</span> runtime config<br />
+              <code style={{ color: 'var(--neon-green)' }}>environment variables</code><br />
+              server zone: {data.runtime.timeZone}
             </div>
           </nav>
 
