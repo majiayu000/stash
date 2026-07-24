@@ -13,9 +13,17 @@ const hookState = vi.hoisted(() => ({
   reload: vi.fn(),
   revalidate: vi.fn(),
 }));
+const workbenchMocks = vi.hoisted(() => ({
+  invalidateWorkbenchData: vi.fn(),
+  prefetchWeeklySnapshot: vi.fn().mockResolvedValue(undefined),
+}));
 
 vi.mock('./useWorkbenchData', () => ({
   useWorkbenchData: () => hookState,
+  invalidateWorkbenchData: workbenchMocks.invalidateWorkbenchData,
+}));
+vi.mock('../api/analytics', () => ({
+  prefetchWeeklySnapshot: workbenchMocks.prefetchWeeklySnapshot,
 }));
 vi.mock('../components/ThemeSwitcher', () => ({ ThemeSwitcher: () => null }));
 vi.mock('./AppNavigation', () => ({ AppNavigation: () => null }));
@@ -59,10 +67,13 @@ const cachedData: WBData = {
   sourceErrors: [],
 };
 
-function renderWorkbench() {
+function renderWorkbench(
+  page: 'work' | 'review' = 'work',
+  initialEntry = '/',
+) {
   return render(
-    <MemoryRouter>
-      <Workbench page="work" />
+    <MemoryRouter initialEntries={[initialEntry]}>
+      <Workbench page={page} />
     </MemoryRouter>,
   );
 }
@@ -74,6 +85,8 @@ beforeEach(() => {
   hookState.calendarBlocked = false;
   hookState.reload.mockReset();
   hookState.revalidate.mockReset();
+  workbenchMocks.invalidateWorkbenchData.mockReset();
+  workbenchMocks.prefetchWeeklySnapshot.mockClear();
 });
 
 afterEach(() => {
@@ -130,6 +143,7 @@ describe('Workbench refresh errors', () => {
     expect(hookState.revalidate).toHaveBeenCalledTimes(1);
 
     window.dispatchEvent(new Event('stash:captured'));
+    expect(workbenchMocks.invalidateWorkbenchData).toHaveBeenCalledTimes(1);
     expect(hookState.reload).toHaveBeenCalledTimes(1);
 
     unmount();
@@ -141,5 +155,14 @@ describe('Workbench refresh errors', () => {
 
     expect(hookState.reload).not.toHaveBeenCalled();
     expect(hookState.revalidate).not.toHaveBeenCalled();
+  });
+
+  test('prefetches the selected historical week instead of the current week', () => {
+    hookState.data = cachedData;
+
+    renderWorkbench('review', '/review?week=2026-W29');
+
+    expect(workbenchMocks.prefetchWeeklySnapshot).toHaveBeenCalledTimes(1);
+    expect(workbenchMocks.prefetchWeeklySnapshot).toHaveBeenCalledWith('2026-W29');
   });
 });

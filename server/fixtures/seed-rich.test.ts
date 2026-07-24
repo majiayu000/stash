@@ -7,7 +7,7 @@ import { fileURLToPath } from 'url';
 import { add_calendar_days, calendar_date_at } from '@stash/shared';
 
 const repo_root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const time_zone = new Date().getUTCHours() <= 10
+const time_zone = new Date().getUTCHours() < 10
   ? 'Pacific/Pago_Pago'
   : 'Pacific/Kiritimati';
 

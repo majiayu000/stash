@@ -1,12 +1,13 @@
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, type ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import './styles/brand.css';
 import './styles/dashboard.css';
 import { ThemeSwitcher } from '../components/ThemeSwitcher';
 import { ApiError } from '../api/client';
+import { prefetchWeeklySnapshot } from '../api/analytics';
 import { AsyncErrorHost } from './AsyncErrorHost';
 import { AppNavigation } from './AppNavigation';
-import { useWorkbenchData } from './useWorkbenchData';
+import { invalidateWorkbenchData, useWorkbenchData } from './useWorkbenchData';
 import { WorkPage } from './pages/WorkPage';
 import { ProjectFormPage } from './pages/ProjectFormPage';
 import { SessionDetailPage } from './pages/SessionDetailPage';
@@ -19,6 +20,7 @@ import { SettingsPage } from './pages/SettingsPage';
 import { SessionStartPage } from './pages/SessionStartPage';
 import { ProjectsPage } from './pages/ProjectsPage';
 import { SessionsPage } from './pages/SessionsPage';
+import { isIsoWeekLabel } from './pages/weekly-review.week';
 import { DecisionInbox } from './DecisionInbox';
 import { InboxTriage } from './InboxTriage';
 import { ReminderTicker } from './ReminderTicker';
@@ -71,11 +73,24 @@ function renderPage(
 }
 
 export function Workbench({ page }: { page: WorkbenchPage }) {
-  const { data, loading, error, calendarBlocked, reload, revalidate } = useWorkbenchData();
+  const dataMode = page === 'review' ? 'review_core' : 'full';
+  const { data, loading, error, calendarBlocked, reload, revalidate } = useWorkbenchData(dataMode);
   const location = useLocation();
+  const requestedWeek = new URLSearchParams(location.search).get('week');
+  const selectedWeek = isIsoWeekLabel(requestedWeek) ? requestedWeek : undefined;
+
+  useLayoutEffect(() => {
+    if (page !== 'review') return;
+    void prefetchWeeklySnapshot(selectedWeek).catch((prefetch_error: unknown) => {
+      console.error('[stash] weekly review prefetch failed', prefetch_error);
+    });
+  }, [page, selectedWeek]);
 
   useEffect(() => {
-    function onCaptured() { reload(); }
+    function onCaptured() {
+      invalidateWorkbenchData();
+      reload();
+    }
     window.addEventListener('stash:captured', onCaptured);
     return () => window.removeEventListener('stash:captured', onCaptured);
   }, [reload]);

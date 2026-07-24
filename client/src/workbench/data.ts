@@ -78,6 +78,7 @@ export interface WBData {
   todos: WBTodo[];
   stats: WBStats;
   sourceErrors: SourceHealthError[];
+  sessionDataState?: 'loading' | 'ready' | 'error';
 }
 
 // ─── helpers ────────────────────────────────────────────────────────────────
@@ -168,6 +169,7 @@ export interface AdaptInput {
   sourceErrors: SourceHealthError[];
   workboardProjects: { projectId: string; itemCount: number; activeCount: number; blockedCount: number; items: WorkItem[]; sessions: AgentSession[] }[];
   areas: Area[];
+  sessionDataState?: WBData['sessionDataState'];
 }
 
 export function adaptToWorkbenchData(input: AdaptInput): WBData {
@@ -271,5 +273,6 @@ export function adaptToWorkbenchData(input: AdaptInput): WBData {
     todos,
     stats,
     sourceErrors: input.sourceErrors,
+    sessionDataState: input.sessionDataState ?? 'ready',
   };
 }
