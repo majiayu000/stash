@@ -59,6 +59,18 @@ export class WorkItemSessionRepository {
       .map(rowToLink);
   }
 
+  /**
+   * Every link in one query, newest first. The workboard route used to call
+   * `forWorkItem` once per work item, so a board with N items issued N queries
+   * to assemble a single response.
+   */
+  all(): LinkedSession[] {
+    return this.db
+      .query<LinkRow, []>('select * from work_item_sessions order by linked_at desc')
+      .all()
+      .map(rowToLink);
+  }
+
   workItemsForSession(provider: AgentProvider, sessionId: string): string[] {
     return this.db
       .query<{ work_item_id: string }, [string, string]>(

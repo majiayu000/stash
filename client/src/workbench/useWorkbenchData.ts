@@ -3,7 +3,7 @@ import { add_calendar_days, range_from_dates, type WorkItem } from '@stash/share
 import { listAreas } from '../api/areas';
 import { listWorkItems } from '../api/work-items';
 import { listAgentSessions } from '../api/agent-sessions';
-import { getWorkboard } from '../api/workboard';
+import { getWorkboard, type ProjectSessionGroup } from '../api/workboard';
 import { getRuntimeMetadata, type RuntimeMetadata } from '../api/runtime';
 import { adaptToWorkbenchData, type AdaptInput, type WBData } from './data';
 import { SharedRefreshResource } from './workbenchDataResource';
@@ -23,9 +23,26 @@ async function loadWorkbenchData(): Promise<AdaptInput> {
     items,
     sessions: sessionsRes.sessions,
     sourceErrors: sessionsRes.errors,
-    workboardProjects: workboard.projects,
+    // Both modes now shape projects from the same work-item list; `/workboard`
+    // only supplies the session links, which cannot be derived on the client.
+    workboardProjects: withProjectSessions(
+      workboardProjectsFromItems(items),
+      workboard.projects,
+    ),
     areas,
   };
+}
+
+/** Attach each project's linked sessions to the client-derived project rows. */
+export function withProjectSessions(
+  projects: AdaptInput['workboardProjects'],
+  groups: readonly ProjectSessionGroup[],
+): AdaptInput['workboardProjects'] {
+  const sessionsByProject = new Map(groups.map((g) => [g.projectId, g.sessions]));
+  return projects.map((project) => ({
+    ...project,
+    sessions: sessionsByProject.get(project.projectId) ?? [],
+  }));
 }
 
 async function loadReviewWorkbenchData(): Promise<AdaptInput> {

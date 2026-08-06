@@ -41,6 +41,11 @@ export class WorkItemSessionService {
     return this.repo.forWorkItem(workItemId);
   }
 
+  /** Every link, for callers that would otherwise loop over `forWorkItem`. */
+  all(): LinkedSession[] {
+    return this.repo.all();
+  }
+
   workItemsForSession(provider: AgentProvider, sessionId: string): string[] {
     return this.repo.workItemsForSession(provider, sessionId);
   }

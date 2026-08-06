@@ -1,18 +1,14 @@
-import type { AgentSession, WorkItem } from '@stash/shared';
+import type { AgentSession } from '@stash/shared';
 import { apiGet } from './client';
 
-export interface ProjectSummary {
+/** Sessions linked to one project's work items. Work items are not repeated here. */
+export interface ProjectSessionGroup {
   projectId: string;
-  itemCount: number;
-  activeCount: number;
-  blockedCount: number;
-  items: WorkItem[];
   sessions: AgentSession[];
 }
 
 export interface WorkboardData {
-  projects: ProjectSummary[];
-  unassigned: WorkItem[];
+  projects: ProjectSessionGroup[];
   parseErrors: { provider: string; sourcePath: string; message: string }[];
 }
 

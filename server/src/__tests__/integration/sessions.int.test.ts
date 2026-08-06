@@ -344,16 +344,14 @@ describe('link-session', () => {
 });
 
 describe('GET /api/workboard', () => {
-  test('groups items by projectId and attaches linked sessions', async () => {
+  test('groups linked sessions by project without echoing the work items', async () => {
     const { app } = setupApp();
     const a = await jsonReq(app, 'POST', '/api/work-items', {
       title: 'auth refactor',
       projectId: '/Users/test/demo-repo',
       status: 'active',
     });
-    const b = await jsonReq(app, 'POST', '/api/work-items', {
-      title: 'orphan idea',
-    });
+    await jsonReq(app, 'POST', '/api/work-items', { title: 'orphan idea' });
     await jsonReq(app, 'POST', `/api/work-items/${a.body.data.id}/link-session`, {
       provider: 'claude',
       sessionId: 'sess-fixture-1',
@@ -364,9 +362,31 @@ describe('GET /api/workboard', () => {
     expect(board.body.data.projects).toHaveLength(1);
     const proj = board.body.data.projects[0];
     expect(proj.projectId).toBe('/Users/test/demo-repo');
-    expect(proj.activeCount).toBe(1);
     expect(proj.sessions).toHaveLength(1);
     expect(proj.sessions[0].id).toBe('sess-fixture-1');
-    expect(board.body.data.unassigned.map((i: any) => i.id)).toContain(b.body.data.id);
+
+    // Work items and their counts are derivable from /api/work-items, which
+    // every caller already fetches. Repeating them here transferred the whole
+    // work-item set twice on each refresh.
+    expect(proj).not.toHaveProperty('items');
+    expect(proj).not.toHaveProperty('itemCount');
+    expect(proj).not.toHaveProperty('activeCount');
+    expect(board.body.data).not.toHaveProperty('unassigned');
+  });
+
+  test('omits projects whose linked session is missing from the scan', async () => {
+    const { app } = setupApp();
+    const a = await jsonReq(app, 'POST', '/api/work-items', {
+      title: 'ghost link',
+      projectId: '/Users/test/demo-repo',
+    });
+    await jsonReq(app, 'POST', `/api/work-items/${a.body.data.id}/link-session`, {
+      provider: 'claude',
+      sessionId: 'session-that-no-longer-exists',
+    });
+
+    const board = await jsonReq(app, 'GET', '/api/workboard');
+    expect(board.status).toBe(200);
+    expect(board.body.data.projects).toHaveLength(0);
   });
 });
