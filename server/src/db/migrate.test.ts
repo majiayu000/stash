@@ -300,6 +300,79 @@ describe('migrate', () => {
     }
   });
 
+  test('repairs SQLite CURRENT_TIMESTAMP instants in work_items and areas', () => {
+    // Regression: a database whose rows had been touched by raw SQL held
+    // `2026-05-26 10:46:23` in updated_at. Date columns had a repair path but
+    // instant columns were validate-only, so migration 019 refused to apply and
+    // the database could not be opened at all. `areas` was not covered here
+    // either, leaving instants that Date.parse reads as local time.
+    const root = mkdtempSync(join(tmpdir(), 'stash-sqlite-instant-'));
+    try {
+      const legacy_dir = join(root, 'through-018');
+      mkdirSync(legacy_dir);
+      for (const file of listMigrationFiles(MIGRATIONS_DIR)) {
+        if (file <= '018_work_item_coach_summary_destination.sql') {
+          cpSync(join(MIGRATIONS_DIR, file), join(legacy_dir, file));
+        }
+      }
+      const db = openDatabase({ path: ':memory:', inMemory: true });
+      migrate(db, legacy_dir);
+      const clock = fixedClock('2026-05-14T10:00:00.000Z');
+      const areas = new AreaService({ db, clock });
+      const area = areas.create({ name: 'touched by raw sql' });
+      const work_items = new WorkItemService({ db, clock });
+      const item = work_items.create({ title: 'touched by raw sql' });
+
+      db.prepare('update work_items set updated_at = ?, completed_at = ? where id = ?')
+        .run('2026-05-26 10:46:23', '2026-05-26 10:46:23', item.id);
+      db.prepare('update areas set updated_at = ? where id = ?')
+        .run('2026-05-26 10:46:23', area.id);
+
+      expect(migrate(db).applied).toEqual(['019_calendar_field_formats.sql']);
+
+      // SQLite's CURRENT_TIMESTAMP is UTC, so the wall clock is preserved.
+      const migrated = db.query<{ updated_at: string; completed_at: string }, [string]>(
+        'select updated_at, completed_at from work_items where id = ?',
+      ).get(item.id);
+      expect(migrated?.updated_at).toBe('2026-05-26T10:46:23.000Z');
+      expect(migrated?.completed_at).toBe('2026-05-26T10:46:23.000Z');
+      const migrated_area = db.query<{ updated_at: string }, [string]>(
+        'select updated_at from areas where id = ?',
+      ).get(area.id);
+      expect(migrated_area?.updated_at).toBe('2026-05-26T10:46:23.000Z');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('still blocks instants whose time zone cannot be known', () => {
+    const root = mkdtempSync(join(tmpdir(), 'stash-instant-block-'));
+    try {
+      const legacy_dir = join(root, 'through-018');
+      mkdirSync(legacy_dir);
+      for (const file of listMigrationFiles(MIGRATIONS_DIR)) {
+        if (file <= '018_work_item_coach_summary_destination.sql') {
+          cpSync(join(MIGRATIONS_DIR, file), join(legacy_dir, file));
+        }
+      }
+      const db = openDatabase({ path: ':memory:', inMemory: true });
+      migrate(db, legacy_dir);
+      const work_items = new WorkItemService({ db });
+      const item = work_items.create({ title: 'offset instant' });
+      // An explicit non-UTC offset is not SQLite's shape; repairing it would
+      // mean guessing, so it must stay a hard failure.
+      db.prepare('update work_items set updated_at = ? where id = ?')
+        .run('2026-05-26T10:46:23+08:00', item.id);
+
+      expect(() => migrate(db)).toThrow(
+        `work_items[${item.id}].updated_at has invalid UTC instant`,
+      );
+      expect(listAppliedMigrations(db)).not.toContain('019_calendar_field_formats.sql');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test('blocks ambiguous calendar values with table, row, and field evidence', () => {
     const root = mkdtempSync(join(tmpdir(), 'stash-calendar-block-'));
     try {

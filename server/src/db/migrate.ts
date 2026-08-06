@@ -91,6 +91,12 @@ interface WorkItemCalendarRow {
   completed_at: string | null;
 }
 
+interface AreaCalendarRow {
+  id: string;
+  created_at: string;
+  updated_at: string;
+}
+
 interface DecisionDraftCalendarRow {
   id: string;
   proposed_scheduled_for: string | null;
@@ -105,7 +111,8 @@ function normalizeCalendarFieldFormats(db: Database): void {
   ).all();
   const update_work_item = db.prepare(
     `update work_items
-        set scheduled_for = ?, due_at = ?, review_at = ?, recurrence_json = ?
+        set scheduled_for = ?, due_at = ?, review_at = ?, recurrence_json = ?,
+            reminder_at = ?, start_at = ?, created_at = ?, updated_at = ?, completed_at = ?
       where id = ?`,
   );
   for (const row of work_items) {
@@ -116,18 +123,44 @@ function normalizeCalendarFieldFormats(db: Database): void {
     const due_at = normalize_calendar_date(row.due_at, `work_items[${row.id}].due_at`);
     const review_at = normalize_calendar_date(row.review_at, `work_items[${row.id}].review_at`);
     const recurrence_json = normalize_recurrence(row.recurrence_json, row.id);
-    validate_utc_instant(row.reminder_at, `work_items[${row.id}].reminder_at`);
-    validate_utc_instant(row.start_at, `work_items[${row.id}].start_at`);
-    validate_utc_instant(row.created_at, `work_items[${row.id}].created_at`);
-    validate_utc_instant(row.updated_at, `work_items[${row.id}].updated_at`);
-    validate_utc_instant(row.completed_at, `work_items[${row.id}].completed_at`);
+    const reminder_at = normalize_utc_instant(row.reminder_at, `work_items[${row.id}].reminder_at`);
+    const start_at = normalize_utc_instant(row.start_at, `work_items[${row.id}].start_at`);
+    const created_at = normalize_utc_instant(row.created_at, `work_items[${row.id}].created_at`);
+    const updated_at = normalize_utc_instant(row.updated_at, `work_items[${row.id}].updated_at`);
+    const completed_at = normalize_utc_instant(row.completed_at, `work_items[${row.id}].completed_at`);
     if (
       scheduled_for !== row.scheduled_for
       || due_at !== row.due_at
       || review_at !== row.review_at
       || recurrence_json !== row.recurrence_json
+      || reminder_at !== row.reminder_at
+      || start_at !== row.start_at
+      || created_at !== row.created_at
+      || updated_at !== row.updated_at
+      || completed_at !== row.completed_at
     ) {
-      update_work_item.run(scheduled_for, due_at, review_at, recurrence_json, row.id);
+      update_work_item.run(
+        scheduled_for, due_at, review_at, recurrence_json,
+        reminder_at, start_at, created_at, updated_at, completed_at,
+        row.id,
+      );
+    }
+  }
+
+  // `areas` was never covered here. Its instants are read with Date.parse,
+  // which treats a space-separated timestamp as *local* time, so leaving them
+  // unrepaired silently shifted them by the machine's UTC offset.
+  const areas = db.query<AreaCalendarRow, []>(
+    'select id, created_at, updated_at from areas',
+  ).all();
+  const update_area = db.prepare(
+    'update areas set created_at = ?, updated_at = ? where id = ?',
+  );
+  for (const row of areas) {
+    const created_at = normalize_utc_instant(row.created_at, `areas[${row.id}].created_at`);
+    const updated_at = normalize_utc_instant(row.updated_at, `areas[${row.id}].updated_at`);
+    if (created_at !== row.created_at || updated_at !== row.updated_at) {
+      update_area.run(created_at, updated_at, row.id);
     }
   }
 
@@ -196,11 +229,38 @@ function normalize_recurrence(value: string | null, id: string): string | null {
   return JSON.stringify({ ...recurrence, until });
 }
 
-function validate_utc_instant(value: string | null, location: string): void {
-  if (value === null) return;
+/** SQLite's own `CURRENT_TIMESTAMP` / `datetime('now')` output shape. */
+const SQLITE_TIMESTAMP = /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})$/;
+
+/**
+ * Canonical UTC instant for a stored value, repairing the one legacy shape we
+ * can resolve without guessing.
+ *
+ * Date columns already had a repair path here while instant columns were
+ * validate-only, so a database written by raw SQL rather than the application
+ * could not be opened at all: `updated_at` of `2026-05-26 10:46:23` failed the
+ * check with no way forward. That shape is SQLite's documented
+ * `CURRENT_TIMESTAMP` output, which is always UTC, so it is promoted to a
+ * canonical instant. Anything else stays a hard failure — an unrecognised
+ * format has no knowable time zone, and quietly assuming one would shift real
+ * timestamps.
+ */
+function normalize_utc_instant(value: string | null, location: string): string | null {
+  if (value === null) return null;
   try {
     assert_utc_instant(value);
+    return value;
   } catch {
+    const sqlite = SQLITE_TIMESTAMP.exec(value);
+    if (sqlite) {
+      const candidate = `${sqlite[1]}T${sqlite[2]}.000Z`;
+      try {
+        assert_utc_instant(candidate);
+        return candidate;
+      } catch {
+        // Fall through to the location-rich failure below.
+      }
+    }
     throw new Error(`migration 019 blocked: ${location} has invalid UTC instant ${JSON.stringify(value)}`);
   }
 }
