@@ -24,7 +24,6 @@ const data: WBData = {
   stats: {
     activeSessions: 0,
     totalEstimatedTokens: 0,
-    totalEstimatedCost: 0,
     projects: 0,
     todosOpen: 0,
     todosDone: 0,
@@ -65,7 +64,6 @@ describe('weekly review background sessions', () => {
       stats: {
         activeSessions: 1,
         totalEstimatedTokens: 400,
-        totalEstimatedCost: 0.005,
       },
     });
   });

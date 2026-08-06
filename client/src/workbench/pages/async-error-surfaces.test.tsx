@@ -55,7 +55,6 @@ const data: WBData = {
   stats: {
     activeSessions: 0,
     totalEstimatedTokens: 0,
-    totalEstimatedCost: 0,
     projects: 0,
     todosOpen: 0,
     todosDone: 0,

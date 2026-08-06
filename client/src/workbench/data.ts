@@ -18,7 +18,6 @@ export interface WBProject {
   todoDone: number;
   sessions: number;
   estimatedTokens: number;
-  estimatedCost: number;
   lastModel: string;
   lastTouched: number;
 }
@@ -34,7 +33,6 @@ export interface WBSession {
   title: string;
   preview: string;
   estimatedTokens: number;
-  estimatedCost: number;
   estimatedDuration: number;
   at: number;
 }
@@ -65,7 +63,6 @@ export interface WBTodo {
 export interface WBStats {
   activeSessions: number;
   totalEstimatedTokens: number;
-  totalEstimatedCost: number;
   projects: number;
   todosOpen: number;
   todosDone: number;
@@ -126,14 +123,19 @@ function sessionState(s: AgentSession): WBSession['state'] {
 
 /**
  * Activity-only fallback for surfaces that do not receive usage telemetry.
- * These values are estimates, not measured token/cost/duration values, and no
+ * These values are estimates, not measured token/duration values, and no
  * time-window filter (including 24h) is applied here.
+ *
+ * Deliberately produces no dollar figure. Sessions carry activity counts, not
+ * token usage, so any cost derived here would be a number with no relationship
+ * to real spend — and it sat next to the genuinely measured spend on Usage
+ * Review, inviting a comparison that could never reconcile. Real per-project
+ * and per-window cost comes from `/api/analytics/burn`.
  */
 export function estimateSessionActivity(toolCount: number, messageCount: number) {
   const activityCount = toolCount + messageCount;
   return {
     estimatedTokens: activityCount * 80,
-    estimatedCost: activityCount * 0.001,
     estimatedDuration: Math.max(60, toolCount * 30),
   };
 }
@@ -223,7 +225,6 @@ export function adaptToWorkbenchData(input: AdaptInput): WBData {
       todoDone: done,
       sessions: wb.sessions.length,
       estimatedTokens,
-      estimatedCost: wb.sessions.length * 0.05,
       lastModel: wb.sessions[0]?.model ?? (wb.sessions[0]?.provider === 'codex' ? 'codex' : wb.sessions[0]?.provider === 'claude' ? 'claude' : '—'),
       lastTouched: wb.sessions[0] ? new Date(wb.sessions[0].lastActiveAt).getTime() : Date.now() - 3600_000,
     };
@@ -260,7 +261,6 @@ export function adaptToWorkbenchData(input: AdaptInput): WBData {
   const stats: WBStats = {
     activeSessions: sessions.filter((s) => s.state === 'live').length,
     totalEstimatedTokens: sessions.reduce((a, s) => a + s.estimatedTokens, 0),
-    totalEstimatedCost: sessions.reduce((a, s) => a + s.estimatedCost, 0),
     projects: projects.length,
     todosOpen: todos.filter((t) => !t.done).length,
     todosDone: todos.filter((t) => t.done).length,

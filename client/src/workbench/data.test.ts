@@ -35,7 +35,6 @@ describe('workbench activity estimates', () => {
   test('derives explicitly named fallback metrics from activity counts', () => {
     expect(estimateSessionActivity(2, 3)).toEqual({
       estimatedTokens: 400,
-      estimatedCost: 0.005,
       estimatedDuration: 60,
     });
   });
@@ -57,13 +56,16 @@ describe('workbench activity estimates', () => {
       areas: [],
     });
 
-    expect(data.projects[0]).toMatchObject({ estimatedTokens: 400, estimatedCost: 0.05 });
+    expect(data.projects[0]).toMatchObject({ estimatedTokens: 400 });
+    // Sessions carry activity counts, not usage, so no dollar figure is derived
+    // here at all — measured cost comes from /api/analytics/burn.
+    expect(data.projects[0]).not.toHaveProperty('estimatedCost');
     expect(data.sessions[0]).toMatchObject({
       estimatedTokens: 400,
-      estimatedCost: 0.005,
       estimatedDuration: 60,
     });
-    expect(data.stats).toMatchObject({ totalEstimatedTokens: 400, totalEstimatedCost: 0.005 });
+    expect(data.stats).toMatchObject({ totalEstimatedTokens: 400 });
+    expect(data.stats).not.toHaveProperty('totalEstimatedCost');
     expect(data.projects[0]).not.toHaveProperty('tokens24h');
     expect(data.projects[0]).not.toHaveProperty('cost24h');
     expect(data.sessions[0]).not.toHaveProperty('tokens');

@@ -15,7 +15,6 @@ const session: WBSession = {
   title: 'fixture session',
   preview: '',
   estimatedTokens: 400,
-  estimatedCost: 0.005,
   estimatedDuration: 60,
   at: Date.now(),
 };
@@ -29,7 +28,6 @@ const data: WBData = {
   stats: {
     activeSessions: 0,
     totalEstimatedTokens: 400,
-    totalEstimatedCost: 0.005,
     projects: 0,
     todosOpen: 0,
     todosDone: 0,
@@ -47,10 +45,13 @@ describe('workbench estimated metric labels', () => {
     );
 
     expect(screen.getByText('estimated tokens')).toBeInTheDocument();
-    expect(screen.getByText('estimated cost')).toBeInTheDocument();
     expect(screen.getByText('400 est. tokens')).toBeInTheDocument();
-    expect(screen.getByText('$0.01 est. · 1m est.')).toBeInTheDocument();
+    expect(screen.getByText('1m est.')).toBeInTheDocument();
     expect(screen.getByTestId('topbar-stats')).not.toHaveTextContent('24h');
+    // Activity counts yield tokens and duration, never dollars. A fabricated
+    // "$x est." here sat one click away from the measured spend on Usage Review.
+    expect(screen.getByTestId('topbar-stats')).not.toHaveTextContent('$');
+    expect(screen.getByTestId('flow-burn')).not.toHaveTextContent('$');
     expect(screen.getByTestId('flow-burn')).toHaveTextContent('derived from session activity counts');
     expect(screen.getByTestId('flow-burn')).not.toHaveTextContent('0 active sessions');
   });

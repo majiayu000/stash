@@ -341,7 +341,6 @@ export function EstimatedSessionMetrics({ session }: { session: WBSession }) {
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
         <Tile k="estimated tokens" v={fmt.k(session.estimatedTokens)} c="var(--neon-cyan)" />
-        <Tile k="estimated cost" v={'$' + session.estimatedCost.toFixed(2)} c="var(--neon-orange)" />
         <Tile k="estimated duration" v={fmt.dur(session.estimatedDuration)} c="var(--neon-purple)" />
       </div>
     </div>
