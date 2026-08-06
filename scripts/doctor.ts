@@ -69,7 +69,7 @@ export async function runDoctor(options: DoctorOptions): Promise<Check[]> {
       required: strict,
       timeoutMs: httpTimeoutMs,
       fetchImpl,
-      hint: `start \`bun run server:dev\` or set PORT if ${config.port} is taken`,
+      hint: `start \`bun run dev\` or set PORT if ${config.port} is taken`,
     }),
     await httpCheck({
       name: 'client dev server',
@@ -77,7 +77,7 @@ export async function runDoctor(options: DoctorOptions): Promise<Check[]> {
       required: strict,
       timeoutMs: httpTimeoutMs,
       fetchImpl,
-      hint: 'start `bun run client:dev` in another shell',
+      hint: 'start `bun run dev`, which runs the client alongside the server',
     }),
   ];
 }

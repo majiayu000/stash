@@ -5,6 +5,8 @@
   "description": "Todo + Agent Workboard — Inbox-first task capture with Claude/Codex session evidence",
   "type": "module",
   "scripts": {
+    "dev": "bun run scripts/dev.ts",
+    "dev:demo": "bun run scripts/dev.ts --demo",
     "server:dev": "bun --watch run server/src/index.ts",
     "server:start": "bun run server/src/index.ts",
     "server:test": "cd server && bun test",
@@ -18,7 +20,7 @@
     "install:all": "bun run scripts/install-all.ts",
     "install:cli": "bun run tools/install-cli.ts",
     "typecheck": "bun run server:typecheck && bun run client:typecheck",
-    "test:root": "bun test scripts/doctor.test.ts scripts/install-all.test.ts",
+    "test:root": "bun test scripts/doctor.test.ts scripts/install-all.test.ts scripts/dev.test.ts",
     "test:all": "bun run test:root && bun run server:test && bun run client:test",
     "doctor": "bun run scripts/doctor.ts",
     "verify": "bun run scripts/verify.ts",

@@ -26,17 +26,19 @@ bun run doctor
 # 2) Install the capture CLI into ~/.local/bin/stash
 bun run install:cli
 
-# 3) Seed a believable demo (areas, todos, projects, milestones, decisions, lessons,
-#    plus one fake Claude JSONL so analytics has data to chew on)
-STASH_DB_PATH=/tmp/stash-demo.db bun run seed:rich:sessions
-
-# 4) Start the server
-STASH_DB_PATH=/tmp/stash-demo.db CLAUDE_ROOT=/tmp/stash-rich-claude \
-  bun run server:dev          # http://localhost:4174
-
-# 5) Start the client (in another shell)
-bun run client:dev            # http://localhost:5173
+# 3) Start both halves against a seeded demo, in one shell.
+#    Seeds /tmp/stash-demo.db on first run (areas, todos, projects, milestones,
+#    decisions, lessons, plus one fake Claude JSONL for analytics).
+bun run dev:demo              # server :4174 · client :5173, ctrl-c stops both
 ```
+
+`bun run dev` does the same against your real database instead of the demo one.
+Both halves inherit one environment, so `STASH_DB_PATH` can never end up
+pointing each of them at a different file.
+
+To run the two halves separately — different terminals, different watch
+settings — `bun run server:dev` and `bun run client:dev` still work; set
+`STASH_DB_PATH` identically in both.
 
 Open `http://localhost:5173`. The primary navigation exposes five stable product
 sections: Work, Projects, Sessions, Review, and Settings. Entity pages keep their
