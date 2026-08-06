@@ -209,6 +209,7 @@ function emptyBurnAggregate(): BurnAggregate {
     modelMix: [],
     perProjectLeaderboard: [],
     dailyProjectSpend: [],
+    pricing: { unknownModels: [], unpricedTokens: 0 },
     cache: {
       refreshState: 'fresh',
       generatedAt: '2026-05-14T00:00:00.000Z',

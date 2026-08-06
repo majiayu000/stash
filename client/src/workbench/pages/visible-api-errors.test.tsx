@@ -220,6 +220,7 @@ const burnSnapshot: BurnSnapshot = {
   hourlyHeatmap: Array.from({ length: 7 }, () => Array<number>(24).fill(0)),
   modelMix: [{ model: 'gpt-5', share: 1, tokens: 100, cost: 1 }],
   perProjectLeaderboard: [],
+  pricing: { unknownModels: [], unpricedTokens: 0 },
 };
 
 const budgetSpendSnapshot: BudgetSpendSnapshot = {
@@ -233,6 +234,7 @@ const budgetSpendSnapshot: BudgetSpendSnapshot = {
     month: periodSpend('2026-07-01', '2026-08-01', 40, 30),
     quarter: periodSpend('2026-07-01', '2026-10-01', 60, 50),
   },
+  pricing: { unknownModels: [], unpricedTokens: 0 },
 };
 
 const budgets: Budget[] = [
@@ -300,4 +302,5 @@ const weeklySnapshot: WeeklySnapshot = {
     cost: { now: 0, prev: 0 },
     sessions: { now: 0, prev: 0 },
   },
+  pricing: { unknownModels: [], unpricedTokens: 0 },
 };

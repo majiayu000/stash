@@ -4,6 +4,7 @@ import {
   calendar_date_at,
   calendar_day_of_week,
   format_calendar_date,
+  merge_pricing_coverage,
   parse_calendar_date,
   range_from_dates,
   systemClock,
@@ -63,9 +64,12 @@ export class WeeklyReviewService {
 
     const thisBurn = this.deps.burnService.totalsBetween(startMs, endMs, scanResult);
     const prevBurn = this.deps.burnService.totalsBetween(prevStartMs, startMs, scanResult);
-    const tokens: WoWPair = { now: thisBurn.tokens, prev: prevBurn.tokens };
-    const cost: WoWPair = { now: thisBurn.cost, prev: prevBurn.cost };
+    const tokens: WoWPair = { now: thisBurn.totals.tokens, prev: prevBurn.totals.tokens };
+    const cost: WoWPair = { now: thisBurn.totals.cost, prev: prevBurn.totals.cost };
     const sessions: WoWPair = { now: sessionsThisWeek, prev: sessionsPrevWeek };
+    // The WoW cost pair spans both weeks, so an unpriced model in either one
+    // makes the comparison unreliable.
+    const pricing = merge_pricing_coverage(thisBurn.pricing, prevBurn.pricing);
 
     return {
       calendar: { timeZone: this.time_zone, range },
@@ -78,6 +82,7 @@ export class WeeklyReviewService {
       sessionsByDay,
       donePerProject: doneByProject,
       wow: { tokens, cost, sessions },
+      pricing,
     };
   }
 

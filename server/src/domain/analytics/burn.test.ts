@@ -117,6 +117,60 @@ describe('BurnService', () => {
     expect(dayMay14?.tokens).toBe(550_000);
   });
 
+  test('reports models with no rate instead of pricing them at zero', () => {
+    // Regression: every model in a real ~/.claude history missed the rate card,
+    // so cost silently aggregated to $0.00 across burn, weekly and budgets.
+    const s = makeSession({ id: 'a', sourcePath: '/p/a.jsonl', projectId: 'proj-1' });
+    const usage: Record<string, UsageEvent[]> = {
+      '/p/a.jsonl': [
+        { ts: '2026-05-14T09:00:00.000Z', model: 'claude-opus-4-8', inputTokens: 1_000_000, outputTokens: 200_000, sourcePath: '/p/a.jsonl' },
+        { ts: '2026-05-14T10:00:00.000Z', model: 'some-proxy-model', inputTokens: 300_000, outputTokens: 0, sourcePath: '/p/a.jsonl' },
+        // Sonnet 4.6 is on the rate card: 0.5M*$3 + 0.1M*$15 = 1.5 + 1.5 = 3.
+        { ts: '2026-05-14T11:00:00.000Z', model: 'claude-sonnet-4-6', inputTokens: 500_000, outputTokens: 100_000, sourcePath: '/p/a.jsonl' },
+      ],
+    };
+    const snap = build([s], usage).snapshot({ days: 7 });
+
+    // Tokens stay complete; only the priced subset reaches cost.
+    expect(snap.totals.tokens).toBe(2_100_000);
+    expect(snap.totals.cost).toBeCloseTo(3, 5);
+    expect(snap.pricing.unknownModels).toEqual(['claude-opus-4-8', 'some-proxy-model']);
+    expect(snap.pricing.unpricedTokens).toBe(1_500_000);
+
+    const unpriced = snap.modelMix.find((m) => m.model === 'claude-opus-4-8');
+    const priced = snap.modelMix.find((m) => m.model === 'claude-sonnet-4-6');
+    expect(unpriced?.cost).toBeUndefined();
+    expect(priced?.cost).toBeCloseTo(3, 5);
+  });
+
+  test('prices model ids that carry a release-date suffix', () => {
+    const s = makeSession({ id: 'a', sourcePath: '/p/a.jsonl', projectId: 'proj-1' });
+    const usage: Record<string, UsageEvent[]> = {
+      '/p/a.jsonl': [
+        { ts: '2026-05-14T09:00:00.000Z', model: 'claude-sonnet-4-6-20250929', inputTokens: 1_000_000, outputTokens: 0, sourcePath: '/p/a.jsonl' },
+      ],
+    };
+    const snap = build([s], usage).snapshot({ days: 7 });
+
+    expect(snap.totals.cost).toBeCloseTo(3, 5);
+    expect(snap.pricing.unknownModels).toEqual([]);
+    expect(snap.pricing.unpricedTokens).toBe(0);
+  });
+
+  test('budget spend reports pricing gaps so an under-cap reading is not trusted blindly', async () => {
+    const s = makeSession({ id: 'a', sourcePath: '/p/a.jsonl', projectId: 'proj-1' });
+    const usage: Record<string, UsageEvent[]> = {
+      '/p/a.jsonl': [
+        { ts: '2026-05-14T09:00:00.000Z', model: 'claude-opus-4-8', inputTokens: 5_000_000, outputTokens: 1_000_000, sourcePath: '/p/a.jsonl' },
+      ],
+    };
+    const { data } = await build([s], usage).budgetSpendSnapshotAsync();
+
+    expect(data.periods.month.totals.cost).toBe(0);
+    expect(data.pricing.unknownModels).toEqual(['claude-opus-4-8']);
+    expect(data.pricing.unpricedTokens).toBe(6_000_000);
+  });
+
   test('hourly heatmap places event in the right (dow, hour) cell', () => {
     // 2026-05-14 = Thursday => UTC dow=4, Monday-indexed dow=3
     const s = makeSession({ id: 'h', sourcePath: '/h.jsonl' });
@@ -396,7 +450,7 @@ describe('BurnService', () => {
     };
     const svc = build([s], usage);
 
-    const totals = svc.totalsBetween(
+    const { totals, pricing } = svc.totalsBetween(
       Date.parse('2026-05-11T00:00:00.000Z'),
       Date.parse('2026-05-18T00:00:00.000Z'),
     );
@@ -404,6 +458,7 @@ describe('BurnService', () => {
     expect(totals.tokens).toBe(375);
     expect(totals.sessions).toBe(1);
     expect(totals.cost).toBeCloseTo(0.002025, 9);
+    expect(pricing).toEqual({ unknownModels: [], unpricedTokens: 0 });
   });
 
   test('does not read usage files for sessions older than the burn window', () => {

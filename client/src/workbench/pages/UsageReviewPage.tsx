@@ -119,7 +119,10 @@ export function UsageReviewPage({ data }: { data: WBData; reload: () => void }) 
 
   const bucketRangeLabel = calendarRangeLabel(snap);
   const evaluationRangeLabel = evaluationLabel(snap);
-  if (snap.dailySpend.every((d) => d.cost === 0)) {
+  // Emptiness is the absence of *usage*, not the absence of cost. Keying this
+  // off cost alone hid a real history behind "no usage data yet" whenever the
+  // models in it had no configured rate.
+  if (snap.dailySpend.every((d) => d.tokens === 0 && d.cost === 0)) {
     return (
       <div className="dashboard-canvas">
         <div className="inner">
@@ -161,19 +164,48 @@ export function UsageReviewPage({ data }: { data: WBData; reload: () => void }) 
   const budgetPercent = monthlyBudget
     ? Math.min(100, (monthlySpend / monthlyBudget.capUsd) * 100)
     : 0;
+  // Any unpriced model makes every dollar figure on this page a floor rather
+  // than the real spend, so the page must say so instead of implying $0 usage.
+  const pricingGaps = snap.pricing.unknownModels;
+  const spendIsPartial = pricingGaps.length > 0;
+  const budgetIsPartial = budgetSpend.pricing.unknownModels.length > 0;
 
   return (
     <div className="dashboard-canvas">
       <div className="inner" style={{ overflow: 'hidden', height: '100%' }}>
         <Topbar data={data} />
 
+        {spendIsPartial && (
+          <div
+            role="status"
+            data-testid="usage-pricing-gap"
+            style={{
+              border: '1px solid var(--neon-orange)',
+              borderRadius: 8,
+              padding: '0.7rem 0.9rem',
+              marginBottom: '1rem',
+              fontFamily: 'var(--font-mono)',
+              fontSize: '0.76rem',
+              color: 'var(--text-secondary)',
+            }}
+          >
+            <strong style={{ color: 'var(--neon-orange)' }}>Cost figures are incomplete.</strong>{' '}
+            {fmt.k(Math.round(snap.pricing.unpricedTokens))} tokens came from{' '}
+            {pricingGaps.length} model{pricingGaps.length === 1 ? '' : 's'} with no configured rate,
+            so every dollar amount below is a lower bound, not your actual spend:{' '}
+            <span style={{ color: 'var(--text-primary)' }}>{pricingGaps.join(', ')}</span>
+          </div>
+        )}
+
         {/* Top KPIs */}
         <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 1fr 1fr', gap: '1rem', marginBottom: '1.25rem' }}>
           <div className="surface" style={{ padding: '1.2rem 1.4rem' }}>
-            <div className="stat-tile-label" data-testid="usage-evaluation-range">indexed spend · {evaluationRangeLabel}</div>
+            <div className="stat-tile-label" data-testid="usage-evaluation-range">
+              {spendIsPartial ? 'indexed spend (partial)' : 'indexed spend'} · {evaluationRangeLabel}
+            </div>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.6rem', marginTop: '0.4rem' }}>
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: '2.6rem', fontWeight: 700, background: 'var(--gradient-primary)', WebkitBackgroundClip: 'text', backgroundClip: 'text', WebkitTextFillColor: 'transparent', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
-                <CountUp to={evaluationTotal} duration={1400} format={(n: number) => '$' + n.toFixed(2)} />
+                <CountUp to={evaluationTotal} duration={1400} format={(n: number) => (spendIsPartial ? '≥ $' : '$') + n.toFixed(2)} />
               </div>
               <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.85rem', color: wow > 0 ? 'var(--neon-pink)' : 'var(--neon-green)' }}>
                 {wow > 0 ? '↑' : '↓'} {Math.abs(wow).toFixed(0)}% w/w
@@ -181,7 +213,7 @@ export function UsageReviewPage({ data }: { data: WBData; reload: () => void }) 
             </div>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.4rem' }}>
               {monthlyBudget
-                ? <>global monthly budget: <span style={{ color: 'var(--text-secondary)' }}>${monthlySpend.toFixed(2)} / ${monthlyBudget.capUsd.toFixed(2)}</span> · {budgetPeriodLabel(budgetSpend.periods.month, budgetSpend.calendar.timeZone)}</>
+                ? <>global monthly budget: <span style={{ color: 'var(--text-secondary)' }}>{budgetIsPartial ? '≥ ' : ''}${monthlySpend.toFixed(2)} / ${monthlyBudget.capUsd.toFixed(2)}</span> · {budgetPeriodLabel(budgetSpend.periods.month, budgetSpend.calendar.timeZone)}{budgetIsPartial && <span style={{ color: 'var(--neon-orange)' }}> · unpriced usage not counted</span>}</>
                 : <>No global monthly budget. Add one in Settings.</>}
             </div>
             <div style={{ height: 6, background: 'var(--bg-elevated)', borderRadius: 3, overflow: 'hidden', marginTop: '0.5rem', position: 'relative' }}>
@@ -236,7 +268,11 @@ export function UsageReviewPage({ data }: { data: WBData; reload: () => void }) 
                     <span style={{ color: m.color }}>●</span>
                     <span style={{ color: 'var(--text-primary)' }}>{m.model}</span>
                     <span style={{ color: 'var(--text-muted)' }}>{fmt.k(Math.round(m.tokens))}</span>
-                    <span style={{ color: m.color, fontWeight: 600 }}>${m.cost.toFixed(2)}</span>
+                    {m.cost === undefined ? (
+                      <span style={{ color: 'var(--neon-orange)', fontWeight: 600 }} title="no rate configured for this model">no rate</span>
+                    ) : (
+                      <span style={{ color: m.color, fontWeight: 600 }}>${m.cost.toFixed(2)}</span>
+                    )}
                   </div>
                 ))}
               </div>
@@ -274,6 +310,7 @@ export function UsageReviewPage({ data }: { data: WBData; reload: () => void }) 
                       b={b}
                       period={budgetSpend.periods[b.period]}
                       timeZone={budgetSpend.calendar.timeZone}
+                      partial={budgetIsPartial}
                     />
                   ))}
                 </div>
@@ -429,10 +466,13 @@ function BudgetRow({
   b,
   period,
   timeZone,
+  partial,
 }: {
   b: Budget;
   period: BudgetPeriodSpend;
   timeZone: string;
+  /** Spend excludes unpriced models, so "under cap" cannot be trusted. */
+  partial: boolean;
 }) {
   const used = spendForScope(b, period);
   const pct = b.capUsd > 0 ? (used / b.capUsd) * 100 : 0;
@@ -444,7 +484,7 @@ function BudgetRow({
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontFamily: 'var(--font-mono)', fontSize: '0.74rem' }}>
         <span style={{ color: 'var(--text-secondary)' }}>{b.scope} <span style={{ color: 'var(--text-muted)' }}>· {b.period}</span></span>
         <span style={{ color: over ? 'var(--neon-pink)' : warn ? 'var(--neon-orange)' : 'var(--text-muted)' }}>
-          <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>${used.toFixed(2)}</span> / ${b.capUsd.toFixed(2)} <span>· {pct.toFixed(0)}%</span>
+          <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{partial ? '≥ ' : ''}${used.toFixed(2)}</span> / ${b.capUsd.toFixed(2)} <span>· {partial ? `≥${pct.toFixed(0)}%` : `${pct.toFixed(0)}%`}</span>
         </span>
       </div>
       <div style={{ marginBottom: 5, fontFamily: 'var(--font-mono)', fontSize: '0.64rem', color: 'var(--text-muted)' }}>
