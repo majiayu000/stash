@@ -1,23 +1,27 @@
 import { Hono } from 'hono';
-import type { AgentSession, WorkItem } from '@stash/shared';
+import type { AgentSession } from '@stash/shared';
 import type { AgentSourceAggregator } from '../../adapters/aggregator.js';
 import type { WorkItemService } from '../../domain/work-item/service.js';
 import type { WorkItemSessionService } from '../../domain/work-item-session/service.js';
 import { handleError } from '../errors.js';
 import { bound_session_list_item } from '../session-payload.js';
 
-export interface ProjectSummary {
+/**
+ * Sessions explicitly linked to each project's work items.
+ *
+ * This route deliberately does not return the work items themselves. Callers
+ * already hold the full list from `/api/work-items`, and echoing it here meant
+ * every workbench refresh serialized and transferred the entire work-item set
+ * twice. Per-project counts are likewise derivable from that list, so returning
+ * them would only create a second source of truth.
+ */
+export interface ProjectSessionGroup {
   projectId: string;
-  itemCount: number;
-  activeCount: number;
-  blockedCount: number;
-  items: WorkItem[];
   sessions: AgentSession[];
 }
 
 export interface WorkboardResponse {
-  projects: ProjectSummary[];
-  unassigned: WorkItem[];
+  projects: ProjectSessionGroup[];
   parseErrors: { provider: string; sourcePath: string; message: string }[];
 }
 
@@ -32,42 +36,38 @@ export function createWorkboardRouter(
     try {
       const all = items.list({ includeDropped: false });
       const sessionScan = await aggregator.scanAsync({ provider: 'all', limitPerSource: 100 });
-      const sessionsById = new Map(sessionScan.sessions.map((s) => [`${s.provider}:${s.id}`, s] as const));
+      const sessionsByKey = new Map<string, AgentSession>(
+        sessionScan.sessions.map((s) => [`${s.provider}:${s.id}`, s]),
+      );
+      const projectByItemId = new Map(
+        all.flatMap((item) => (item.projectId ? [[item.id, item.projectId] as const] : [])),
+      );
 
-      const projects = new Map<string, ProjectSummary>();
-      const unassigned: WorkItem[] = [];
+      // One query for every link, then group in memory. This previously called
+      // `links.forWorkItem(item.id)` once per work item, so a board with N
+      // items issued N queries to assemble a single response.
+      const projects = new Map<string, ProjectSessionGroup>();
+      const seenPerProject = new Map<string, Set<string>>();
 
-      for (const item of all) {
-        if (!item.projectId) {
-          unassigned.push(item);
-          continue;
-        }
-        const key = item.projectId;
-        const existing = projects.get(key) ?? {
-          projectId: key,
-          itemCount: 0,
-          activeCount: 0,
-          blockedCount: 0,
-          items: [],
-          sessions: [],
-        };
-        existing.itemCount += 1;
-        if (item.status === 'active') existing.activeCount += 1;
-        if (item.status === 'blocked') existing.blockedCount += 1;
-        existing.items.push(item);
+      for (const link of links.all()) {
+        const projectId = projectByItemId.get(link.workItemId);
+        if (!projectId) continue;
+        const key = `${link.provider}:${link.sessionId}`;
+        const session = sessionsByKey.get(key);
+        if (!session) continue;
 
-        for (const link of links.forWorkItem(item.id)) {
-          const s = sessionsById.get(`${link.provider}:${link.sessionId}`);
-          if (s && !existing.sessions.find((es) => es.id === s.id && es.provider === s.provider)) {
-            existing.sessions.push(bound_session_list_item(s));
-          }
-        }
-        projects.set(key, existing);
+        const seen = seenPerProject.get(projectId) ?? new Set<string>();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        seenPerProject.set(projectId, seen);
+
+        const group = projects.get(projectId) ?? { projectId, sessions: [] };
+        group.sessions.push(bound_session_list_item(session));
+        projects.set(projectId, group);
       }
 
       const response: WorkboardResponse = {
-        projects: Array.from(projects.values()).sort((a, b) => b.itemCount - a.itemCount),
-        unassigned,
+        projects: Array.from(projects.values()),
         parseErrors: sessionScan.errors,
       };
       return c.json({ data: response, cache: sessionScan.cache });

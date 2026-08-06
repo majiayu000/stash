@@ -1,9 +1,25 @@
 import { describe, expect, test } from 'vitest';
-import type { WorkItem } from '@stash/shared';
+import type { AgentSession, WorkItem } from '@stash/shared';
 import {
   next_calendar_refresh_at,
+  withProjectSessions,
   workboardProjectsFromItems,
 } from './useWorkbenchData';
+
+function session(id: string): AgentSession {
+  return {
+    id,
+    provider: 'claude',
+    sourcePath: `/tmp/${id}.jsonl`,
+    cwd: '/tmp',
+    status: 'idle',
+    title: id,
+    filesTouched: [],
+    toolCount: 0,
+    messageCount: 0,
+    lastActiveAt: '2026-07-11T00:00:00.000Z',
+  };
+}
 
 function item(id: string, projectId: string | undefined, status: WorkItem['status']): WorkItem {
   return {
@@ -63,5 +79,41 @@ describe('workboardProjectsFromItems', () => {
         sessions: [],
       }),
     ]);
+  });
+});
+
+describe('withProjectSessions', () => {
+  // /api/workboard no longer echoes work items, so the client shapes projects
+  // from its own list and only merges in the link-derived sessions.
+  const projects = workboardProjectsFromItems([
+    item('a', 'project-a', 'active'),
+    item('b', 'project-b', 'planned'),
+  ]);
+
+  test('attaches each group to its project and leaves the counts alone', () => {
+    const merged = withProjectSessions(projects, [
+      { projectId: 'project-b', sessions: [session('sess-1'), session('sess-2')] },
+    ]);
+
+    expect(merged.find((p) => p.projectId === 'project-b')).toMatchObject({
+      itemCount: 1,
+      activeCount: 0,
+      sessions: [{ id: 'sess-1' }, { id: 'sess-2' }],
+    });
+  });
+
+  test('gives projects with no linked sessions an empty list, not a missing one', () => {
+    const merged = withProjectSessions(projects, []);
+
+    expect(merged).toHaveLength(2);
+    expect(merged.every((p) => Array.isArray(p.sessions) && p.sessions.length === 0)).toBe(true);
+  });
+
+  test('ignores groups for projects that hold no work items', () => {
+    const merged = withProjectSessions(projects, [
+      { projectId: 'project-gone', sessions: [session('orphan')] },
+    ]);
+
+    expect(merged.map((p) => p.projectId)).toEqual(['project-a', 'project-b']);
   });
 });
