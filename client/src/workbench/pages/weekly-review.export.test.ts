@@ -53,6 +53,7 @@ const weekly: WeeklySnapshot = {
     cost: { now: 1.25, prev: 1 },
     sessions: { now: 2, prev: 1 },
   },
+  pricing: { unknownModels: [], unpricedTokens: 0 },
 };
 
 function item(input: Partial<WorkItem> & { id: string; title: string }): WorkItem {

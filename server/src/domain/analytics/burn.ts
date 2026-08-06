@@ -10,6 +10,7 @@ import {
   type AgentSession,
   type BudgetPeriod,
   type BudgetSpendSnapshot,
+  type BurnPricingCoverage,
   type CalendarRange,
   type BurnSnapshot,
   type Clock,
@@ -55,7 +56,8 @@ export interface BurnAggregationRequest {
 interface CompactModelBurn {
   model: string;
   tokens: number;
-  cost: number;
+  /** `undefined` when the model has no rate — never collapsed to 0. */
+  cost: number | undefined;
 }
 
 interface CompactProjectBurn {
@@ -79,6 +81,7 @@ export interface BurnAggregate {
   modelMix: CompactModelBurn[];
   perProjectLeaderboard: CompactProjectBurn[];
   dailyProjectSpend: CompactDailyProjectBurn[];
+  pricing: BurnPricingCoverage;
   cache: AggregateScanCacheStats;
 }
 
@@ -165,9 +168,9 @@ export class BurnService {
     startMs: number,
     endMs: number,
     scanResult?: AggregateResult,
-  ): BurnSnapshot['totals'] {
+  ): { totals: BurnSnapshot['totals']; pricing: BurnPricingCoverage } {
     const scan = scanResult ?? this.aggregator.scan({});
-    return aggregateBurnFromScan(this.aggregator, scan, {
+    const aggregate = aggregateBurnFromScan(this.aggregator, scan, {
       startMs,
       bucketEndMs: endMs,
       endMs,
@@ -176,7 +179,8 @@ export class BurnService {
       timeZone: this.time_zone,
       days: 1,
       rates: this.rates,
-    }).totals;
+    });
+    return { totals: aggregate.totals, pricing: aggregate.pricing };
   }
 
   private rollingRequest(q: BurnQuery): BurnAggregationRequest {
@@ -221,6 +225,7 @@ export class BurnService {
           : this.areaService.get(item.projectId)?.name ?? item.projectId,
         share: totalTokens > 0 ? item.tokens / totalTokens : 0,
       })),
+      pricing: aggregate.pricing,
     };
   }
 }
@@ -258,7 +263,9 @@ class BurnAccumulator {
   private readonly dailySpend: DailySpendBucket[];
   private readonly hourlyHeatmap: number[][] =
     Array.from({ length: 7 }, () => Array<number>(24).fill(0));
-  private readonly models = new Map<string, { tokens: number; cost: number }>();
+  private readonly models = new Map<string, { tokens: number; cost: number | undefined }>();
+  private readonly unknown_models = new Set<string>();
+  private unpriced_tokens = 0;
   private readonly projects = new Map<string, MutableProjectBurn>();
   private readonly daily_project_spend = new Map<string, CompactDailyProjectBurn>();
   private readonly sources = new Set<string>();
@@ -282,7 +289,15 @@ class BurnAccumulator {
       if (this.request.endMs !== undefined && eventMs >= this.request.endMs) continue;
 
       const tokens = event.inputTokens + event.outputTokens;
-      const cost = eventCost(event, this.request.rates);
+      // An unpriced event contributes real tokens but no cost. Recording it as
+      // $0 would be indistinguishable from free usage, so it is tracked apart
+      // and surfaced as pricing coverage instead.
+      const priced = eventCost(event, this.request.rates);
+      const cost = priced ?? 0;
+      if (priced === undefined) {
+        this.unknown_models.add(event.model);
+        this.unpriced_tokens += tokens;
+      }
       this.totals.tokens += tokens;
       this.totals.cost += cost;
       this.sources.add(event.sourcePath);
@@ -305,7 +320,8 @@ class BurnAccumulator {
 
       const model = this.models.get(event.model) ?? { tokens: 0, cost: 0 };
       model.tokens += tokens;
-      model.cost += cost;
+      // A model is priced or it is not; the flag never flips mid-window.
+      model.cost = priced === undefined ? undefined : (model.cost ?? 0) + priced;
       this.models.set(event.model, model);
 
       const projectId = session.projectId ?? '__unlinked__';
@@ -364,6 +380,10 @@ class BurnAccumulator {
       modelMix,
       perProjectLeaderboard,
       dailyProjectSpend: Array.from(this.daily_project_spend.values()),
+      pricing: {
+        unknownModels: Array.from(this.unknown_models).sort(),
+        unpricedTokens: this.unpriced_tokens,
+      },
       cache,
     };
   }
@@ -418,6 +438,7 @@ function build_budget_spend_snapshot(
   return {
     calendar: { timeZone: time_zone, generatedAt: generated_at },
     periods,
+    pricing: aggregate.pricing,
   };
 }
 

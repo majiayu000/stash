@@ -47,7 +47,38 @@ export interface ModelMixItem {
   model: string;
   share: number;
   tokens: number;
-  cost: number;
+  /** `undefined` when no rate covers this model — not the same as $0.00. */
+  cost: number | undefined;
+}
+
+/**
+ * How much of a cost figure is actually backed by a rate card. `cost` totals
+ * only ever sum priced usage, so any non-empty `unknownModels` means the
+ * reported cost is a floor, not the real spend.
+ */
+export interface BurnPricingCoverage {
+  /** Distinct model ids seen with usage but no matching rate, ascending. */
+  unknownModels: string[];
+  /** Input+output tokens that could not be priced. */
+  unpricedTokens: number;
+}
+
+/** True when every token in the window was covered by a rate. */
+export function isFullyPriced(coverage: BurnPricingCoverage): boolean {
+  return coverage.unknownModels.length === 0;
+}
+
+/** Union of two coverages, for figures aggregated over more than one window. */
+export function merge_pricing_coverage(
+  ...coverages: BurnPricingCoverage[]
+): BurnPricingCoverage {
+  const unknown = new Set<string>();
+  let unpricedTokens = 0;
+  for (const coverage of coverages) {
+    for (const model of coverage.unknownModels) unknown.add(model);
+    unpricedTokens += coverage.unpricedTokens;
+  }
+  return { unknownModels: Array.from(unknown).sort(), unpricedTokens };
 }
 
 export interface ProjectBurnRow {
@@ -73,6 +104,8 @@ export interface BurnSnapshot {
   hourlyHeatmap: number[][];
   modelMix: ModelMixItem[];
   perProjectLeaderboard: ProjectBurnRow[];
+  /** Every `cost` above sums priced usage only; this says what was left out. */
+  pricing: BurnPricingCoverage;
 }
 
 export interface WoWPair { now: number; prev: number }
@@ -104,6 +137,8 @@ export interface WeeklySnapshot {
   sessionsByDay: number[]; // length 7, Mon..Sun
   donePerProject: DoneProjectRow[];
   wow: { tokens: WoWPair; cost: WoWPair; sessions: WoWPair };
+  /** Coverage for the union of both compared weeks. */
+  pricing: BurnPricingCoverage;
 }
 
 export type BudgetPeriod = 'day' | 'week' | 'month' | 'quarter';
@@ -143,12 +178,44 @@ export interface BudgetSpendSnapshot {
     generatedAt: string;
   };
   periods: Record<BudgetPeriod, BudgetPeriodSpend>;
+  /**
+   * Non-empty `unknownModels` means every period's spend is understated, so a
+   * budget that reads "under cap" may in fact be over it. Callers must not
+   * render a reassuring percentage while this is set.
+   */
+  pricing: BurnPricingCoverage;
 }
 
-/** Cost USD for one event, using the matching default rate (zero if unknown model). */
-export function eventCost(e: UsageEvent, rates: ModelRate[] = DEFAULT_MODEL_RATES): number {
-  const rate = rates.find((r) => r.model === e.model);
-  if (!rate) return 0;
+/**
+ * Provider model ids carry a release-date suffix in real transcripts
+ * (`claude-sonnet-4-5-20250929`) but rate cards are published without it.
+ * Match the exact id first, then retry against the date-stripped family id.
+ */
+export function findModelRate(
+  model: string,
+  rates: ModelRate[] = DEFAULT_MODEL_RATES,
+): ModelRate | undefined {
+  const exact = rates.find((r) => r.model === model);
+  if (exact) return exact;
+  const family = model.replace(/-\d{8}$/, '');
+  return family === model ? undefined : rates.find((r) => r.model === family);
+}
+
+/**
+ * Cost USD for one event, or `undefined` when no rate covers the model.
+ *
+ * Returning `undefined` rather than `0` is deliberate: an unpriced event and a
+ * genuinely free one are not the same fact, and collapsing them silently
+ * reported $0.00 spend — and a permanently un-trippable budget — for every user
+ * whose models were missing from the rate card. Callers must decide explicitly
+ * what to do with unpriced usage; see `BurnPricingCoverage`.
+ */
+export function eventCost(
+  e: UsageEvent,
+  rates: ModelRate[] = DEFAULT_MODEL_RATES,
+): number | undefined {
+  const rate = findModelRate(e.model, rates);
+  if (!rate) return undefined;
   const input = (e.inputTokens / 1_000_000) * rate.inputPerM;
   const output = (e.outputTokens / 1_000_000) * rate.outputPerM;
   const cacheRead = ((e.cacheReadTokens ?? 0) / 1_000_000) * (rate.cacheReadPerM ?? 0);

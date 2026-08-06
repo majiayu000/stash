@@ -102,6 +102,10 @@ export function WeeklyReviewPage({ data }: { data: WBData; reload: () => void })
 
   const wowTokensPct = pctDelta(week.wow.tokens.now, week.wow.tokens.prev);
   const wowCostPct = pctDelta(week.wow.cost.now, week.wow.cost.prev);
+  // Unpriced models are excluded from both weeks, so the burn line and its
+  // week-over-week delta are floors rather than measured spend.
+  const costIsPartial = week.pricing.unknownModels.length > 0;
+  const costPrefix = costIsPartial ? '≥ $' : '$';
   const wowSessionsDelta = week.wow.sessions.now - week.wow.sessions.prev;
   const featAdvanced = week.featuresAdvanced;
   const doneByProject = groupDoneByProject(doneItems, projects);
@@ -234,7 +238,12 @@ export function WeeklyReviewPage({ data }: { data: WBData; reload: () => void })
                   </p>
                 )}
                 <p>
-                  Burn was <strong>${week.wow.cost.now.toFixed(2)}</strong> {wowCostPct >= 0 ? '↑' : '↓'} {Math.abs(wowCostPct).toFixed(0)}% vs last week.
+                  Burn was <strong>{costPrefix}{week.wow.cost.now.toFixed(2)}</strong> {wowCostPct >= 0 ? '↑' : '↓'} {Math.abs(wowCostPct).toFixed(0)}% vs last week.
+                  {costIsPartial && (
+                    <> <span data-testid="weekly-pricing-gap" style={{ color: 'var(--neon-orange)' }}>
+                      Excludes {week.pricing.unknownModels.length} model{week.pricing.unknownModels.length === 1 ? '' : 's'} with no configured rate ({week.pricing.unknownModels.join(', ')}).
+                    </span></>
+                  )}
                 </p>
                 {week.doneCount === 0 && (
                   <p style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>
@@ -250,7 +259,7 @@ export function WeeklyReviewPage({ data }: { data: WBData; reload: () => void })
             <KpiTile label="features +"    value={featAdvanced.length}       color="var(--neon-cyan)" />
             <KpiTile label="sessions"      value={week.wow.sessions.now}     wow={wowSessionsDelta}              color="var(--neon-purple)" />
             <KpiTile label="tokens · 7d"   value={fmt.k(week.wow.tokens.now)} wow={Math.round(wowTokensPct)} unit="%" color="var(--neon-cyan)" />
-            <KpiTile label="cost · 7d"     value={'$' + week.wow.cost.now.toFixed(2)} wow={Math.round(wowCostPct)} unit="%" color="var(--neon-orange)" warn />
+            <KpiTile label="cost · 7d"     value={costPrefix + week.wow.cost.now.toFixed(2)} wow={Math.round(wowCostPct)} unit="%" color="var(--neon-orange)" warn />
             <KpiTile label="focus hours"   value={week.focusHours + 'h'}     color="var(--neon-pink)" />
           </div>
         </div>
@@ -292,7 +301,7 @@ export function WeeklyReviewPage({ data }: { data: WBData; reload: () => void })
               <WowCompare label="todos done" cur={week.doneCount}              prev={Math.max(0, week.doneCount - wowSessionsDelta)} fmt={(n) => String(n)} />
               <WowCompare label="sessions"   cur={week.wow.sessions.now}       prev={week.wow.sessions.prev} fmt={(n) => String(n)} />
               <WowCompare label="tokens"     cur={week.wow.tokens.now / 1_000_000} prev={week.wow.tokens.prev / 1_000_000} fmt={(n) => n.toFixed(2) + 'M'} />
-              <WowCompare label="cost"       cur={week.wow.cost.now}           prev={week.wow.cost.prev} fmt={(n) => '$' + n.toFixed(2)} warn />
+              <WowCompare label="cost"       cur={week.wow.cost.now}           prev={week.wow.cost.prev} fmt={(n) => costPrefix + n.toFixed(2)} warn />
               <WowCompare label="focus hrs"  cur={week.focusHours}             prev={Math.max(0, week.focusHours - 1)} fmt={(n) => n.toFixed(1) + 'h'} />
             </div>
 

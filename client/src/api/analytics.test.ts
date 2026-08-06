@@ -30,6 +30,7 @@ function weeklySnapshot(week: string): WeeklySnapshot {
       cost: { now: 0, prev: 0 },
       sessions: { now: 0, prev: 0 },
     },
+    pricing: { unknownModels: [], unpricedTokens: 0 },
   };
 }
 

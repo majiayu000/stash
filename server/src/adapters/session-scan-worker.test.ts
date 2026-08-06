@@ -523,6 +523,7 @@ function emptyBurnAggregate() {
     modelMix: [],
     perProjectLeaderboard: [],
     dailyProjectSpend: [],
+    pricing: { unknownModels: [], unpricedTokens: 0 },
     cache: emptyScanResult().cache,
   };
 }
