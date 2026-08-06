@@ -1,6 +1,8 @@
 import { Fragment, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { isFullyPriced } from '@stash/shared';
 import type { Decision, DecisionCandidateRecord, Lesson, Milestone, Skill } from '@stash/shared';
+import { getBurnSnapshot } from '../../api/analytics';
 import {
   acceptDecisionCandidate,
   getDecisionCandidates,
@@ -27,6 +29,14 @@ import { fmt, type WBData, type WBProject } from '../data';
 import { reportAsyncError } from '../reportAsyncError';
 import { LoadErrorPanel, ModelBadge, ProgressBar, SessionRow, StatusPill, Tile, Topbar, TodoItem, toError } from '../shared';
 import { projectDetailStyles } from './project-detail.styles';
+
+/** Measured 30-day usage for one project, straight from the burn pipeline. */
+interface ProjectBurnView {
+  tokens: number;
+  cost: number;
+  /** False when some model had no rate, making `cost` a floor. */
+  fullyPriced: boolean;
+}
 
 interface ProjectKnowledgeView {
   intent: string;
@@ -58,6 +68,8 @@ export function ProjectDetailPage({ data }: { data: WBData; reload: () => void }
   const [retryTick, setRetryTick] = useState(0);
   // SPEC v0.3 §3h — regex'd decision candidates from this project's recent sessions.
   const [candidates, setCandidates] = useState<DecisionCandidateRecord[]>([]);
+  // Measured usage from /api/analytics/burn; null while loading or unavailable.
+  const [burn, setBurn] = useState<ProjectBurnView | null>(null);
 
   async function loadKb() {
     if (!p) {
@@ -94,6 +106,28 @@ export function ProjectDetailPage({ data }: { data: WBData; reload: () => void }
   }
 
   useEffect(() => { loadKb(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [p?.id, retryTick]);
+
+  // Measured 30-day usage for this project. Kept in its own effect so a burn
+  // scan failure degrades these two tiles instead of blocking the whole page.
+  useEffect(() => {
+    if (!p) return;
+    let cancelled = false;
+    getBurnSnapshot()
+      .then((snapshot) => {
+        if (cancelled) return;
+        const row = snapshot.perProjectLeaderboard.find((entry) => entry.projectId === p.id);
+        setBurn({
+          tokens: row?.tokens ?? 0,
+          cost: row?.cost ?? 0,
+          fullyPriced: isFullyPriced(snapshot.pricing),
+        });
+      })
+      .catch((error: unknown) => {
+        reportAsyncError('load project usage', error);
+        if (!cancelled) setBurn(null);
+      });
+    return () => { cancelled = true; };
+  }, [p?.id, retryTick]);
 
   // Pull decision candidates from this project's most recent 3 sessions.
   useEffect(() => {
@@ -232,8 +266,16 @@ export function ProjectDetailPage({ data }: { data: WBData; reload: () => void }
               </div>
               <ProgressBar value={p.progress} fat />
             </div>
-            <Tile k="estimated tokens" v={fmt.k(p.estimatedTokens)} c="var(--neon-cyan)" />
-            <Tile k="estimated cost" v={'$' + p.estimatedCost.toFixed(2)} c="var(--neon-green)" />
+            <Tile
+              k="tokens · 30d"
+              v={burn === null ? '—' : fmt.k(burn.tokens)}
+              c="var(--neon-cyan)"
+            />
+            <Tile
+              k={burn && !burn.fullyPriced ? 'cost · 30d (partial)' : 'cost · 30d'}
+              v={burn === null ? '—' : (burn.fullyPriced ? '$' : '≥ $') + burn.cost.toFixed(2)}
+              c="var(--neon-green)"
+            />
           </div>
 
           <div className="pcard-doing" style={{ marginTop: '1rem', marginBottom: 0 }}>

@@ -23,7 +23,6 @@ function session(overrides: Partial<WBSession> = {}): WBSession {
     title: 'codex session',
     preview: '',
     estimatedTokens: 0,
-    estimatedCost: 0,
     estimatedDuration: 60,
     at: Date.now(),
     ...overrides,
@@ -85,7 +84,6 @@ function renderSessionDetailPage(
     stats: {
       activeSessions: 0,
       totalEstimatedTokens: sessionValue.estimatedTokens,
-      totalEstimatedCost: sessionValue.estimatedCost,
       projects: 0,
       todosOpen: 0,
       todosDone: 0,
@@ -190,13 +188,15 @@ describe('SessionDetailPage real transcript', () => {
   });
 
   test('labels all activity-derived session metrics as estimates', () => {
-    render(<EstimatedSessionMetrics session={session({ estimatedTokens: 640, estimatedCost: 0.008, estimatedDuration: 90 })} />);
+    render(<EstimatedSessionMetrics session={session({ estimatedTokens: 640, estimatedDuration: 90 })} />);
 
     const metrics = screen.getByTestId('estimated-session-metrics');
     expect(metrics).toHaveTextContent('estimated from activity counts');
     expect(metrics).toHaveTextContent('estimated tokens');
-    expect(metrics).toHaveTextContent('estimated cost');
     expect(metrics).toHaveTextContent('estimated duration');
+    // Activity counts cannot yield a dollar figure; the page must not show one.
+    expect(metrics).not.toHaveTextContent('cost');
+    expect(metrics).not.toHaveTextContent('$');
     expect(metrics).not.toHaveTextContent('24h');
     expect(metrics).not.toHaveTextContent('composition');
   });

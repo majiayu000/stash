@@ -68,8 +68,8 @@ export function ConnectedFlow({ data }: { data: WBData }) {
       <FlowCard
         tone="pink"
         eyebrow="burn"
-        title={`${fmt.cost(data.stats.totalEstimatedCost)} estimated`}
-        meta={`${fmt.k(data.stats.totalEstimatedTokens)} estimated tokens`}
+        title={`${fmt.k(data.stats.totalEstimatedTokens)} estimated tokens`}
+        meta="open usage review for measured spend"
         detail="derived from session activity counts"
         testId="flow-burn"
         onClick={() => navigate('/review/usage')}

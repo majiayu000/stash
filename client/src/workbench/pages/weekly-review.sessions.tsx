@@ -128,10 +128,6 @@ function withSessions(
         (total, session) => total + session.estimatedTokens,
         0,
       ),
-      totalEstimatedCost: sessions.reduce(
-        (total, session) => total + session.estimatedCost,
-        0,
-      ),
     },
   };
 }

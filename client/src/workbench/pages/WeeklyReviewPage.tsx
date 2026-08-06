@@ -409,7 +409,6 @@ function groupDoneByProject(items: WorkItem[], projects: WBProject[]): { project
         todoDone: unassigned.length,
         sessions: 0,
         estimatedTokens: 0,
-        estimatedCost: 0,
         lastModel: '—',
         lastTouched: Date.now(),
       },

@@ -121,7 +121,7 @@ export function Topbar({ data, right, tag }: { data: WBData; right?: ReactNode; 
     ? 'sessions unavailable'
     : data.sessionDataState === 'loading'
       ? 'sessions loading'
-      : `${stats.activeSessions} live · ${fmt.cost(stats.totalEstimatedCost)} estimated cost`;
+      : `${stats.activeSessions} live · ${fmt.k(stats.totalEstimatedTokens)} estimated tokens`;
   const status_line = tag ?? `> ${stats.projects} projects · ${session_status}`;
   return (
     <div className="topbar">
@@ -152,12 +152,6 @@ export function Topbar({ data, right, tag }: { data: WBData; right?: ReactNode; 
               {sessions_ready ? fmt.k(stats.totalEstimatedTokens) : '—'}
             </span>
             <span className="tb-stat-label">estimated tokens</span>
-          </div>
-          <div className="tb-stat">
-            <span className="tb-stat-val gradient">
-              {sessions_ready ? fmt.cost(stats.totalEstimatedCost) : '—'}
-            </span>
-            <span className="tb-stat-label">estimated cost</span>
           </div>
           <div className="tb-stat">
             <span className="tb-stat-val">
@@ -348,7 +342,7 @@ export function SessionRow({
       </div>
       <div className="sess-right">
         <div className="sess-tokens">{fmt.k(s.estimatedTokens)} est. tokens</div>
-        <div className="sess-cost">${s.estimatedCost.toFixed(2)} est. · {fmt.dur(s.estimatedDuration)} est.</div>
+        <div className="sess-cost">{fmt.dur(s.estimatedDuration)} est.</div>
       </div>
     </div>
   );
