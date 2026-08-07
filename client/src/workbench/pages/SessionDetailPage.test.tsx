@@ -4,7 +4,8 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import type { AgentSession, AgentSessionEvent, AgentSessionEventPage } from '@stash/shared';
 import { getAgentSession, getAgentSessionEvents, getAgentSessionUsage } from '../../api/agent-sessions';
-import { SessionDetailPage, EmptyTranscript, formatToolCallDetails, RealTranscript } from './SessionDetailPage';
+import { SessionDetailPage } from './SessionDetailPage';
+import { EmptyTranscript, formatToolCallDetails, RealTranscript } from './session-detail.transcript';
 import { SessionUsageMetrics } from './session-detail.usage';
 import type { WBData, WBSession } from '../data';
 

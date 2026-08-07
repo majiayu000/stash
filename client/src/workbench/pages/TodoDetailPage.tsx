@@ -37,6 +37,15 @@ import {
 import { fmt, type WBData, type WBTodo } from '../data';
 import { reportAsyncError } from '../reportAsyncError';
 import { todoDetailStyles } from './todo-detail.styles';
+import {
+  JournalSection,
+  LessonsSection,
+  LinkedSessionsSection,
+  SubTasksSection,
+  SystemHistorySection,
+  TagsSection,
+} from './todo-detail.sections';
+import { TodoDetailSidebar } from './todo-detail.sidebar';
 import { slugify } from './todo-detail.utils';
 
 function kindChrome(kind: WorkItem['kind']): { label: string; color: string } {
@@ -467,297 +476,60 @@ export function TodoDetailPage({ data, reload }: { data: WBData; reload: () => v
           {/* Body */}
           <div className="td-modal-body">
             <div className="td-modal-main">
-              <div className="td-section">
-                <div className="td-section-label">
-                  <span>sub-tasks{subtasksLoading && ' '}{subtasksLoading && <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(loading…)</span>}</span>
-                  {subtasksLoading
-                    ? <span style={{ color: 'var(--text-muted)' }}>—</span>
-                    : <span style={{ color: 'var(--neon-green)' }}>{(realSubs ?? []).filter((s) => s.status === 'done').length}/{(realSubs ?? []).length}</span>}
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {subtasksLoading
-                    ? <div data-testid="subtasks-loading" style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)' }}>loading sub-tasks…</div>
-                    : (realSubs ?? []).length === 0
-                      ? <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)' }}>no sub-tasks. break the work down to keep your context fresh next session.</div>
-                      : (realSubs ?? []).map((s) => (
-                        <SubTask
-                          key={s.id}
-                          done={s.status === 'done'}
-                          dropped={s.status === 'dropped'}
-                          text={s.title}
-                          onToggle={() => toggleSubtask(s)}
-                          onDrop={() => dropSubtask(s)}
-                        />
-                      ))}
-                  <button className="td-subtask-add" type="button" onClick={addSubtask} disabled={subtasksLoading}>+ add sub-task</button>
-                </div>
-              </div>
+              <SubTasksSection
+                subtasksLoading={subtasksLoading}
+                realSubs={realSubs}
+                onAdd={() => { void addSubtask(); }}
+                onToggle={(sub) => { void toggleSubtask(sub); }}
+                onDrop={(sub) => { void dropSubtask(sub); }}
+              />
 
               <ChecklistPanel state={checklist} />
 
-              {item?.kind === 'system' && (
-                <div className="td-section" data-testid="system-history">
-                  <div className="td-section-label">
-                    <span>history Runs</span>
-                    <span style={{ color: 'var(--text-muted)' }}>{historyRuns.length}</span>
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    {realSubs === null ? (
-                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)' }}>loading runs…</div>
-                    ) : historyRuns.length === 0 ? (
-                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)' }}>no runs yet — press Run system to create the first execution.</div>
-                    ) : historyRuns.map((run) => {
-                      const total = run.checklist.length;
-                      const done = run.checklist.filter((step) => step.completed).length;
-                      const date = run.scheduledFor ?? run.createdAt.slice(0, 10);
-                      return (
-                        <button
-                          key={run.id}
-                          type="button"
-                          className="td-history-run"
-                          onClick={() => navigate(`/todos/${run.id}`)}
-                          data-testid="system-history-run"
-                        >
-                          <span>{date}</span>
-                          <strong>{run.title}</strong>
-                          <em>{run.status} · {done}/{total}</em>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
+              <SystemHistorySection item={item} historyRuns={historyRuns} realSubs={realSubs} />
+              <LessonsSection lessons={lessons} proj={proj} />
 
-              {lessons.length > 0 && (
-                <div className="td-section">
-                  <div className="td-section-label">
-                    <span>💎 lessons that might apply</span>
-                    <span style={{ color: 'var(--text-muted)' }}>matched by tag / project</span>
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    {lessons.map((l) => (
-                      <div key={l.id} className="td-lesson">
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
-                          <span style={{ color: 'var(--neon-purple)', filter: 'drop-shadow(0 0 6px var(--neon-purple))' }}>💎</span>
-                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.82rem', fontWeight: 600 }}>{l.title}</span>
-                          {l.cross && <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', color: 'var(--neon-cyan)', background: 'rgba(0,255,242,0.08)', padding: '1px 6px', borderRadius: 4, marginLeft: 'auto' }}>cross-proj</span>}
-                        </div>
-                        {l.body && <div style={{ fontFamily: 'var(--font-body)', fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>{l.body}</div>}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+              <TagsSection
+                item={item}
+                onAddLabel={() => { void addLabel(); }}
+                onRemoveLabel={(label) => { void removeLabel(label); }}
+              />
 
-              <div className="td-section">
-                <div className="td-section-label">tags</div>
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                  {(item?.labels ?? []).length === 0 && (
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', color: 'var(--text-muted)' }}>(no tags)</span>
-                  )}
-                  {(item?.labels ?? []).map((t) => (
-                    <span key={t} className="td-tag" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                      #{t}
-                      <button
-                        type="button"
-                        onClick={() => removeLabel(t)}
-                        style={{ background: 'transparent', border: 0, color: 'var(--text-muted)', cursor: 'pointer', padding: 0, fontSize: '0.7rem' }}
-                        aria-label={`remove ${t}`}
-                      >×</button>
-                    </span>
-                  ))}
-                  <button
-                    type="button"
-                    onClick={addLabel}
-                    className="td-tag td-tag-add"
-                    style={{ background: 'transparent', border: '1px dashed var(--border-subtle)', color: 'var(--text-muted)', cursor: 'pointer', font: 'inherit' }}
-                  >+ add</button>
-                </div>
-              </div>
-
-              <div className="td-section">
-                <div className="td-section-label">
-                  <span>linked sessions</span>
-                  <button
-                    type="button"
-                    onClick={linkPick}
-                    style={{ background: 'transparent', border: 0, color: 'var(--neon-cyan)', cursor: 'pointer', fontFamily: 'inherit', fontSize: '0.72rem' }}
-                  >+ link</button>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {linkedEdges.length === 0 ? (
-                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)' }}>none — link an agent session to keep its trace tied to this todo</div>
-                  ) : (
-                    linkedEdges.map((e) => {
-                      const sess = data.sessions.find((s) => s.id === e.sessionId && s.provider === e.provider);
-                      return (
-                        <div key={`${e.provider}:${e.sessionId}`} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-hair)', borderRadius: 4 }}>
-                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.64rem', color: 'var(--neon-cyan)', textTransform: 'uppercase' }}>{e.provider}</span>
-                          <span style={{ flex: 1, fontFamily: 'var(--font-mono)', fontSize: '0.78rem', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {sess?.title || e.sessionId.slice(0, 12)}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => unlinkOne(e)}
-                            style={{ background: 'transparent', border: 0, color: 'var(--text-muted)', cursor: 'pointer', fontSize: '0.9rem' }}
-                            title="unlink"
-                          >×</button>
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
-              </div>
+              <LinkedSessionsSection
+                todo={todo}
+                sessions={data.sessions}
+                linkedEdges={linkedEdges}
+                onLink={() => { void linkPick(); }}
+                onUnlink={(edge) => { void unlinkOne(edge); }}
+              />
 
               {item && <EvidencePanel state={evidence} />}
 
               <TaskCoachPanel item={item} onApplied={onCoachApplied} onFlash={flashSaved} />
 
-              <div className="td-section">
-                <div className="td-section-label">
-                  <span>journal</span>
-                  <button
-                    type="button"
-                    onClick={addJournal}
-                    style={{ background: 'transparent', border: 0, color: 'var(--neon-cyan)', cursor: 'pointer', fontFamily: 'inherit', fontSize: '0.72rem' }}
-                  >+ entry</button>
-                </div>
-                <div className="td-journal">
-                  {journalEntries.length === 0 ? (
-                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                      no journal entries — press <code>+ entry</code> to log a thought.
-                    </div>
-                  ) : (
-                    journalEntries.map((j) => (
-                      <div key={j.id} className="td-journal-entry" style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-                        <span className="td-journal-date" title={j.createdAt}>{fmt.ago(Date.parse(j.createdAt))}</span>
-                        <span style={{ flex: 1, whiteSpace: 'pre-wrap' }}>{j.body}</span>
-                        <button
-                          type="button"
-                          onClick={() => removeJournal(j)}
-                          style={{ background: 'transparent', border: 0, color: 'var(--text-muted)', cursor: 'pointer', fontSize: '0.85rem' }}
-                          title="delete entry"
-                        >×</button>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
+              <JournalSection
+                journalEntries={journalEntries}
+                onAdd={() => { void addJournal(); }}
+                onRemove={(entry) => { void removeJournal(entry); }}
+              />
             </div>
 
             {/* Meta column */}
-            <div className="td-modal-meta">
-              <div className="td-run">
-                <div className="td-section-label" style={{ color: 'var(--neon-cyan)' }}>▶ run with</div>
-                <IdeaDecomposeAction item={item} onFlash={flashSaved} />
-                <button
-                  className="td-run-btn"
-                  type="button"
-                  onClick={() => navigate(`/sessions/new?todoId=${journalTodoId}`)}
-                  data-testid="td-run"
-                >
-                  <span style={{ fontSize: '1.05rem' }}>🤖</span>
-                  <span>claude code · sonnet-4.5</span>
-                  <span className="td-run-kbd">⌘↵</span>
-                </button>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.68rem', color: 'var(--text-muted)', lineHeight: 1.5, padding: '0.5rem' }}>
-                  Opens the session starter with this task and its linked sessions as context.
-                </div>
-              </div>
-
-              <div className="td-meta-block">
-                <div className="td-section-label">properties</div>
-
-                <MetaRow k="project" v={
-                  <select
-                    value={item?.projectId ?? ''}
-                    onChange={(e) => setProjectField(e.target.value || undefined)}
-                    disabled={!item}
-                    style={{ background: 'transparent', border: 0, color: item?.projectId ? 'var(--neon-cyan)' : 'var(--neon-orange)', fontFamily: 'var(--font-mono)', fontSize: '0.78rem', cursor: 'pointer', maxWidth: 160 }}
-                    data-testid="td-project"
-                  >
-                    <option value="">#inbox</option>
-                    {projects.map((p) => (
-                      <option key={p.id} value={p.id}>#{p.name}</option>
-                    ))}
-                  </select>
-                } />
-
-                <MetaRow k="priority" v={<span className={`todo-prio ${todo.priority}`} style={{ margin: 0 }}>· {item?.priority ?? todo.priority}</span>} />
-
-                <MetaRow k="due" v={
-                  <input
-                    type="date"
-                    value={item?.dueAt ? item.dueAt.slice(0, 10) : ''}
-                    onChange={(e) => setDue(e.target.value)}
-                    disabled={!item}
-                    style={{ background: 'transparent', border: 0, color: item?.dueAt ? 'var(--neon-orange)' : 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: '0.78rem', cursor: 'pointer', colorScheme: 'dark' }}
-                    data-testid="td-due"
-                  />
-                } />
-
-                <MetaRow k="kind" v={<span style={{ color: shownKind.color }}>{shownKind.label}</span>} />
-
-                <MetaRow k="repeats" v={
-                  <select
-                    value={recurrenceToOption(item?.recurrence)}
-                    onChange={(e) => save('recurrence', optionToRecurrence(e.target.value))}
-                    disabled={!item}
-                    style={{ background: 'transparent', border: 0, color: item?.recurrence ? 'var(--neon-purple)' : 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: '0.78rem', cursor: 'pointer' }}
-                    data-testid="td-repeat"
-                  >
-                    <option value="none">none</option>
-                    <option value="daily">daily</option>
-                    <option value="weekdays">weekdays (mo–fr)</option>
-                    <option value="weekly">weekly</option>
-                    <option value="monthly">monthly</option>
-                    <option value="after_1d">after done · +1d</option>
-                    <option value="after_7d">after done · +7d</option>
-                  </select>
-                } />
-
-                <MetaRow k="remind" v={
-                  <input
-                    type="datetime-local"
-                    value={item?.reminderAt
-                      ? toLocalDateTime(item.reminderAt, data.runtime.timeZone)
-                      : ''}
-                    onChange={(e) => { void saveReminder(e.target.value); }}
-                    disabled={!item}
-                    style={{ background: 'transparent', border: 0, color: item?.reminderAt ? 'var(--neon-pink)' : 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: '0.78rem', cursor: 'pointer', colorScheme: 'dark' }}
-                    data-testid="td-remind"
-                  />
-                } />
-
-                <MetaRow k="id" v={todo.id.slice(0, 12) + '…'} />
-              </div>
-
-              <div className="td-promote">
-                <div className="td-section-label" style={{ color: 'var(--neon-purple)' }}>💎 promote this {todo.kind}</div>
-                <PromoteBtn
-                  icon="🌌"
-                  title="into a feature"
-                  sub={item?.kind === 'feature' ? 'already a feature' : 'switch kind=feature'}
-                  onClick={promoteToFeature}
-                  disabled={!item || item.kind === 'feature'}
-                />
-                <PromoteBtn
-                  icon="📁"
-                  title="into a new project"
-                  sub={`scaffold "${slugify(todo.text)}"`}
-                  onClick={promoteToNewProject}
-                  disabled={!item}
-                />
-                <PromoteBtn
-                  icon="📑"
-                  title="into a lesson"
-                  sub="save as cross-project knowledge, drop the source"
-                  onClick={promoteToLesson}
-                  disabled={!item}
-                />
-              </div>
-
-            </div>
+            <TodoDetailSidebar
+              item={item}
+              todo={todo}
+              projects={projects}
+              timeZone={data.runtime.timeZone}
+              shownKind={shownKind}
+              onFlash={flashSaved}
+              onSave={(field, value) => { void save(field, value); }}
+              onSaveReminder={(local) => { void saveReminder(local); }}
+              onSetProject={(projectId) => { void setProjectField(projectId); }}
+              onSetDue={(value) => { void setDue(value); }}
+              onPromoteToFeature={() => { void promoteToFeature(); }}
+              onPromoteToNewProject={() => { void promoteToNewProject(); }}
+              onPromoteToLesson={() => { void promoteToLesson(); }}
+            />
           </div>
 
           {/* Footer */}
