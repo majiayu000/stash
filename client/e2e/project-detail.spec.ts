@@ -22,8 +22,8 @@ test('Project detail renders intent for a specific project', async ({ page, requ
   const setIntent = await request.put(`${API}/projects/${id}/intent`, { data: { text: intentText } });
   expect(setIntent.ok()).toBeTruthy();
 
-  // WBData's projects list comes from /api/workboard, which only includes projects
-  // with at least one work item. Add one so the workbench adapter includes it.
+  // WBData's projects list is shaped from /api/work-items, so a project only
+  // appears once it holds at least one item. Add one so the adapter includes it.
   const createItem = await request.post(`${API}/work-items`, {
     data: { title: `e2e seed ${Date.now()}`, projectId: id, areaId: id },
   });
