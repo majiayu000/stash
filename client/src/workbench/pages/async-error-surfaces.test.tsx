@@ -3,7 +3,9 @@ import type { ReactNode } from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import type { Budget, WorkItem } from '@stash/shared';
+import { getBurnSnapshot } from '../../api/analytics';
 import { listBudgets } from '../../api/budgets';
+import { getModelRates } from '../../api/model-rates';
 import { composeSession, listDispatchRuns } from '../../api/sessions';
 import { listProjectSkills, listSkills } from '../../api/skills';
 import { getWorkItem } from '../../api/work-items';
@@ -40,6 +42,19 @@ vi.mock('../../api/skills', () => ({
 }));
 vi.mock('../../api/work-items', () => ({
   getWorkItem: vi.fn(),
+}));
+// Settings and the session starter both read the rate card, and Settings reads
+// a burn snapshot to list unpriced models. Unmocked, these reach the network and
+// their failures are what this file is asserting the absence of.
+vi.mock('../../api/model-rates', () => ({
+  getModelRates: vi.fn(),
+  upsertModelRate: vi.fn(),
+  deleteModelRate: vi.fn(),
+}));
+vi.mock('../../api/analytics', () => ({
+  getBurnSnapshot: vi.fn(),
+  getBudgetSpendSnapshot: vi.fn(),
+  getWeeklySnapshot: vi.fn(),
 }));
 vi.mock('../ReminderTicker', () => ({
   getReminderPermission: vi.fn(() => 'unsupported'),
@@ -95,6 +110,10 @@ beforeEach(() => {
   vi.mocked(listDispatchRuns).mockResolvedValue([]);
   vi.mocked(listSkills).mockResolvedValue([]);
   vi.mocked(listProjectSkills).mockResolvedValue([]);
+  vi.mocked(getModelRates).mockResolvedValue({ overrides: [], effective: [] });
+  vi.mocked(getBurnSnapshot).mockResolvedValue({
+    pricing: { unknownModels: [], unpricedTokens: 0 },
+  } as unknown as Awaited<ReturnType<typeof getBurnSnapshot>>);
   vi.mocked(getReminderPermission).mockReturnValue('default');
   vi.mocked(requestReminderPermission).mockResolvedValue(false);
   vi.mocked(composeSession).mockResolvedValue({

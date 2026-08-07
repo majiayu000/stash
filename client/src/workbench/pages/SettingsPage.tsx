@@ -7,6 +7,7 @@ import { useWorkbenchDialog } from '../../components/ui/workbench-dialogs';
 import { THEMES, getTheme, onThemeChange, setTheme, type ThemeId } from '../../lib/theme';
 import type { WBData } from '../data';
 import { reportAsyncError } from '../reportAsyncError';
+import { ModelRatesPanel } from './settings.model-rates';
 import { Topbar } from '../shared';
 
 interface ThemeDescriptor { id: ThemeId; name: string; desc: string; hex: [string, string, string, string] }
@@ -37,6 +38,7 @@ export function SettingsPage({ data }: { data: WBData; reload: () => void }) {
               <SettingsRail item="🎨 appearance" target="settings-appearance" />
               <SettingsRail item="🔔 notifications" target="settings-notifications" />
               <SettingsRail item="💳 budgets" target="settings-budgets" />
+              <SettingsRail item="🏷️ model rates" target="settings-model-rates" />
             </div>
             <div style={{ marginTop: '1rem', padding: '0.7rem 0.6rem', background: 'rgba(0,255,242,0.04)', border: '1px dashed rgba(0,255,242,0.2)', borderRadius: 'var(--radius-md)', fontFamily: 'var(--font-mono)', fontSize: '0.66rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
               <span style={{ color: 'var(--neon-cyan)' }}>$</span> runtime config<br />
@@ -61,6 +63,7 @@ export function SettingsPage({ data }: { data: WBData; reload: () => void }) {
 
             <section id="settings-notifications"><NotificationsPanel /></section>
             <section id="settings-budgets"><BudgetsPanel /></section>
+            <section id="settings-model-rates"><ModelRatesPanel /></section>
           </div>
         </div>
       </div>

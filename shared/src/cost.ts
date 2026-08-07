@@ -2,7 +2,7 @@ import type { CalendarRange } from './calendar.js';
 
 /**
  * Per-million-token rates (USD). Sources: published Anthropic/OpenAI rate cards.
- * Hardcoded defaults; future PR adds settings-override.
+ * These are the shipped floor; the user owns the rest via `mergeModelRates`.
  */
 export interface ModelRate {
   model: string;
@@ -24,6 +24,49 @@ export const DEFAULT_MODEL_RATES: ModelRate[] = [
   { model: 'gpt-4.1',             inputPerM: 2,  outputPerM: 8 },
   { model: 'o4-mini',             inputPerM: 1.1, outputPerM: 4.4 },
 ];
+
+/** A stored rate override, owned by the user rather than by the shipped card. */
+export interface ModelRateOverride extends ModelRate {
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UpsertModelRateInput {
+  model: string;
+  inputPerM: number;
+  outputPerM: number;
+  cacheReadPerM?: number;
+  cacheWritePerM?: number;
+}
+
+/**
+ * The effective rate card: user overrides win over the shipped defaults, keyed
+ * on exact model id.
+ *
+ * An override for a model the defaults never mention is an addition, not an
+ * error — a third-party model reached through a proxy (`qwen3.8-max-preview`,
+ * `k3`) will never appear in a first-party rate card, so the user has to be
+ * able to introduce one. Nothing here invents a price for a model the user has
+ * not priced: an unlisted model stays unlisted, and `eventCost` keeps reporting
+ * it as unpriced rather than free.
+ */
+export function mergeModelRates(
+  defaults: ModelRate[],
+  overrides: ModelRate[],
+): ModelRate[] {
+  const byModel = new Map<string, ModelRate>();
+  for (const rate of [...defaults, ...overrides]) {
+    const merged: ModelRate = {
+      model: rate.model,
+      inputPerM: rate.inputPerM,
+      outputPerM: rate.outputPerM,
+    };
+    if (rate.cacheReadPerM !== undefined) merged.cacheReadPerM = rate.cacheReadPerM;
+    if (rate.cacheWritePerM !== undefined) merged.cacheWritePerM = rate.cacheWritePerM;
+    byModel.set(rate.model, merged);
+  }
+  return Array.from(byModel.values()).sort((a, b) => a.model.localeCompare(b.model));
+}
 
 export interface UsageEvent {
   ts: string;

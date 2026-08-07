@@ -135,6 +135,7 @@ describe('migrate', () => {
         '017_work_item_ai_writes_checklist_destination.sql',
         '018_work_item_coach_summary_destination.sql',
         '019_calendar_field_formats.sql',
+        '020_model_rates.sql',
       ]);
       const cacheTable = db
         .query<{ name: string }, []>(
@@ -285,7 +286,7 @@ describe('migrate', () => {
           where id = ?`,
       ).run('2026-05-18T00:00:00.000Z', '2026-05-19T00:00:00.000Z', draft!.id);
 
-      expect(migrate(db).applied).toEqual(['019_calendar_field_formats.sql']);
+      expect(migrate(db).applied).toEqual(['019_calendar_field_formats.sql', '020_model_rates.sql']);
       const migrated = work_items.get(item.id);
       expect(migrated?.scheduledFor).toBe('2026-05-15');
       expect(migrated?.dueAt).toBe('2026-05-16');
@@ -328,7 +329,7 @@ describe('migrate', () => {
       db.prepare('update areas set updated_at = ? where id = ?')
         .run('2026-05-26 10:46:23', area.id);
 
-      expect(migrate(db).applied).toEqual(['019_calendar_field_formats.sql']);
+      expect(migrate(db).applied).toEqual(['019_calendar_field_formats.sql', '020_model_rates.sql']);
 
       // SQLite's CURRENT_TIMESTAMP is UTC, so the wall clock is preserved.
       const migrated = db.query<{ updated_at: string; completed_at: string }, [string]>(

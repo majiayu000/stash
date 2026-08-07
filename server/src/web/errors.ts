@@ -14,6 +14,7 @@ import { NoPendingCandidateError } from '../domain/evidence/service.js';
 import { BudgetConflictError, BudgetNotFoundError } from '../domain/budget/service.js';
 import { SkillConflictError, SkillNotFoundError } from '../domain/skill/service.js';
 import { KnowledgeNotFoundError } from '../domain/project-knowledge/service.js';
+import { ModelRateNotFoundError } from '../domain/model-rate/service.js';
 import { DecisionCandidateNotFoundError } from '../domain/capture/decision-candidates.js';
 import { DispatchRunNotFoundError } from '../domain/session-dispatch/runs.js';
 import {
@@ -55,6 +56,7 @@ export function mapError(err: unknown): { status: 400 | 404 | 409 | 422 | 500 | 
     err instanceof SkillNotFoundError ||
     err instanceof BudgetNotFoundError ||
     err instanceof KnowledgeNotFoundError ||
+    err instanceof ModelRateNotFoundError ||
     err instanceof DispatchRunNotFoundError ||
     err instanceof DecisionCandidateNotFoundError ||
     err instanceof AiGenerationRunNotFoundError ||

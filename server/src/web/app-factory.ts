@@ -39,6 +39,8 @@ import { createAreasRouter } from './routes/areas.js';
 import { createAgentSessionsRouter } from './routes/agent-sessions.js';
 import { createAnalyticsRouter } from './routes/analytics.js';
 import { createBudgetsRouter } from './routes/budgets.js';
+import { createModelRatesRouter } from './routes/model-rates.js';
+import { ModelRateService } from '../domain/model-rate/service.js';
 import { createSessionsRouter } from './routes/sessions.js';
 import { createEvidenceRouter } from './routes/evidence.js';
 import { createOverviewRouter } from './routes/overview.js';
@@ -114,6 +116,7 @@ export function createApp(ctx: AppContext): Hono {
   const knowledgeService = new ProjectKnowledgeService({ db: ctx.db, clock });
   const journalService = new JournalService({ db: ctx.db, clock });
   const budgetService = new BudgetService({ db: ctx.db, clock });
+  const modelRateService = new ModelRateService({ db: ctx.db, clock });
   const dispatchRunService = new DispatchRunService({ db: ctx.db, clock });
   const decisionCandidateService = new DecisionCandidateService({ db: ctx.db, clock });
   const aiDraftService = new AiDraftService({ db: ctx.db, clock, workItems: workItemService });
@@ -164,7 +167,13 @@ export function createApp(ctx: AppContext): Hono {
         cacheDbPath: ctx.db.filename,
       });
   const aggregator = new AgentSourceAggregator(sources, scanExecutor);
-  const burnService = new BurnService({ aggregator, areaService, clock, time_zone });
+  const burnService = new BurnService({
+    aggregator,
+    areaService,
+    clock,
+    time_zone,
+    rates: () => modelRateService.effectiveRates(),
+  });
   const weeklyService = new WeeklyReviewService({
     workItemService,
     areaService,
@@ -214,6 +223,7 @@ export function createApp(ctx: AppContext): Hono {
   app.route('/api/lessons', createLessonsRouter(knowledgeService));
   app.route('/api/analytics', createAnalyticsRouter(burnService, weeklyService));
   app.route('/api/budgets', createBudgetsRouter(budgetService));
+  app.route('/api/model-rates', createModelRatesRouter(modelRateService));
   app.route('/api/sessions', createSessionsRouter(dispatchService, dispatchRunService));
 
   return app;
