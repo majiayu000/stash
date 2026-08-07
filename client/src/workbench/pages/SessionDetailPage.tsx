@@ -16,6 +16,7 @@ import {
   type WBSession,
 } from '../data';
 import { LoadErrorPanel, ModelBadge, Tile, TodoItem, ToolBadge, Topbar, toError } from '../shared';
+import { SessionUsageMetrics } from './session-detail.usage';
 
 /**
  * Session detail.
@@ -233,7 +234,11 @@ export function SessionDetailPage({ data }: { data: WBData; reload: () => void }
 
           {/* SIDE */}
           <div className="sd-sidebar">
-            <EstimatedSessionMetrics session={session} />
+            <SessionUsageMetrics
+              provider={session.provider}
+              sessionId={session.id}
+              session={session}
+            />
 
             <ToolCallSummary summary={eventSummary} />
             <FilesTouched summary={eventSummary} />
@@ -328,20 +333,6 @@ export function EmptyTranscript() {
       <div style={{ color: 'var(--text-primary)', fontWeight: 600 }}>no recorded session events</div>
       <div style={{ marginTop: 6, fontSize: '0.74rem', lineHeight: 1.5 }}>
         This session has no real events available to display.
-      </div>
-    </div>
-  );
-}
-
-export function EstimatedSessionMetrics({ session }: { session: WBSession }) {
-  return (
-    <div className="surface" data-testid="estimated-session-metrics" style={{ padding: '1rem' }}>
-      <div className="sec-head" style={{ marginBottom: '0.6rem' }}>
-        <span className="prompt">&gt;</span> estimated from activity counts
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
-        <Tile k="estimated tokens" v={fmt.k(session.estimatedTokens)} c="var(--neon-cyan)" />
-        <Tile k="estimated duration" v={fmt.dur(session.estimatedDuration)} c="var(--neon-purple)" />
       </div>
     </div>
   );

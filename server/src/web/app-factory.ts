@@ -214,7 +214,12 @@ export function createApp(ctx: AppContext): Hono {
     }),
   );
   app.route('/api/overview', createOverviewRouter(workItemService, clock, time_zone));
-  app.route('/api/agent-sessions', createAgentSessionsRouter(aggregator, sessionLinks, decisionCandidateService));
+  app.route('/api/agent-sessions', createAgentSessionsRouter(
+    aggregator,
+    sessionLinks,
+    decisionCandidateService,
+    () => modelRateService.effectiveRates(),
+  ));
   app.route('/api/workboard', createWorkboardRouter(workItemService, sessionLinks, aggregator));
   app.route('/api/evidence', createEvidenceRouter(evidenceService, sessionLinks, aggregator));
   app.route('/api/skills', createSkillsRouter(skillService));

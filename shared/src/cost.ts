@@ -265,3 +265,81 @@ export function eventCost(
   const cacheWrite = ((e.cacheWriteTokens ?? 0) / 1_000_000) * (rate.cacheWritePerM ?? 0);
   return input + output + cacheRead + cacheWrite;
 }
+
+export interface UsageModelBreakdown {
+  model: string;
+  tokens: number;
+  /** `undefined` when the model has no rate — never collapsed to 0. */
+  cost: number | undefined;
+}
+
+export interface UsageSummary {
+  totals: {
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadTokens: number;
+    cacheWriteTokens: number;
+    /** input + output, counted the same way the burn aggregate counts them. */
+    tokens: number;
+    /** Priced usage only — a floor whenever `pricing` reports gaps. */
+    cost: number;
+  };
+  /** Per-model split, so a caller can name which model is missing a rate. */
+  modelMix: UsageModelBreakdown[];
+  pricing: BurnPricingCoverage;
+}
+
+/**
+ * Totals for an arbitrary set of usage events.
+ *
+ * The accounting rules here are the burn aggregate's, deliberately: tokens are
+ * input + output, cost sums priced events only, and an unpriced event still
+ * contributes its tokens while its model is recorded in `pricing`. Any surface
+ * showing a cost has to answer "is this the whole number?", and it can only do
+ * that consistently if there is one definition of the answer.
+ */
+export function summarizeUsage(
+  events: UsageEvent[],
+  rates: ModelRate[] = DEFAULT_MODEL_RATES,
+): UsageSummary {
+  const totals = {
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    tokens: 0,
+    cost: 0,
+  };
+  const models = new Map<string, UsageModelBreakdown>();
+  const unknown = new Set<string>();
+  let unpricedTokens = 0;
+
+  for (const event of events) {
+    const tokens = event.inputTokens + event.outputTokens;
+    const priced = eventCost(event, rates);
+
+    totals.inputTokens += event.inputTokens;
+    totals.outputTokens += event.outputTokens;
+    totals.cacheReadTokens += event.cacheReadTokens ?? 0;
+    totals.cacheWriteTokens += event.cacheWriteTokens ?? 0;
+    totals.tokens += tokens;
+    totals.cost += priced ?? 0;
+
+    if (priced === undefined) {
+      unknown.add(event.model);
+      unpricedTokens += tokens;
+    }
+
+    const model = models.get(event.model) ?? { model: event.model, tokens: 0, cost: 0 };
+    model.tokens += tokens;
+    // A model is priced or it is not; the flag never flips mid-set.
+    model.cost = priced === undefined ? undefined : (model.cost ?? 0) + priced;
+    models.set(event.model, model);
+  }
+
+  return {
+    totals,
+    modelMix: Array.from(models.values()).sort((a, b) => b.tokens - a.tokens),
+    pricing: { unknownModels: Array.from(unknown).sort(), unpricedTokens },
+  };
+}
