@@ -1,6 +1,6 @@
 import { Database } from 'bun:sqlite';
 import { heapSize } from 'bun:jsc';
-import type { AgentProvider } from '@stash/shared';
+import { summarizeUsage, type AgentProvider } from '@stash/shared';
 import { AgentSourceAggregator } from './aggregator.js';
 import { ClaudeSource } from './claude/scanner.js';
 import { CodexSource } from './codex/scanner.js';
@@ -55,7 +55,7 @@ self.onmessage = (event: MessageEvent<SessionWorkerRequest>) => {
         result,
       };
       postMessage(response);
-    } else {
+    } else if (request.kind === 'decision-candidates') {
       const events = aggregator.getEvents(
         request.request.provider,
         request.request.sourcePath,
@@ -65,6 +65,21 @@ self.onmessage = (event: MessageEvent<SessionWorkerRequest>) => {
         id: request.id,
         kind: 'decision-candidates',
         result: extractDecisions(events),
+      };
+      postMessage(response);
+    } else {
+      const snapshot = aggregator.getSessionUsageSnapshot(
+        request.request.provider,
+        request.request.sourcePath,
+      );
+      const result = {
+        ...summarizeUsage(snapshot.usage, request.request.rates),
+        sessionLastActiveAt: snapshot.lastActiveAt,
+      };
+      const response: SessionWorkerResponse = {
+        id: request.id,
+        kind: 'usage-summary',
+        result,
       };
       postMessage(response);
     }

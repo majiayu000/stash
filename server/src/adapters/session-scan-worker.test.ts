@@ -250,6 +250,37 @@ describe('SessionScanWorker', () => {
     }
   });
 
+  test('summarizes one session inside the worker', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'stash-worker-session-usage-'));
+    try {
+      const projectDir = join(root, 'projects', 'project');
+      mkdirSync(projectDir, { recursive: true });
+      const sourcePath = join(projectDir, 'session.jsonl');
+      writeClaudeFixture(sourcePath, '2026-05-14T08:00:00.000Z', 100, 50);
+      const scanner = new SessionScanWorker({ roots: { claude: root } });
+
+      const result = await scanner.usageSummary({
+        provider: 'claude',
+        sourcePath,
+        rates: [{ model: 'custom-model', inputPerM: 10, outputPerM: 20 }],
+      });
+
+      expect(result.totals).toEqual({
+        inputTokens: 100,
+        outputTokens: 50,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        tokens: 150,
+        cost: 0.002,
+      });
+      expect(result.modelMix).toEqual([{ model: 'custom-model', tokens: 150, cost: 0.002 }]);
+      expect(result.sessionLastActiveAt).toBe('2026-05-14T08:00:00.000Z');
+      expect(JSON.stringify(result)).not.toContain(sourcePath);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test('returns compact daily project spend only when requested', async () => {
     const root = mkdtempSync(join(tmpdir(), 'stash-worker-budget-'));
     try {

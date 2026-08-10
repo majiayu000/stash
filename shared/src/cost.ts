@@ -306,6 +306,12 @@ export interface UsageSummary {
   pricing: BurnPricingCoverage;
 }
 
+/** API payload for one session, including activity freshness for live refresh. */
+export interface SessionUsageSummary extends UsageSummary {
+  /** Last activity seen during the scan that produced this usage summary. */
+  sessionLastActiveAt: string | null;
+}
+
 /**
  * Totals for an arbitrary set of usage events.
  *
@@ -349,8 +355,9 @@ export function summarizeUsage(
 
     const model = models.get(event.model) ?? { model: event.model, tokens: 0, cost: 0 };
     model.tokens += tokens;
-    // A model is priced or it is not; the flag never flips mid-set.
-    model.cost = priced === undefined ? undefined : (model.cost ?? 0) + priced;
+    // Once any event for a model is unpriced, its aggregate stays incomplete.
+    if (priced === undefined) model.cost = undefined;
+    else if (model.cost !== undefined) model.cost += priced;
     models.set(event.model, model);
   }
 

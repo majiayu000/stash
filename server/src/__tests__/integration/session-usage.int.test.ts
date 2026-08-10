@@ -3,7 +3,7 @@ import type { Hono } from 'hono';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { fixedClock } from '@stash/shared';
+import { fixedClock, summarizeUsage } from '@stash/shared';
 import { openDatabase } from '../../db/connection.js';
 import { migrate } from '../../db/migrate.js';
 import { createApp } from '../../web/app-factory.js';
@@ -47,6 +47,41 @@ function setupApp(turns: Turn[]): Hono {
   return createApp({ db, clock: fixedClock(NOW), claudeRoot: root, codexRoot: join(root, 'absent') });
 }
 
+function setupCodexApp(): Hono {
+  const root = mkdtempSync(join(tmpdir(), 'stash-codex-session-usage-'));
+  roots.push(root);
+  const sessionsDir = join(root, 'sessions', '2026', '05', '14');
+  mkdirSync(sessionsDir, { recursive: true });
+  const token = (timestamp: string, input: number, output: number, cached: number) => ({
+    timestamp,
+    type: 'event_msg',
+    payload: {
+      type: 'token_count',
+      info: { total_token_usage: {
+        input_tokens: input,
+        output_tokens: output,
+        cached_input_tokens: cached,
+        total_tokens: input + output + cached,
+      } },
+    },
+  });
+  const records = [
+    { timestamp: '2026-05-14T08:00:00.000Z', type: 'session_meta', payload: { id: SESSION_ID, cwd: '/Users/test/usage-repo' } },
+    { timestamp: '2026-05-14T08:01:00.000Z', type: 'turn_context', payload: { model: 'gpt-5' } },
+    token('2026-05-14T08:02:00.000Z', 1_000_000, 0, 500_000),
+    { timestamp: '2026-05-14T08:03:00.000Z', type: 'turn_context', payload: { model: 'gpt-4.1' } },
+    token('2026-05-14T08:04:00.000Z', 2_000_000, 1_000_000, 750_000),
+  ];
+  writeFileSync(
+    join(sessionsDir, `rollout-${SESSION_ID}.jsonl`),
+    `${records.map((record) => JSON.stringify(record)).join('\n')}\n`,
+  );
+
+  const db = openDatabase({ path: ':memory:', inMemory: true });
+  migrate(db);
+  return createApp({ db, clock: fixedClock(NOW), claudeRoot: join(root, 'absent'), codexRoot: root });
+}
+
 async function jsonReq(app: Hono, method: string, path: string, body?: unknown) {
   const res = await app.request(path, {
     method,
@@ -74,6 +109,7 @@ describe('GET /api/agent-sessions/:provider/:id/usage', () => {
     // 2M input @ $3/M + 1M output @ $15/M.
     expect(res.body.data.totals.cost).toBeCloseTo(21, 10);
     expect(res.body.data.pricing.unknownModels).toEqual([]);
+    expect(res.body.data.sessionLastActiveAt).toBe('2026-05-14T09:00:00.000Z');
     expect(res.body.data.modelMix).toEqual([
       { model: 'claude-sonnet-4-6', tokens: 3_000_000, cost: 21 },
     ]);
@@ -108,6 +144,24 @@ describe('GET /api/agent-sessions/:provider/:id/usage', () => {
     expect(k3.cost).toBeUndefined();
   });
 
+  test('keeps a model split incomplete regardless of priced event order', () => {
+    const base = {
+      ts: '2026-05-14T08:00:00.000Z',
+      model: 'k3',
+      inputTokens: 1_000_000,
+      outputTokens: 0,
+      sourcePath: '/tmp/session.jsonl',
+    };
+    const rates = [{ model: 'k3', inputPerM: 1, outputPerM: 2 }];
+    const priced = base;
+    const unpriced_cache = { ...base, cacheReadTokens: 500_000 };
+
+    for (const events of [[priced, unpriced_cache], [unpriced_cache, priced]]) {
+      const summary = summarizeUsage(events, rates);
+      expect(summary.modelMix).toEqual([{ model: 'k3', tokens: 2_000_000, cost: undefined }]);
+    }
+  });
+
   test('a rate configured in Settings prices the session without a restart', async () => {
     const app = setupApp([
       { model: 'k3', input: 1_000_000, output: 1_000_000, at: '2026-05-14T08:00:00.000Z' },
@@ -120,6 +174,20 @@ describe('GET /api/agent-sessions/:provider/:id/usage', () => {
     const after = await jsonReq(app, 'GET', usagePath);
     expect(after.body.data.pricing.unknownModels).toEqual([]);
     expect(after.body.data.totals.cost).toBeCloseTo(10, 10);
+  });
+
+  test('prices cached Codex input and preserves model changes', async () => {
+    const app = setupCodexApp();
+
+    const res = await jsonReq(app, 'GET', `/api/agent-sessions/codex/${SESSION_ID}/usage`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.modelMix.map((entry: { model: string }) => entry.model).sort())
+      .toEqual(['gpt-4.1', 'gpt-5']);
+    expect(res.body.data.totals.cacheReadTokens).toBe(750_000);
+    expect(res.body.data.pricing.unknownModels).toEqual([]);
+    // gpt-5: 1M input + .5M cache read; gpt-4.1: 1M input + 1M output + .25M cache read.
+    expect(res.body.data.totals.cost).toBeCloseTo(11.4375, 10);
   });
 
   test('404s for a session that does not exist', async () => {

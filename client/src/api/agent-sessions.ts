@@ -2,7 +2,7 @@ import type {
   AgentProvider,
   AgentSession,
   AgentSessionEventPage,
-  UsageSummary,
+  SessionUsageSummary,
 } from '@stash/shared';
 import type { DecisionCandidateRecord } from '@stash/shared';
 import { apiDelete, apiGet, apiPost } from './client';
@@ -62,8 +62,8 @@ export async function getAgentSession(
 export async function getAgentSessionUsage(
   provider: AgentProvider,
   id: string,
-): Promise<UsageSummary> {
-  const res = await apiGet<{ data: UsageSummary }>(
+): Promise<SessionUsageSummary> {
+  const res = await apiGet<{ data: SessionUsageSummary }>(
     `/agent-sessions/${provider}/${encodeURIComponent(id)}/usage`,
   );
   return res.data;

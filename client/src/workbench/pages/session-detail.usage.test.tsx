@@ -1,6 +1,6 @@
-import { render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
-import type { UsageSummary } from '@stash/shared';
+import type { SessionUsageSummary } from '@stash/shared';
 import { getAgentSessionUsage } from '../../api/agent-sessions';
 import type { WBSession } from '../data';
 import { SessionUsageMetrics } from './session-detail.usage';
@@ -27,7 +27,7 @@ function session(): WBSession {
   };
 }
 
-function usage(overrides: Partial<UsageSummary> = {}): UsageSummary {
+function usage(overrides: Partial<SessionUsageSummary> = {}): SessionUsageSummary {
   return {
     totals: {
       inputTokens: 900_000,
@@ -39,13 +39,14 @@ function usage(overrides: Partial<UsageSummary> = {}): UsageSummary {
     },
     modelMix: [{ model: 'gpt-5', tokens: 1_000_000, cost: 4.5 }],
     pricing: { unknownModels: [], unpricedTokens: 0 },
+    sessionLastActiveAt: new Date(Date.now() - 6 * 60_000).toISOString(),
     ...overrides,
   };
 }
 
-function renderMetrics() {
+function renderMetrics(currentSession: WBSession = session()) {
   return render(
-    <SessionUsageMetrics provider="codex" sessionId="codex-fixture-1" session={session()} />,
+    <SessionUsageMetrics provider="codex" sessionId="codex-fixture-1" session={currentSession} />,
   );
 }
 
@@ -90,16 +91,20 @@ describe('SessionUsageMetrics', () => {
     expect(metrics).toHaveTextContent(/Settings → model rates/);
   });
 
-  test('falls back to activity estimates when the usage read fails', async () => {
-    vi.mocked(getAgentSessionUsage).mockRejectedValue(new Error('scan failed'));
+  test('shows a measured-usage error with a working retry', async () => {
+    vi.mocked(getAgentSessionUsage)
+      .mockRejectedValueOnce(new Error('scan failed'))
+      .mockResolvedValueOnce(usage());
 
     renderMetrics();
 
-    const metrics = await screen.findByTestId('estimated-session-metrics');
-    expect(metrics).toHaveTextContent('measured usage unavailable');
-    expect(metrics).toHaveTextContent('estimated tokens');
-    // A failed read must not read as a session that cost nothing.
-    expect(metrics).not.toHaveTextContent('$');
+    const error = await screen.findByTestId('load-error-panel');
+    expect(error).toHaveTextContent('measured session usage failed to load');
+    expect(screen.queryByTestId('estimated-session-metrics')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'retry' }));
+
+    expect(await screen.findByTestId('measured-session-metrics')).toHaveTextContent('$4.50');
   });
 
   test('a session with no recorded usage says so instead of showing $0.00', async () => {
@@ -132,5 +137,69 @@ describe('SessionUsageMetrics', () => {
     const metrics = await screen.findByTestId('measured-session-metrics');
     expect(metrics).toHaveTextContent(/cache read/);
     expect(metrics).toHaveTextContent(/cache write/);
+  });
+
+  test('refreshes measured usage while the session is live', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.mocked(getAgentSessionUsage)
+        .mockResolvedValueOnce(usage({ sessionLastActiveAt: new Date().toISOString() }))
+        .mockResolvedValueOnce(usage({
+          totals: {
+            inputTokens: 1_100_000, outputTokens: 200_000,
+            cacheReadTokens: 0, cacheWriteTokens: 0,
+            tokens: 1_300_000, cost: 6,
+          },
+          modelMix: [{ model: 'gpt-5', tokens: 1_300_000, cost: 6 }],
+          sessionLastActiveAt: new Date(Date.now() - 6 * 60_000).toISOString(),
+        }));
+
+      renderMetrics({ ...session(), state: 'live' });
+      await act(async () => { await Promise.resolve(); });
+      expect(getAgentSessionUsage).toHaveBeenCalledTimes(1);
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+
+      expect(getAgentSessionUsage).toHaveBeenCalledTimes(2);
+      expect(screen.getByTestId('measured-session-metrics')).toHaveTextContent('$6.00');
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+      expect(getAgentSessionUsage).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test('preserves measured usage and retries after a live refresh fails', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.mocked(getAgentSessionUsage)
+        .mockResolvedValueOnce(usage({ sessionLastActiveAt: new Date().toISOString() }))
+        .mockRejectedValueOnce(new Error('refresh failed'))
+        .mockResolvedValueOnce(usage({
+          totals: {
+            inputTokens: 1_100_000, outputTokens: 200_000,
+            cacheReadTokens: 0, cacheWriteTokens: 0,
+            tokens: 1_300_000, cost: 6,
+          },
+          modelMix: [{ model: 'gpt-5', tokens: 1_300_000, cost: 6 }],
+        }));
+
+      renderMetrics({ ...session(), state: 'live' });
+      await act(async () => { await Promise.resolve(); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+
+      expect(screen.getByTestId('measured-session-metrics')).toHaveTextContent('$4.50');
+      expect(screen.getByTestId('load-error-panel')).toHaveTextContent('refresh failed');
+
+      fireEvent.click(screen.getByRole('button', { name: 'retry' }));
+      await act(async () => { await Promise.resolve(); });
+
+      expect(getAgentSessionUsage).toHaveBeenCalledTimes(3);
+      expect(screen.getByTestId('measured-session-metrics')).toHaveTextContent('$6.00');
+      expect(screen.queryByTestId('load-error-panel')).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

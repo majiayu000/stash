@@ -3,15 +3,23 @@ import type {
   AgentSession,
   AgentSessionEvent,
   AgentSessionEventPage,
+  ModelRate,
+  SessionUsageSummary,
   UsageEvent,
 } from '@stash/shared';
+import { summarizeUsage } from '@stash/shared';
 import {
   aggregateBurnFromScan,
   type BurnAggregate,
   type BurnAggregationRequest,
 } from '../domain/analytics/burn.js';
 import { extractDecisions, type DecisionCandidate } from '../domain/capture/decision-extract.js';
-import type { AgentSource, SourceParseError, SourceScanCacheStats } from './source.js';
+import type {
+  AgentSource,
+  SessionUsageSnapshot,
+  SourceParseError,
+  SourceScanCacheStats,
+} from './source.js';
 import type { SessionFileFingerprint } from './session-cache.js';
 import { buildSessionEventPage } from './session-event-page.js';
 import type {
@@ -19,6 +27,7 @@ import type {
   SessionEvidenceRequest,
   SessionScanExecutor,
   SessionScanMode,
+  SessionUsageSummaryRequest,
 } from './session-scan-worker.js';
 
 export interface AggregateOptions {
@@ -54,6 +63,7 @@ export class AgentSourceAggregator {
   private readonly burnInflight = new Map<string, Promise<BurnAggregate>>();
   private readonly eventPageInflight = new Map<string, Promise<AgentSessionEventPage>>();
   private readonly decisionInflight = new Map<string, Promise<DecisionCandidate[]>>();
+  private readonly usageSummaryInflight = new Map<string, Promise<SessionUsageSummary>>();
 
   constructor(
     private readonly sources: Map<AgentProvider, { source: AgentSource; root: string }>,
@@ -171,6 +181,26 @@ export class AgentSourceAggregator {
     return pending;
   }
 
+  getUsageSummaryAsync(request: SessionUsageSummaryRequest): Promise<SessionUsageSummary> {
+    const key = JSON.stringify(request);
+    const current = this.usageSummaryInflight.get(key);
+    if (current) return current;
+    const pending = (this.scanExecutor
+      ? this.scanExecutor.usageSummary(request)
+      : Promise.resolve().then(() => {
+          const snapshot = this.getSessionUsageSnapshot(request.provider, request.sourcePath);
+          return {
+            ...summarizeUsage(snapshot.usage, request.rates),
+            sessionLastActiveAt: snapshot.lastActiveAt,
+          };
+        }))
+      .finally(() => {
+        this.usageSummaryInflight.delete(key);
+      });
+    this.usageSummaryInflight.set(key, pending);
+    return pending;
+  }
+
   private scanWithSingleflight(
     options: AggregateOptions,
     mode: SessionScanMode,
@@ -203,6 +233,19 @@ export class AgentSourceAggregator {
     const entry = this.sources.get(provider);
     if (!entry) return [];
     return entry.source.getUsage(sourcePath, fingerprint);
+  }
+
+  getSessionUsageSnapshot(provider: AgentProvider, sourcePath: string): SessionUsageSnapshot {
+    const entry = this.sources.get(provider);
+    if (!entry) throw new Error(`Agent source is not configured: ${provider}`);
+    const snapshot = entry.source.getSessionUsageSnapshot?.(sourcePath);
+    if (snapshot) return snapshot;
+    const usage = entry.source.getUsage(sourcePath);
+    const valid_timestamps = usage
+      .map((event) => ({ value: event.ts, ms: Date.parse(event.ts) }))
+      .filter((timestamp) => Number.isFinite(timestamp.ms))
+      .sort((a, b) => b.ms - a.ms);
+    return { usage, lastActiveAt: valid_timestamps[0]?.value ?? null };
   }
 
   getUsageForScan(

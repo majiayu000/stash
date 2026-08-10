@@ -115,6 +115,7 @@ beforeEach(() => {
     },
     modelMix: [],
     pricing: { unknownModels: [], unpricedTokens: 0 },
+    sessionLastActiveAt: agentSession().lastActiveAt,
   });
 });
 
