@@ -70,4 +70,38 @@ describe('weekly analytics prefetch', () => {
     await expect(analytics.getWeeklySnapshot()).resolves.toEqual(expected);
     expect(apiGet).toHaveBeenCalledTimes(2);
   });
+
+  test('explicit invalidation drops every cached weekly snapshot', async () => {
+    const current = weeklySnapshot('2026-W30');
+    const selected = weeklySnapshot('2026-W29');
+    vi.mocked(apiGet)
+      .mockResolvedValueOnce({ data: current })
+      .mockResolvedValueOnce({ data: selected })
+      .mockResolvedValueOnce({ data: current });
+    const analytics = await import('./analytics');
+
+    await analytics.getWeeklySnapshot();
+    await analytics.getWeeklySnapshot('2026-W29');
+    analytics.invalidate_weekly_snapshot_cache();
+    await analytics.getWeeklySnapshot();
+
+    expect(apiGet).toHaveBeenCalledTimes(3);
+  });
+
+  test('an invalidated in-flight request cannot restore stale weekly data', async () => {
+    let resolve_stale!: (value: { data: WeeklySnapshot }) => void;
+    vi.mocked(apiGet)
+      .mockReturnValueOnce(new Promise((resolve) => { resolve_stale = resolve; }))
+      .mockResolvedValueOnce({ data: weeklySnapshot('2026-W31') });
+    const analytics = await import('./analytics');
+
+    const stale_request = analytics.getWeeklySnapshot();
+    analytics.invalidate_weekly_snapshot_cache();
+    await expect(analytics.getWeeklySnapshot()).resolves.toEqual(weeklySnapshot('2026-W31'));
+    resolve_stale({ data: weeklySnapshot('2026-W30') });
+    await stale_request;
+    await expect(analytics.getWeeklySnapshot()).resolves.toEqual(weeklySnapshot('2026-W31'));
+
+    expect(apiGet).toHaveBeenCalledTimes(2);
+  });
 });

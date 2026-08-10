@@ -3,7 +3,9 @@ import type { ReactNode } from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import type { Budget, WorkItem } from '@stash/shared';
+import { getBurnSnapshot } from '../../api/analytics';
 import { listBudgets } from '../../api/budgets';
+import { getModelRates } from '../../api/model-rates';
 import { composeSession, listDispatchRuns } from '../../api/sessions';
 import { listProjectSkills, listSkills } from '../../api/skills';
 import { getWorkItem } from '../../api/work-items';
@@ -40,6 +42,20 @@ vi.mock('../../api/skills', () => ({
 }));
 vi.mock('../../api/work-items', () => ({
   getWorkItem: vi.fn(),
+}));
+// Settings and the session starter both read the rate card, and Settings reads
+// a burn snapshot to list unpriced models. Unmocked, these reach the network and
+// their failures are what this file is asserting the absence of.
+vi.mock('../../api/model-rates', () => ({
+  getModelRates: vi.fn(),
+  upsertModelRate: vi.fn(),
+  deleteModelRate: vi.fn(),
+}));
+vi.mock('../../api/analytics', () => ({
+  getBurnSnapshot: vi.fn(),
+  getBudgetSpendSnapshot: vi.fn(),
+  getWeeklySnapshot: vi.fn(),
+  invalidate_weekly_snapshot_cache: vi.fn(),
 }));
 vi.mock('../ReminderTicker', () => ({
   getReminderPermission: vi.fn(() => 'unsupported'),
@@ -95,6 +111,10 @@ beforeEach(() => {
   vi.mocked(listDispatchRuns).mockResolvedValue([]);
   vi.mocked(listSkills).mockResolvedValue([]);
   vi.mocked(listProjectSkills).mockResolvedValue([]);
+  vi.mocked(getModelRates).mockResolvedValue({ overrides: [], effective: [] });
+  vi.mocked(getBurnSnapshot).mockResolvedValue({
+    pricing: { unknownModels: [], unpricedTokens: 0 },
+  } as unknown as Awaited<ReturnType<typeof getBurnSnapshot>>);
   vi.mocked(getReminderPermission).mockReturnValue('default');
   vi.mocked(requestReminderPermission).mockResolvedValue(false);
   vi.mocked(composeSession).mockResolvedValue({
@@ -260,5 +280,24 @@ describe('high-value optional surface failures', () => {
     expect(await screen.findByText('# Task: recovered prompt')).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByText('compose unavailable')).not.toBeInTheDocument());
     expect(composeSession).toHaveBeenCalledTimes(2);
+  });
+
+  test('Session starter withholds cost while rates fail and retry loads the configured card', async () => {
+    vi.mocked(getModelRates)
+      .mockRejectedValueOnce(new Error('rates unavailable'))
+      .mockResolvedValueOnce({
+        overrides: [],
+        effective: [{ model: 'claude-sonnet-4-6', inputPerM: 9, outputPerM: 18 }],
+      });
+
+    renderSurface(<SessionStartPage data={data} reload={vi.fn()} />, '/sessions/new?todoId=todo-1');
+
+    expect(await screen.findByText('rates unavailable')).toBeInTheDocument();
+    expect(screen.getByText(/rate unavailable/)).toBeInTheDocument();
+    expect(screen.queryByText(/\$0\.0001/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'retry load model rates' }));
+
+    await waitFor(() => expect(getModelRates).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByText(/rate unavailable/)).not.toBeInTheDocument());
   });
 });

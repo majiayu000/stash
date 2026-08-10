@@ -112,7 +112,7 @@ from the object they act on, rather than appearing as unrelated destinations.
 | `/sessions/:sessionId` | compatibility link; redirects only when the provider is unambiguous |
 | `/review` | weekly review and next-week planning |
 | `/review/usage` | token, cost, model, project, and budget review |
-| `/settings` | themes, notifications, and budgets |
+| `/settings` | themes, notifications, budgets, and model rates |
 | `/settings/skills` | skill registry and project bindings |
 
 `Cmd+K` searches globally; it is an action overlay, not a page.
@@ -295,7 +295,10 @@ Current highest-priority gaps:
   token-usage extracted from rollout JSONLs
 - Configured-zone ISO Weekly Review snapshot (WoW pairs, focus hours,
   done-by-project, stale digest)
-- Settings: 7 themes, notifications opt-in, budgets, and skills
+- Settings: 7 themes, notifications opt-in, budgets, model rates, and skills
+- User-owned model rates merged over the shipped card, with the models your
+  own history cannot price listed for correction — an unpriced model is
+  reported as unpriced, never counted as $0
 - Persisted budgets with scope × period uniqueness, 409 conflicts, and
   configured-zone day/week/month/quarter spend evaluation from one bounded
   Worker aggregation

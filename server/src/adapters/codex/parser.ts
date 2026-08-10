@@ -303,19 +303,17 @@ function codexFinalUsageFromRecords(records: RawRecord[], sourcePath: string): U
     const info = (rec.payload as { info?: Record<string, unknown> }).info;
     const total = info?.total_token_usage as Record<string, unknown> | undefined;
     if (!total) continue;
-    current = {
-      input: numericTotal(total.input_tokens, current.input),
-      output: numericTotal(total.output_tokens, current.output),
-      cached: numericTotal(total.cached_input_tokens, current.cached),
-    };
+    current = codex_cumulative_tokens(total, current, sourcePath);
+    uncached_input_tokens(current, sourcePath);
     if (rec.timestamp) lastTimestamp = rec.timestamp;
   }
 
-  if (!lastTimestamp || (current.input === 0 && current.output === 0)) return [];
+  const inputTokens = uncached_input_tokens(current, sourcePath);
+  if (!lastTimestamp || (inputTokens === 0 && current.output === 0 && current.cached === 0)) return [];
   return [{
     ts: lastTimestamp,
     model: model ?? 'codex-1',
-    inputTokens: current.input,
+    inputTokens,
     outputTokens: current.output,
     cacheReadTokens: current.cached || undefined,
     sourcePath,
@@ -336,20 +334,21 @@ function codexDeltaUsageFromRecords(records: RawRecord[], sourcePath: string): U
     const info = (rec.payload as { info?: Record<string, unknown> }).info;
     const total = info?.total_token_usage as Record<string, unknown> | undefined;
     if (!total) continue;
-    const current: CumulativeTokens = {
-      input: numericTotal(total.input_tokens, previous.input),
-      output: numericTotal(total.output_tokens, previous.output),
-      cached: numericTotal(total.cached_input_tokens, previous.cached),
-    };
+    const current = codex_cumulative_tokens(total, previous, sourcePath);
     const reset = current.input < previous.input
       || current.output < previous.output
       || current.cached < previous.cached;
-    const inputTokens = reset ? current.input : current.input - previous.input;
+    const current_uncached_input = uncached_input_tokens(current, sourcePath);
+    const previous_uncached_input = uncached_input_tokens(previous, sourcePath);
+    const inputTokens = reset ? current_uncached_input : current_uncached_input - previous_uncached_input;
+    if (inputTokens < 0) {
+      throw new Error(`Codex cached input delta exceeds total input delta: ${sourcePath}`);
+    }
     const outputTokens = reset ? current.output : current.output - previous.output;
     const cacheReadTokens = reset ? current.cached : current.cached - previous.cached;
     previous = current;
 
-    if (!rec.timestamp || (inputTokens === 0 && outputTokens === 0)) continue;
+    if (!rec.timestamp || (inputTokens === 0 && outputTokens === 0 && cacheReadTokens === 0)) continue;
     usage.push({
       ts: rec.timestamp,
       model: model ?? 'codex-1',
@@ -362,8 +361,31 @@ function codexDeltaUsageFromRecords(records: RawRecord[], sourcePath: string): U
   return usage;
 }
 
-function numericTotal(value: unknown, fallback: number): number {
-  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+function codex_cumulative_tokens(
+  total: Record<string, unknown>,
+  previous: CumulativeTokens,
+  sourcePath: string,
+): CumulativeTokens {
+  return {
+    input: numericTotal(total.input_tokens, previous.input, 'input_tokens', sourcePath),
+    output: numericTotal(total.output_tokens, previous.output, 'output_tokens', sourcePath),
+    cached: numericTotal(total.cached_input_tokens, previous.cached, 'cached_input_tokens', sourcePath),
+  };
+}
+
+function uncached_input_tokens(tokens: CumulativeTokens, sourcePath: string): number {
+  if (tokens.cached > tokens.input) {
+    throw new Error(`Codex cached input exceeds total input: ${sourcePath}`);
+  }
+  return tokens.input - tokens.cached;
+}
+
+function numericTotal(value: unknown, fallback: number, field: string, sourcePath: string): number {
+  if (value === undefined) return fallback;
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    throw new Error(`Codex ${field} must be a finite non-negative number: ${sourcePath}`);
+  }
+  return value;
 }
 
 function computeStatus(lastActiveAt: string): AgentSessionStatus {

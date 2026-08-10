@@ -63,6 +63,8 @@ describe('CodexSource.scan', () => {
     expect(usage.length).toBe(1);
     const u = usage[0]!;
     expect(u.model).toBe('gpt-5');         // pulled from turn_context
+    // Codex input_tokens includes cached input. UsageEvent keeps token classes
+    // disjoint so the regular input and cache rates are not both applied to it.
     expect(u.inputTokens).toBe(1800);
     expect(u.outputTokens).toBe(420);
     expect(u.cacheReadTokens).toBe(3200);
@@ -209,10 +211,37 @@ describe('CodexSource.scan', () => {
       expect(result.errors).toEqual([]);
       expect(result.usageBySource?.get(file)?.at(-1)).toMatchObject({
         model: 'gpt-5',
-        inputTokens: 5,
+        inputTokens: 1,
         outputTokens: 20,
         cacheReadTokens: 4,
       });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('rejects invalid cumulative token counters instead of storing negative usage', () => {
+    const root = mkdtempSync(join(tmpdir(), 'stash-codex-invalid-usage-'));
+    try {
+      const file = join(root, 'rollout-invalid-usage.jsonl');
+      const records = (input_tokens: number, cached_input_tokens: number) => [
+        { timestamp: '2026-07-01T08:00:00.000Z', type: 'session_meta', payload: { id: 'invalid-usage', cwd: '/tmp' } },
+        {
+          timestamp: '2026-07-01T08:01:00.000Z',
+          type: 'event_msg',
+          payload: {
+            type: 'token_count',
+            info: { total_token_usage: { input_tokens, output_tokens: 1, cached_input_tokens } },
+          },
+        },
+      ];
+      const source = new CodexSource();
+
+      writeFileSync(file, `${records(-1, 0).map((record) => JSON.stringify(record)).join('\n')}\n`);
+      expect(() => source.getUsage(file)).toThrow(/finite non-negative number/);
+
+      writeFileSync(file, `${records(5, 6).map((record) => JSON.stringify(record)).join('\n')}\n`);
+      expect(() => source.getUsage(file)).toThrow(/cached input exceeds total input/);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

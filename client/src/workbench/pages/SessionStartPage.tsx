@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import type { DispatchRun, Skill, WorkItem } from '@stash/shared';
-import { DEFAULT_MODEL_RATES } from '@stash/shared';
+import type { DispatchRun, ModelRate, Skill, WorkItem } from '@stash/shared';
+import { findModelRate } from '@stash/shared';
+import { getModelRates } from '../../api/model-rates';
 import { listProjectSkills, listSkills } from '../../api/skills';
 import { closeDispatchRun, composeSession, listDispatchRuns, startSession, type DispatchResult } from '../../api/sessions';
 import { getWorkItem } from '../../api/work-items';
@@ -56,6 +57,33 @@ export function SessionStartPage({ data }: { data: WBData; reload: () => void })
   const [runs, setRuns] = useState<DispatchRun[]>([]);
   const [composedPrompt, setComposedPrompt] = useState<string>('');
   const [composing, setComposing] = useState(false);
+  const [rates, setRates] = useState<ModelRate[] | null>(null);
+  const [rateState, setRateState] = useState<'loading' | 'ready' | 'failed'>('loading');
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadRates() {
+      if (!cancelled) {
+        setRates(null);
+        setRateState('loading');
+      }
+      try {
+        const card = await getModelRates();
+        if (!cancelled) {
+          setRates(card.effective);
+          setRateState('ready');
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setRates(null);
+          setRateState('failed');
+          reportAsyncError('load model rates', error, loadRates);
+        }
+      }
+    }
+    void loadRates();
+    return () => { cancelled = true; };
+  }, []);
 
   // Live preview — refetch composed prompt whenever the todo or tool changes.
   useEffect(() => {
@@ -96,10 +124,17 @@ export function SessionStartPage({ data }: { data: WBData; reload: () => void })
 
   // Token estimate ≈ char/4. Cost ≈ tokens × input rate of the picked model
   // (assistant output adds ~1-2× more, but we don't predict that).
+  //
+  // The rate comes from the configured card, not the shipped constant, so a
+  // rate corrected in Settings shows up here too. When the model has no rate,
+  // the estimate is withheld rather than rendered as $0.0000 — a fabricated
+  // zero is the failure mode #144 removed.
   const modelKey = tool === 'claude' ? 'claude-sonnet-4-6' : 'gpt-5';
-  const inputRate = DEFAULT_MODEL_RATES.find((r) => r.model === modelKey)?.inputPerM ?? 0;
+  const inputRate = rates === null ? undefined : findModelRate(modelKey, rates)?.inputPerM;
   const estTokens = Math.round(composedPrompt.length / 4);
-  const estCostUsd = (estTokens / 1_000_000) * inputRate;
+  const estCostUsd = inputRate === undefined
+    ? undefined
+    : (estTokens / 1_000_000) * inputRate;
 
   async function dispatchNow() {
     if (!todo) {
@@ -311,7 +346,16 @@ export function SessionStartPage({ data }: { data: WBData; reload: () => void })
             <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
               {composedPrompt ? (
                 <>
-                  estimated input: <span style={{ color: 'var(--text-primary)' }}>~{estTokens.toLocaleString()} tokens · ${estCostUsd.toFixed(4)}</span>
+                  estimated input: <span style={{ color: 'var(--text-primary)' }}>
+                    ~{estTokens.toLocaleString()} tokens
+                    {rateState === 'loading'
+                      ? ' · rate loading'
+                      : rateState === 'failed'
+                        ? ' · rate unavailable'
+                        : estCostUsd === undefined
+                          ? ' · no rate'
+                          : ` · $${estCostUsd.toFixed(4)}`}
+                  </span>
                   <span style={{ color: 'var(--text-muted)', marginLeft: 6 }}>({modelKey})</span>
                 </>
               ) : <>estimated: <span style={{ color: 'var(--text-muted)' }}>— pick a todo —</span></>}

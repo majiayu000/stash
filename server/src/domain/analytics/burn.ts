@@ -32,7 +32,12 @@ export interface BurnServiceDeps {
   aggregator: AgentSourceAggregator;
   areaService: AreaService;
   clock?: Clock;
-  rates?: ModelRate[];
+  /**
+   * Resolves the effective rate card per request rather than per process, so a
+   * rate the user adds in Settings applies on the next refresh instead of the
+   * next restart. Defaults to the shipped card alone.
+   */
+  rates?: () => ModelRate[];
   time_zone?: string;
 }
 
@@ -95,14 +100,14 @@ export class BurnService {
   private readonly aggregator: AgentSourceAggregator;
   private readonly areaService: AreaService;
   private readonly clock: Clock;
-  private readonly rates: ModelRate[];
+  private readonly rates: () => ModelRate[];
   private readonly time_zone: string;
 
   constructor(deps: BurnServiceDeps) {
     this.aggregator = deps.aggregator;
     this.areaService = deps.areaService;
     this.clock = deps.clock ?? systemClock;
-    this.rates = deps.rates ?? DEFAULT_MODEL_RATES;
+    this.rates = deps.rates ?? (() => DEFAULT_MODEL_RATES);
     this.time_zone = assert_time_zone(deps.time_zone ?? 'UTC');
   }
 
@@ -144,7 +149,7 @@ export class BurnService {
       endDateExclusive: union.endDateExclusive,
       timeZone: this.time_zone,
       days: calendar_day_count(union.startDate, union.endDateExclusive),
-      rates: this.rates,
+      rates: this.rates(),
       includeDailyProjectSpend: true,
     });
     return {
@@ -178,7 +183,7 @@ export class BurnService {
       endDateExclusive: calendar_date_at(endMs, this.time_zone),
       timeZone: this.time_zone,
       days: 1,
-      rates: this.rates,
+      rates: this.rates(),
     });
     return { totals: aggregate.totals, pricing: aggregate.pricing };
   }
@@ -203,7 +208,7 @@ export class BurnService {
         : calendar_date_at(requested_end, this.time_zone),
       timeZone: this.time_zone,
       days,
-      rates: this.rates,
+      rates: this.rates(),
     };
   }
 
@@ -320,8 +325,11 @@ class BurnAccumulator {
 
       const model = this.models.get(event.model) ?? { tokens: 0, cost: 0 };
       model.tokens += tokens;
-      // A model is priced or it is not; the flag never flips mid-window.
-      model.cost = priced === undefined ? undefined : (model.cost ?? 0) + priced;
+      // Once any event for a model is unpriced, its aggregate stays incomplete.
+      // A later priced event must not restore a partial number and make output
+      // depend on event order.
+      if (priced === undefined) model.cost = undefined;
+      else if (model.cost !== undefined) model.cost += priced;
       this.models.set(event.model, model);
 
       const projectId = session.projectId ?? '__unlinked__';
