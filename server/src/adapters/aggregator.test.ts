@@ -4,11 +4,16 @@ import type {
   AgentSessionEvent,
   AgentSessionEventPage,
   ModelRate,
+  SessionUsageSummary,
   UsageEvent,
 } from '@stash/shared';
 import type { BurnAggregate, BurnAggregationRequest } from '../domain/analytics/burn.js';
 import { AgentSourceAggregator, type AggregateResult } from './aggregator.js';
-import type { SessionScanExecutor, SessionScanMode } from './session-scan-worker.js';
+import type {
+  SessionScanExecutor,
+  SessionScanMode,
+  SessionUsageSummaryRequest,
+} from './session-scan-worker.js';
 import type { AgentSource, ScanOptions, SourceScanResult } from './source.js';
 
 class CountingSource implements AgentSource {
@@ -40,6 +45,7 @@ class CountingSource implements AgentSource {
 
 class CountingExecutor implements SessionScanExecutor {
   burnRequests: BurnAggregationRequest[] = [];
+  usageSummaryRequests: SessionUsageSummaryRequest[] = [];
 
   scan(_mode: SessionScanMode, _options: ScanOptions): Promise<AggregateResult> {
     throw new Error('scan should not be called');
@@ -57,6 +63,12 @@ class CountingExecutor implements SessionScanExecutor {
 
   decisionCandidates(): Promise<[]> {
     throw new Error('decision candidates should not be called');
+  }
+
+  async usageSummary(request: SessionUsageSummaryRequest): Promise<SessionUsageSummary> {
+    this.usageSummaryRequests.push(request);
+    await Promise.resolve();
+    return emptyUsageSummary();
   }
 }
 
@@ -173,6 +185,7 @@ describe('AgentSourceAggregator.scanAsync', () => {
       },
       eventPage: () => Promise.reject(new Error('unused')),
       decisionCandidates: () => Promise.reject(new Error('unused')),
+      usageSummary: () => Promise.reject(new Error('unused')),
     };
     const aggregator = new AgentSourceAggregator(new Map(), executor);
     const request: BurnAggregationRequest = {
@@ -189,7 +202,45 @@ describe('AgentSourceAggregator.scanAsync', () => {
     await expect(aggregator.aggregateBurnAsync(request)).rejects.toThrow('burn failed');
     expect(attempts).toBe(2);
   });
+
+  test('runs session summaries through the executor and isolates different rate cards', async () => {
+    const executor = new CountingExecutor();
+    const aggregator = new AgentSourceAggregator(new Map(), executor);
+    const request: SessionUsageSummaryRequest = {
+      provider: 'codex',
+      sourcePath: '/tmp/session.jsonl',
+      rates: [{ model: 'gpt-5', inputPerM: 1, outputPerM: 2 }],
+    };
+
+    const first = aggregator.getUsageSummaryAsync(request);
+    const same = aggregator.getUsageSummaryAsync({ ...request, rates: [...request.rates] });
+    const different_rates = aggregator.getUsageSummaryAsync({
+      ...request,
+      rates: [{ model: 'gpt-5', inputPerM: 1, outputPerM: 20 }],
+    });
+
+    expect(first).toBe(same);
+    expect(first).not.toBe(different_rates);
+    await Promise.all([first, same, different_rates]);
+    expect(executor.usageSummaryRequests).toHaveLength(2);
+  });
 });
+
+function emptyUsageSummary(): SessionUsageSummary {
+  return {
+    totals: {
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      tokens: 0,
+      cost: 0,
+    },
+    modelMix: [],
+    pricing: { unknownModels: [], unpricedTokens: 0 },
+    sessionLastActiveAt: null,
+  };
+}
 
 function emptyBurnAggregate(): BurnAggregate {
   return {

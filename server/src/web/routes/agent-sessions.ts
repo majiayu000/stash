@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { summarizeUsage, type ModelRate } from '@stash/shared';
+import type { ModelRate } from '@stash/shared';
 import type { AgentSourceAggregator } from '../../adapters/aggregator.js';
 import type { DecisionCandidateService } from '../../domain/capture/decision-candidates.js';
 import type { WorkItemSessionService } from '../../domain/work-item-session/service.js';
@@ -130,8 +130,12 @@ export function createAgentSessionsRouter(
       const { sessions, cache } = await aggregator.scanAsync({ provider });
       const found = sessions.find((s) => s.id === id);
       if (!found) return c.json({ error: { code: 'NOT_FOUND', message: 'session not found' } }, 404);
-      const usage = aggregator.getUsage(provider, found.sourcePath);
-      return c.json({ data: summarizeUsage(usage, rates()), cache });
+      const data = await aggregator.getUsageSummaryAsync({
+        provider,
+        sourcePath: found.sourcePath,
+        rates: rates(),
+      });
+      return c.json({ data, cache });
     } catch (e) {
       return handleError(c, e);
     }

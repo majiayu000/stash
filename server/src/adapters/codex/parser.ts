@@ -311,7 +311,7 @@ function codexFinalUsageFromRecords(records: RawRecord[], sourcePath: string): U
     if (rec.timestamp) lastTimestamp = rec.timestamp;
   }
 
-  if (!lastTimestamp || (current.input === 0 && current.output === 0)) return [];
+  if (!lastTimestamp || (current.input === 0 && current.output === 0 && current.cached === 0)) return [];
   return [{
     ts: lastTimestamp,
     model: model ?? 'codex-1',
@@ -349,7 +349,7 @@ function codexDeltaUsageFromRecords(records: RawRecord[], sourcePath: string): U
     const cacheReadTokens = reset ? current.cached : current.cached - previous.cached;
     previous = current;
 
-    if (!rec.timestamp || (inputTokens === 0 && outputTokens === 0)) continue;
+    if (!rec.timestamp || (inputTokens === 0 && outputTokens === 0 && cacheReadTokens === 0)) continue;
     usage.push({
       ts: rec.timestamp,
       model: model ?? 'codex-1',

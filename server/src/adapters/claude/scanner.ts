@@ -166,6 +166,10 @@ export class ClaudeSource implements AgentSource {
     return parseClaudeEvents(sourcePath, limit);
   }
 
+  getSessionUsageSnapshot(sourcePath: string) {
+    return parseClaudeAnalytics(sourcePath, Number.NEGATIVE_INFINITY);
+  }
+
   getUsage(
     sourcePath: string,
     fingerprint?: SessionFileFingerprint,
