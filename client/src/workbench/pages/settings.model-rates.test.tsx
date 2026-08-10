@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import type { BudgetSpendSnapshot, BurnPricingCoverage } from '@stash/shared';
@@ -34,6 +34,17 @@ function renderPanel() {
       <ModelRatesPanel />
     </WorkbenchDialogProvider>,
   );
+}
+
+interface Deferred<T> {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+}
+
+function deferred<T>(): Deferred<T> {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => { resolve = done; });
+  return { promise, resolve };
 }
 
 describe('ModelRatesPanel', () => {
@@ -168,6 +179,49 @@ describe('ModelRatesPanel', () => {
       cacheWritePerM: 1.25,
     }));
     expect(invalidate_weekly_snapshot_cache).toHaveBeenCalledTimes(1);
+  });
+
+  test('does not let an older refresh overwrite a newer saved rate', async () => {
+    const first = deferred<Awaited<ReturnType<typeof getModelRates>>>();
+    const second = deferred<Awaited<ReturnType<typeof getModelRates>>>();
+    vi.mocked(getModelRates)
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise);
+    vi.mocked(getBudgetSpendSnapshot).mockResolvedValue(
+      budgetSpend({ unknownModels: [], unpricedTokens: 0 }),
+    );
+    vi.mocked(upsertModelRate).mockResolvedValue({
+      model: 'race-model', inputPerM: 3, outputPerM: 4, createdAt: 'x', updatedAt: 'x',
+    });
+
+    renderPanel();
+    await userEvent.click(screen.getByRole('button', { name: '+ rate' }));
+    await userEvent.type(await screen.findByLabelText('model'), 'race-model');
+    await userEvent.click(screen.getByRole('button', { name: 'next' }));
+    await userEvent.type(await screen.findByLabelText(/input \$\/M/i), '3');
+    await userEvent.click(screen.getByRole('button', { name: 'next' }));
+    await userEvent.type(await screen.findByLabelText(/output \$\/M/i), '4');
+    await userEvent.click(screen.getByRole('button', { name: 'next' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'next' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'save rate' }));
+
+    await waitFor(() => expect(getModelRates).toHaveBeenCalledTimes(2));
+    await act(async () => {
+      second.resolve({
+        overrides: [{ model: 'race-model', inputPerM: 3, outputPerM: 4, createdAt: 'x', updatedAt: 'x' }],
+        effective: [],
+      });
+    });
+    expect(await screen.findByText('$3 / $4 per M')).toBeInTheDocument();
+
+    await act(async () => {
+      first.resolve({
+        overrides: [{ model: 'stale-model', inputPerM: 1, outputPerM: 2, createdAt: 'x', updatedAt: 'x' }],
+        effective: [],
+      });
+    });
+    expect(screen.getByText('$3 / $4 per M')).toBeInTheDocument();
+    expect(screen.queryByText('stale-model')).not.toBeInTheDocument();
   });
 
   test('describes deleting a shipped override as restoring the shipped rate', async () => {

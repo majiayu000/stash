@@ -27,28 +27,32 @@ export function ModelRatesPanel() {
   const [loading, setLoading] = useState(true);
   const [coverageFailed, setCoverageFailed] = useState(false);
   const mounted = useRef(true);
+  const refresh_generation = useRef(0);
   const dialog = useWorkbenchDialog();
 
   async function refresh() {
-    if (mounted.current) setLoading(true);
+    const generation = ++refresh_generation.current;
+    const is_current = () => mounted.current && generation === refresh_generation.current;
+    if (is_current()) setLoading(true);
     try {
       const card = await getModelRates();
-      if (mounted.current) setOverrides(card.overrides);
+      if (is_current()) setOverrides(card.overrides);
     } catch (error) {
-      if (mounted.current) reportAsyncError('load model rates', error, refresh);
+      if (is_current()) reportAsyncError('load model rates', error, refresh);
     } finally {
-      if (mounted.current) setLoading(false);
+      if (is_current()) setLoading(false);
     }
+    if (!is_current()) return;
     // Coverage is a separate concern: the rate list is still usable when the
     // history scan fails, so a failure here must not blank the panel.
     try {
       const budget_spend = await getBudgetSpendSnapshot();
-      if (mounted.current) {
+      if (is_current()) {
         setUnknownModels(budget_spend.pricing.unknownModels);
         setCoverageFailed(false);
       }
     } catch {
-      if (mounted.current) setCoverageFailed(true);
+      if (is_current()) setCoverageFailed(true);
     }
   }
 

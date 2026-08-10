@@ -136,6 +136,7 @@ describe('migrate', () => {
         '018_work_item_coach_summary_destination.sql',
         '019_calendar_field_formats.sql',
         '020_model_rates.sql',
+        '021_reindex_codex_usage_cache.sql',
       ]);
       const cacheTable = db
         .query<{ name: string }, []>(
@@ -286,7 +287,11 @@ describe('migrate', () => {
           where id = ?`,
       ).run('2026-05-18T00:00:00.000Z', '2026-05-19T00:00:00.000Z', draft!.id);
 
-      expect(migrate(db).applied).toEqual(['019_calendar_field_formats.sql', '020_model_rates.sql']);
+      expect(migrate(db).applied).toEqual([
+        '019_calendar_field_formats.sql',
+        '020_model_rates.sql',
+        '021_reindex_codex_usage_cache.sql',
+      ]);
       const migrated = work_items.get(item.id);
       expect(migrated?.scheduledFor).toBe('2026-05-15');
       expect(migrated?.dueAt).toBe('2026-05-16');
@@ -329,7 +334,11 @@ describe('migrate', () => {
       db.prepare('update areas set updated_at = ? where id = ?')
         .run('2026-05-26 10:46:23', area.id);
 
-      expect(migrate(db).applied).toEqual(['019_calendar_field_formats.sql', '020_model_rates.sql']);
+      expect(migrate(db).applied).toEqual([
+        '019_calendar_field_formats.sql',
+        '020_model_rates.sql',
+        '021_reindex_codex_usage_cache.sql',
+      ]);
 
       // SQLite's CURRENT_TIMESTAMP is UTC, so the wall clock is preserved.
       const migrated = db.query<{ updated_at: string; completed_at: string }, [string]>(
@@ -369,6 +378,47 @@ describe('migrate', () => {
         `work_items[${item.id}].updated_at has invalid UTC instant`,
       );
       expect(listAppliedMigrations(db)).not.toContain('019_calendar_field_formats.sql');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('invalidates only legacy Codex usage cache when token classes change', () => {
+    const root = mkdtempSync(join(tmpdir(), 'stash-codex-cache-migrate-'));
+    try {
+      const legacy_dir = join(root, 'through-020');
+      mkdirSync(legacy_dir);
+      for (const file of listMigrationFiles(MIGRATIONS_DIR)) {
+        if (file <= '020_model_rates.sql') {
+          cpSync(join(MIGRATIONS_DIR, file), join(legacy_dir, file));
+        }
+      }
+      const db = openDatabase({ path: ':memory:', inMemory: true });
+      migrate(db, legacy_dir);
+      const insert_cache = db.prepare(
+        `insert into agent_session_cache(
+           provider, source_path, mtime_ms, size_bytes, session_json, usage_json, indexed_at
+         ) values (?, ?, ?, ?, ?, ?, ?)`,
+      );
+      const legacy_usage = JSON.stringify([{
+        ts: '2026-08-01T00:00:00.000Z',
+        model: 'gpt-5',
+        inputTokens: 5_000,
+        outputTokens: 420,
+        cacheReadTokens: 3_200,
+        sourcePath: '/tmp/session.jsonl',
+      }]);
+      insert_cache.run('codex', '/tmp/codex.jsonl', 1, 1, '{}', legacy_usage, '2026-08-01T00:00:00.000Z');
+      insert_cache.run('claude', '/tmp/claude.jsonl', 1, 1, '{}', legacy_usage, '2026-08-01T00:00:00.000Z');
+
+      expect(migrate(db).applied).toEqual(['021_reindex_codex_usage_cache.sql']);
+      const rows = db.query<{ provider: string; usage_json: string }, []>(
+        'select provider, usage_json from agent_session_cache order by provider',
+      ).all();
+      expect(rows).toEqual([
+        { provider: 'claude', usage_json: legacy_usage },
+        { provider: 'codex', usage_json: 'null' },
+      ]);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
