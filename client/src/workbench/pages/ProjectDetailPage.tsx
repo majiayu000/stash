@@ -71,13 +71,15 @@ export function ProjectDetailPage({ data }: { data: WBData; reload: () => void }
   // Measured usage from /api/analytics/burn; null while loading or unavailable.
   const [burn, setBurn] = useState<ProjectBurnView | null>(null);
 
-  async function loadKb() {
+  async function loadKb(blockPage = false) {
     if (!p) {
       setLoading(false);
       return;
     }
-    setLoading(true);
-    setLoadError(null);
+    if (blockPage) {
+      setLoading(true);
+      setLoadError(null);
+    }
     try {
       const [intent, milestones, decisions, notes, lessons, bindings, allSkills] = await Promise.all([
         getProjectIntent(p.id),
@@ -100,12 +102,12 @@ export function ProjectDetailPage({ data }: { data: WBData; reload: () => void }
       setLoading(false);
     } catch (error) {
       reportAsyncError('load project knowledge', error);
-      setLoadError(toError(error));
+      if (blockPage) setLoadError(toError(error));
       setLoading(false);
     }
   }
 
-  useEffect(() => { loadKb(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [p?.id, retryTick]);
+  useEffect(() => { loadKb(true); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [p?.id, retryTick]);
 
   // Measured 30-day usage for this project. Kept in its own effect so a burn
   // scan failure degrades these two tiles instead of blocking the whole page.
@@ -288,11 +290,11 @@ export function ProjectDetailPage({ data }: { data: WBData; reload: () => void }
         <div className="kw-main-grid">
           {/* LEFT — knowledge column */}
           <div className="kw-main-left">
-            <KnowledgeIntentEditor      projectId={p.id} value={kb.intent}      onChange={loadKb} />
-            <KnowledgeMilestonesEditor  projectId={p.id} value={kb.milestones}  onChange={loadKb} />
-            <KnowledgeDecisionsEditor   projectId={p.id} value={kb.decisions}   onChange={loadKb} />
-            <KnowledgeNotesEditor       projectId={p.id} value={kb.notes}       onChange={loadKb} />
-            <KnowledgeLessonsEditor     projectId={p.id} value={kb.lessons}     onChange={loadKb} />
+            <KnowledgeIntentEditor      projectId={p.id} value={kb.intent}      onChange={() => loadKb()} />
+            <KnowledgeMilestonesEditor  projectId={p.id} value={kb.milestones}  onChange={() => loadKb()} />
+            <KnowledgeDecisionsEditor   projectId={p.id} value={kb.decisions}   onChange={() => loadKb()} />
+            <KnowledgeNotesEditor       projectId={p.id} value={kb.notes}       onChange={() => loadKb()} />
+            <KnowledgeLessonsEditor     projectId={p.id} value={kb.lessons}     onChange={() => loadKb()} />
           </div>
 
           {/* RIGHT — sidebar */}
