@@ -12,17 +12,20 @@ export interface ModelRate {
   cacheWritePerM?: number;
 }
 
+/** Defensive ceiling that keeps persisted user input far below numeric overflow. */
+export const MAX_MODEL_RATE_PER_M = 1_000_000;
+
 export const DEFAULT_MODEL_RATES: ModelRate[] = [
   // Anthropic — Claude family
-  { model: 'claude-opus-4-7',     inputPerM: 15, outputPerM: 75, cacheReadPerM: 1.5, cacheWritePerM: 18.75 },
-  { model: 'claude-opus-4-6',     inputPerM: 15, outputPerM: 75, cacheReadPerM: 1.5, cacheWritePerM: 18.75 },
+  { model: 'claude-opus-4-7',     inputPerM: 5,  outputPerM: 25, cacheReadPerM: 0.5, cacheWritePerM: 6.25 },
+  { model: 'claude-opus-4-6',     inputPerM: 5,  outputPerM: 25, cacheReadPerM: 0.5, cacheWritePerM: 6.25 },
   { model: 'claude-sonnet-4-6',   inputPerM: 3,  outputPerM: 15, cacheReadPerM: 0.3, cacheWritePerM: 3.75 },
   { model: 'claude-sonnet-4-5',   inputPerM: 3,  outputPerM: 15, cacheReadPerM: 0.3, cacheWritePerM: 3.75 },
   { model: 'claude-haiku-4-5',    inputPerM: 1,  outputPerM: 5,  cacheReadPerM: 0.1, cacheWritePerM: 1.25 },
   // OpenAI — Codex / GPT family (current published rates)
-  { model: 'gpt-5',               inputPerM: 5,  outputPerM: 15 },
-  { model: 'gpt-4.1',             inputPerM: 2,  outputPerM: 8 },
-  { model: 'o4-mini',             inputPerM: 1.1, outputPerM: 4.4 },
+  { model: 'gpt-5',               inputPerM: 1.25, outputPerM: 10,  cacheReadPerM: 0.125 },
+  { model: 'gpt-4.1',             inputPerM: 2,    outputPerM: 8,   cacheReadPerM: 0.5 },
+  { model: 'o4-mini',             inputPerM: 1.1,  outputPerM: 4.4, cacheReadPerM: 0.275 },
 ];
 
 /** A stored rate override, owned by the user rather than by the shipped card. */
@@ -56,13 +59,16 @@ export function mergeModelRates(
 ): ModelRate[] {
   const byModel = new Map<string, ModelRate>();
   for (const rate of [...defaults, ...overrides]) {
+    const previous = byModel.get(rate.model);
     const merged: ModelRate = {
       model: rate.model,
       inputPerM: rate.inputPerM,
       outputPerM: rate.outputPerM,
     };
-    if (rate.cacheReadPerM !== undefined) merged.cacheReadPerM = rate.cacheReadPerM;
-    if (rate.cacheWritePerM !== undefined) merged.cacheWritePerM = rate.cacheWritePerM;
+    const cache_read_per_m = rate.cacheReadPerM ?? previous?.cacheReadPerM;
+    const cache_write_per_m = rate.cacheWritePerM ?? previous?.cacheWritePerM;
+    if (cache_read_per_m !== undefined) merged.cacheReadPerM = cache_read_per_m;
+    if (cache_write_per_m !== undefined) merged.cacheWritePerM = cache_write_per_m;
     byModel.set(rate.model, merged);
   }
   return Array.from(byModel.values()).sort((a, b) => a.model.localeCompare(b.model));
@@ -240,8 +246,13 @@ export function findModelRate(
 ): ModelRate | undefined {
   const exact = rates.find((r) => r.model === model);
   if (exact) return exact;
-  const family = model.replace(/-\d{8}$/, '');
+  const family = normalize_model_rate_id(model);
   return family === model ? undefined : rates.find((r) => r.model === family);
+}
+
+/** Canonical family id used by provider rate cards for dated transcript ids. */
+export function normalize_model_rate_id(model: string): string {
+  return model.trim().replace(/-(?:\d{8}|\d{4}-\d{2}-\d{2})$/, '');
 }
 
 /**
@@ -259,9 +270,15 @@ export function eventCost(
 ): number | undefined {
   const rate = findModelRate(e.model, rates);
   if (!rate) return undefined;
+  if ((e.cacheReadTokens ?? 0) > 0 && rate.cacheReadPerM === undefined) return undefined;
+  if ((e.cacheWriteTokens ?? 0) > 0 && rate.cacheWritePerM === undefined) return undefined;
   const input = (e.inputTokens / 1_000_000) * rate.inputPerM;
   const output = (e.outputTokens / 1_000_000) * rate.outputPerM;
   const cacheRead = ((e.cacheReadTokens ?? 0) / 1_000_000) * (rate.cacheReadPerM ?? 0);
   const cacheWrite = ((e.cacheWriteTokens ?? 0) / 1_000_000) * (rate.cacheWritePerM ?? 0);
-  return input + output + cacheRead + cacheWrite;
+  const total = input + output + cacheRead + cacheWrite;
+  if (!Number.isFinite(total)) {
+    throw new Error(`cost overflow for model ${e.model}`);
+  }
+  return total;
 }

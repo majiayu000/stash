@@ -1,7 +1,9 @@
 import type { Database } from 'bun:sqlite';
 import {
   DEFAULT_MODEL_RATES,
+  MAX_MODEL_RATE_PER_M,
   mergeModelRates,
+  normalize_model_rate_id,
   systemClock,
   type Clock,
   type ModelRate,
@@ -50,8 +52,8 @@ function row(r: Row): ModelRateOverride {
 }
 
 function assert_rate(value: number, field: string): number {
-  if (!Number.isFinite(value) || value < 0) {
-    throw new Error(`model rate ${field} must be a finite number >= 0`);
+  if (!Number.isFinite(value) || value < 0 || value > MAX_MODEL_RATE_PER_M) {
+    throw new Error(`model rate ${field} must be between 0 and ${MAX_MODEL_RATE_PER_M}`);
   }
   return value;
 }
@@ -82,7 +84,8 @@ export class ModelRateService {
   }
 
   upsert(input: UpsertModelRateInput): ModelRateOverride {
-    const model = input.model.trim();
+    const supplied_model = input.model.trim();
+    const model = normalize_model_rate_id(supplied_model);
     if (!model) throw new Error('model rate id is required');
     const inputPerM = assert_rate(input.inputPerM, 'inputPerM');
     const outputPerM = assert_rate(input.outputPerM, 'outputPerM');
@@ -94,20 +97,30 @@ export class ModelRateService {
       : assert_rate(input.cacheWritePerM, 'cacheWritePerM');
     const now = this.clock.nowIso();
 
-    this.deps.db
-      .prepare(`
-        insert into model_rates(
-          model, input_per_m, output_per_m, cache_read_per_m, cache_write_per_m,
-          created_at, updated_at
-        ) values (?,?,?,?,?,?,?)
-        on conflict(model) do update set
-          input_per_m       = excluded.input_per_m,
-          output_per_m      = excluded.output_per_m,
-          cache_read_per_m  = excluded.cache_read_per_m,
-          cache_write_per_m = excluded.cache_write_per_m,
-          updated_at        = excluded.updated_at
-      `)
-      .run(model, inputPerM, outputPerM, cacheReadPerM, cacheWritePerM, now, now);
+    this.deps.db.transaction(() => {
+      const legacy_models = this.deps.db
+        .query<{ model: string }, []>('select model from model_rates')
+        .all()
+        .filter((stored) => stored.model !== model && normalize_model_rate_id(stored.model) === model);
+      const delete_statement = this.deps.db.prepare('delete from model_rates where model = ?');
+      for (const legacy_model of legacy_models) {
+        delete_statement.run(legacy_model.model);
+      }
+      this.deps.db
+        .prepare(`
+          insert into model_rates(
+            model, input_per_m, output_per_m, cache_read_per_m, cache_write_per_m,
+            created_at, updated_at
+          ) values (?,?,?,?,?,?,?)
+          on conflict(model) do update set
+            input_per_m       = excluded.input_per_m,
+            output_per_m      = excluded.output_per_m,
+            cache_read_per_m  = excluded.cache_read_per_m,
+            cache_write_per_m = excluded.cache_write_per_m,
+            updated_at        = excluded.updated_at
+        `)
+        .run(model, inputPerM, outputPerM, cacheReadPerM, cacheWritePerM, now, now);
+    })();
 
     const stored = this.deps.db
       .query<Row, [string]>('select * from model_rates where model = ?')
@@ -117,7 +130,12 @@ export class ModelRateService {
   }
 
   delete(model: string): void {
-    const res = this.deps.db.prepare('delete from model_rates where model = ?').run(model);
-    if (res.changes === 0) throw new ModelRateNotFoundError(model);
+    const statement = this.deps.db.prepare('delete from model_rates where model = ?');
+    const exact = statement.run(model);
+    if (exact.changes > 0) return;
+
+    const canonical_model = normalize_model_rate_id(model);
+    if (canonical_model !== model && statement.run(canonical_model).changes > 0) return;
+    throw new ModelRateNotFoundError(model);
   }
 }

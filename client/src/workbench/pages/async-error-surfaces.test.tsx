@@ -55,6 +55,7 @@ vi.mock('../../api/analytics', () => ({
   getBurnSnapshot: vi.fn(),
   getBudgetSpendSnapshot: vi.fn(),
   getWeeklySnapshot: vi.fn(),
+  invalidate_weekly_snapshot_cache: vi.fn(),
 }));
 vi.mock('../ReminderTicker', () => ({
   getReminderPermission: vi.fn(() => 'unsupported'),
@@ -279,5 +280,24 @@ describe('high-value optional surface failures', () => {
     expect(await screen.findByText('# Task: recovered prompt')).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByText('compose unavailable')).not.toBeInTheDocument());
     expect(composeSession).toHaveBeenCalledTimes(2);
+  });
+
+  test('Session starter withholds cost while rates fail and retry loads the configured card', async () => {
+    vi.mocked(getModelRates)
+      .mockRejectedValueOnce(new Error('rates unavailable'))
+      .mockResolvedValueOnce({
+        overrides: [],
+        effective: [{ model: 'claude-sonnet-4-6', inputPerM: 9, outputPerM: 18 }],
+      });
+
+    renderSurface(<SessionStartPage data={data} reload={vi.fn()} />, '/sessions/new?todoId=todo-1');
+
+    expect(await screen.findByText('rates unavailable')).toBeInTheDocument();
+    expect(screen.getByText(/rate unavailable/)).toBeInTheDocument();
+    expect(screen.queryByText(/\$0\.0001/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'retry load model rates' }));
+
+    await waitFor(() => expect(getModelRates).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByText(/rate unavailable/)).not.toBeInTheDocument());
   });
 });
