@@ -49,6 +49,53 @@ describe('ClaudeSource.scan', () => {
     expect(result.errors).toEqual([]);
   });
 
+  test('preserves cache-only usage and rejects negative counters', () => {
+    const root = mkdtempSync(join(tmpdir(), 'stash-claude-cache-only-'));
+    try {
+      const file = join(root, 'session.jsonl');
+      const record = (usage: Record<string, number>) => ({
+        type: 'assistant',
+        timestamp: '2026-05-14T08:00:00.000Z',
+        message: { role: 'assistant', model: 'claude-sonnet-4-6', usage },
+      });
+
+      writeFileSync(file, `${JSON.stringify(record({
+        input_tokens: 0,
+        output_tokens: 0,
+        cache_read_input_tokens: 250,
+        cache_creation_input_tokens: 50,
+      }))}\n`);
+      expect(parseClaudeUsage(file)).toEqual([{
+        ts: '2026-05-14T08:00:00.000Z',
+        model: 'claude-sonnet-4-6',
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 250,
+        cacheWriteTokens: 50,
+        sourcePath: file,
+      }]);
+
+      appendFileSync(file, `${JSON.stringify({
+        type: 'system',
+        subtype: 'turn_duration',
+        timestamp: '2026-05-14T08:00:01.000Z',
+      })}\n`);
+      expect(new ClaudeSource().getSessionUsageSnapshot(file).status).toBe('completed');
+
+      appendFileSync(file, `${JSON.stringify({
+        type: 'user',
+        timestamp: '2026-05-14T07:59:59.000Z',
+        message: { role: 'user', content: 'resume' },
+      })}\n`);
+      expect(new ClaudeSource().getSessionUsageSnapshot(file).status).toBe('lost');
+
+      writeFileSync(file, `${JSON.stringify(record({ input_tokens: -1, output_tokens: 0 }))}\n`);
+      expect(() => parseClaudeUsage(file)).toThrow(/finite non-negative number/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test('indexes changed files and reuses unchanged cache rows', () => {
     const root = mkdtempSync(join(tmpdir(), 'stash-claude-cache-'));
     const db = freshDb();

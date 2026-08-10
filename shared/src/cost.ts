@@ -1,4 +1,5 @@
 import { parse_calendar_date, type CalendarRange } from './calendar.js';
+import type { AgentSessionStatus } from './agent-session.js';
 
 /**
  * Per-million-token rates (USD). Sources: published Anthropic/OpenAI rate cards.
@@ -108,7 +109,7 @@ export interface ModelMixItem {
 export interface BurnPricingCoverage {
   /** Distinct model ids seen with usage but no matching rate, ascending. */
   unknownModels: string[];
-  /** Input+output tokens that could not be priced. */
+  /** Input, output, cache-read, and cache-write tokens that could not be priced. */
   unpricedTokens: number;
 }
 
@@ -322,10 +323,20 @@ export interface UsageSummary {
   pricing: BurnPricingCoverage;
 }
 
+/** Token classes whose monetary value is unknown when an event has no rate. */
+export function usage_event_pricing_token_count(event: UsageEvent): number {
+  return event.inputTokens
+    + event.outputTokens
+    + (event.cacheReadTokens ?? 0)
+    + (event.cacheWriteTokens ?? 0);
+}
+
 /** API payload for one session, including activity freshness for live refresh. */
 export interface SessionUsageSummary extends UsageSummary {
   /** Last activity seen during the scan that produced this usage summary. */
   sessionLastActiveAt: string | null;
+  /** Freshly parsed lifecycle state from the same source snapshot. */
+  sessionStatus: AgentSessionStatus;
 }
 
 /**
@@ -366,7 +377,7 @@ export function summarizeUsage(
 
     if (priced === undefined) {
       unknown.add(event.model);
-      unpricedTokens += tokens;
+      unpricedTokens += usage_event_pricing_token_count(event);
     }
 
     const model = models.get(event.model) ?? { model: event.model, tokens: 0, cost: 0 };

@@ -1,4 +1,10 @@
-import type { AgentProvider, AgentSession, AgentSessionEvent, UsageEvent } from '@stash/shared';
+import type {
+  AgentProvider,
+  AgentSession,
+  AgentSessionEvent,
+  AgentSessionStatus,
+  UsageEvent,
+} from '@stash/shared';
 import type { SessionFileFingerprint } from './session-cache.js';
 
 export interface ScanOptions {
@@ -44,6 +50,8 @@ export interface SourceParseError {
 export interface SessionUsageSnapshot {
   /** Null only for a source that cannot report activity independently of usage. */
   lastActiveAt: string | null;
+  /** Lifecycle state derived by the source during the same parse. */
+  status: AgentSessionStatus;
   usage: UsageEvent[];
 }
 

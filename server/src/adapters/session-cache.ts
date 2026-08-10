@@ -215,11 +215,23 @@ function parseCachedUsage(value: unknown): UsageEvent[] {
     if (Number.isNaN(Date.parse(usage.ts))) throw new Error('usage.ts is invalid');
     if (typeof usage.model !== 'string') throw new Error('usage.model is missing');
     if (typeof usage.inputTokens !== 'number') throw new Error('usage.inputTokens is missing');
+    if (!Number.isFinite(usage.inputTokens) || usage.inputTokens < 0) {
+      throw new Error('usage.inputTokens is invalid');
+    }
     if (typeof usage.outputTokens !== 'number') throw new Error('usage.outputTokens is missing');
-    if (usage.cacheReadTokens !== undefined && typeof usage.cacheReadTokens !== 'number') {
+    if (!Number.isFinite(usage.outputTokens) || usage.outputTokens < 0) {
+      throw new Error('usage.outputTokens is invalid');
+    }
+    if (usage.cacheReadTokens !== undefined
+      && (typeof usage.cacheReadTokens !== 'number'
+        || !Number.isFinite(usage.cacheReadTokens)
+        || usage.cacheReadTokens < 0)) {
       throw new Error('usage.cacheReadTokens is invalid');
     }
-    if (usage.cacheWriteTokens !== undefined && typeof usage.cacheWriteTokens !== 'number') {
+    if (usage.cacheWriteTokens !== undefined
+      && (typeof usage.cacheWriteTokens !== 'number'
+        || !Number.isFinite(usage.cacheWriteTokens)
+        || usage.cacheWriteTokens < 0)) {
       throw new Error('usage.cacheWriteTokens is invalid');
     }
     if (typeof usage.sourcePath !== 'string') throw new Error('usage.sourcePath is missing');

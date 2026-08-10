@@ -19,6 +19,7 @@ import {
   type UsageEvent,
   range_from_dates,
   systemClock,
+  usage_event_pricing_token_count,
   zoned_parts,
 } from '@stash/shared';
 import type {
@@ -301,7 +302,7 @@ class BurnAccumulator {
       const cost = priced ?? 0;
       if (priced === undefined) {
         this.unknown_models.add(event.model);
-        this.unpriced_tokens += tokens;
+        this.unpriced_tokens += usage_event_pricing_token_count(event);
       }
       this.totals.tokens += tokens;
       this.totals.cost += cost;

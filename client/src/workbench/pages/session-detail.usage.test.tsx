@@ -53,6 +53,7 @@ function usage(overrides: Partial<SessionUsageSummary> = {}): SessionUsageSummar
     modelMix: [{ model: 'gpt-5', tokens: 1_000_000, cost: 4.5 }],
     pricing: { unknownModels: [], unpricedTokens: 0 },
     sessionLastActiveAt: new Date(Date.now() - 6 * 60_000).toISOString(),
+    sessionStatus: 'idle',
     ...overrides,
   };
 }
@@ -171,11 +172,96 @@ describe('SessionUsageMetrics', () => {
     expect(metrics).not.toHaveTextContent('no token usage recorded');
   });
 
-  test('refreshes measured usage while the session is live', async () => {
+  test('preserves a fully priced sub-cent cost instead of rounding it to zero', async () => {
+    vi.mocked(getAgentSessionUsage).mockResolvedValue(usage({
+      totals: {
+        inputTokens: 1_000, outputTokens: 0,
+        cacheReadTokens: 0, cacheWriteTokens: 0,
+        tokens: 1_000, cost: 0.004,
+      },
+      modelMix: [{ model: 'gpt-5', tokens: 1_000, cost: 0.004 }],
+    }));
+
+    renderMetrics();
+
+    const metrics = await screen.findByTestId('measured-session-metrics');
+    expect(metrics).toHaveTextContent('< $0.01');
+    expect(metrics).not.toHaveTextContent('$0.00');
+  });
+
+  test('labels cache-only usage as unpriced when no cache rate exists', async () => {
+    vi.mocked(getAgentSessionUsage).mockResolvedValue(usage({
+      totals: {
+        inputTokens: 0, outputTokens: 0,
+        cacheReadTokens: 250_000, cacheWriteTokens: 0,
+        tokens: 0, cost: 0,
+      },
+      modelMix: [{ model: 'k3', tokens: 0, cost: undefined }],
+      pricing: { unknownModels: ['k3'], unpricedTokens: 250_000 },
+    }));
+
+    renderMetrics();
+
+    const metrics = await screen.findByTestId('measured-session-metrics');
+    expect(metrics).toHaveTextContent('unpriced');
+    expect(metrics).toHaveTextContent('250.0k tokens excluded from cost');
+    expect(metrics).not.toHaveTextContent('≥ $0.00');
+  });
+
+  test('never rounds an extremely small positive partial cost to zero', async () => {
+    vi.mocked(getAgentSessionUsage).mockResolvedValue(usage({
+      totals: {
+        inputTokens: 1, outputTokens: 0,
+        cacheReadTokens: 0, cacheWriteTokens: 0,
+        tokens: 1, cost: 1e-9,
+      },
+      modelMix: [
+        { model: 'gpt-5', tokens: 1, cost: 1e-9 },
+        { model: 'k3', tokens: 0, cost: undefined },
+      ],
+      pricing: { unknownModels: ['k3'], unpricedTokens: 1 },
+    }));
+
+    renderMetrics();
+
+    const metrics = await screen.findByTestId('measured-session-metrics');
+    expect(metrics).toHaveTextContent('≥ $1.00e-9');
+    expect(metrics).not.toHaveTextContent('≥ $0.00000000');
+  });
+
+  test.each([
+    [0.009999, '≥ $0.0099'],
+    [1.999, '≥ $1.99'],
+    [9.999e-9, '≥ $9.99e-9'],
+    [0.049999999999999996, '≥ $0.04'],
+    [1.0099999999999998e-9, '≥ $1.00e-9'],
+  ])('never rounds the known cost floor %s upward', async (cost, expected) => {
+    vi.mocked(getAgentSessionUsage).mockResolvedValue(usage({
+      totals: {
+        inputTokens: 1, outputTokens: 0,
+        cacheReadTokens: 0, cacheWriteTokens: 0,
+        tokens: 1, cost,
+      },
+      modelMix: [
+        { model: 'gpt-5', tokens: 1, cost },
+        { model: 'k3', tokens: 0, cost: undefined },
+      ],
+      pricing: { unknownModels: ['k3'], unpricedTokens: 1 },
+    }));
+
+    renderMetrics();
+
+    expect(await screen.findByTestId('measured-session-metrics')).toHaveTextContent(expected);
+  });
+
+  test('keeps polling an explicitly live session past five minutes and stops when it completes', async () => {
     vi.useFakeTimers();
     try {
       vi.mocked(getAgentSessionUsage)
-        .mockResolvedValueOnce(usage({ sessionLastActiveAt: new Date().toISOString() }))
+        .mockResolvedValueOnce(usage({
+          sessionLastActiveAt: new Date(Date.now() - 6 * 60_000).toISOString(),
+          sessionStatus: 'idle',
+        }))
         .mockResolvedValueOnce(usage({
           totals: {
             inputTokens: 1_100_000, outputTokens: 200_000,
@@ -184,6 +270,7 @@ describe('SessionUsageMetrics', () => {
           },
           modelMix: [{ model: 'gpt-5', tokens: 1_300_000, cost: 6 }],
           sessionLastActiveAt: new Date(Date.now() - 6 * 60_000).toISOString(),
+          sessionStatus: 'completed',
         }));
 
       renderMetrics({ ...session(), state: 'live' });
@@ -234,6 +321,48 @@ describe('SessionUsageMetrics', () => {
     }
   });
 
+  test('stops retrying stale status after refresh failures cross the lost threshold', async () => {
+    vi.useFakeTimers();
+    try {
+      const last_active_at = new Date(Date.now() - 29 * 60_000).toISOString();
+      vi.mocked(getAgentSessionUsage)
+        .mockResolvedValueOnce(usage({ sessionLastActiveAt: last_active_at, sessionStatus: 'idle' }))
+        .mockRejectedValue(new Error('refresh failed'));
+
+      renderMetrics({ ...session(), state: 'live' });
+      await act(async () => { await Promise.resolve(); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(2 * 60_000); });
+
+      const calls_after_cutoff = vi.mocked(getAgentSessionUsage).mock.calls.length;
+      expect(calls_after_cutoff).toBeGreaterThan(1);
+      await act(async () => { await vi.advanceTimersByTimeAsync(5 * 60_000); });
+      expect(getAgentSessionUsage).toHaveBeenCalledTimes(calls_after_cutoff);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test('applies the activity cutoff when an older API omits sessionStatus', async () => {
+    vi.useFakeTimers();
+    try {
+      const without_status = {
+        ...usage({ sessionLastActiveAt: new Date().toISOString() }),
+        sessionStatus: undefined,
+      } as unknown as SessionUsageSummary;
+      vi.mocked(getAgentSessionUsage).mockResolvedValue(without_status);
+
+      renderMetrics({ ...session(), state: 'live' });
+      await act(async () => { await Promise.resolve(); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(6 * 60_000); });
+
+      const calls_after_cutoff = vi.mocked(getAgentSessionUsage).mock.calls.length;
+      await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+      expect(getAgentSessionUsage).toHaveBeenCalledTimes(calls_after_cutoff);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   test('keeps polling when a manual retry of a live refresh also fails', async () => {
     vi.useFakeTimers();
     try {
@@ -258,7 +387,8 @@ describe('SessionUsageMetrics', () => {
       await act(async () => { await Promise.resolve(); });
       expect(screen.getByTestId('load-error-panel')).toHaveTextContent('manual refresh failed');
 
-      await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+      // The second consecutive failure backs off to a 30-second retry.
+      await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
 
       expect(getAgentSessionUsage).toHaveBeenCalledTimes(4);
       expect(screen.getByTestId('measured-session-metrics')).toHaveTextContent('$6.00');

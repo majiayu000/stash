@@ -227,6 +227,15 @@ export class SessionScanWorker implements SessionScanExecutor {
     worker.onmessage = (event: MessageEvent<unknown>) => {
       const response = decodeWorkerResponse(event.data);
       if (!response) {
+        const identity = decodeWorkerResponseIdentity(event.data);
+        const pending = identity ? this.pending.get(identity.id) : undefined;
+        if (identity && pending) {
+          this.pending.delete(identity.id);
+          pending.reject(new Error(
+            `session scan worker returned an invalid ${pending.kind} response`,
+          ));
+          return;
+        }
         this.failWorker(worker, new Error('session scan worker returned an unreadable response'));
         return;
       }
@@ -262,6 +271,14 @@ export class SessionScanWorker implements SessionScanExecutor {
     for (const pending of this.pending.values()) pending.reject(error);
     this.pending.clear();
   }
+}
+
+function decodeWorkerResponseIdentity(value: unknown): { id: number; kind: string } | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const response = value as { id?: unknown; kind?: unknown };
+  return typeof response.id === 'number' && typeof response.kind === 'string'
+    ? { id: response.id, kind: response.kind }
+    : undefined;
 }
 
 function decodeWorkerResponse(value: unknown): SessionWorkerResponse | undefined {
@@ -306,6 +323,9 @@ function isUsageSummary(value: unknown): value is SessionUsageSummary {
   if (result.sessionLastActiveAt !== null
     && (typeof result.sessionLastActiveAt !== 'string'
       || !Number.isFinite(Date.parse(result.sessionLastActiveAt)))) return false;
+  if (!['running', 'waiting', 'idle', 'lost', 'completed'].includes(result.sessionStatus ?? '')) {
+    return false;
+  }
   if (!result.totals || typeof result.totals !== 'object') return false;
   const totals = result.totals as Record<string, unknown>;
   const total_fields = [

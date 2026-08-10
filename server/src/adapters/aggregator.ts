@@ -3,6 +3,7 @@ import type {
   AgentSession,
   AgentSessionEvent,
   AgentSessionEventPage,
+  AgentSessionStatus,
   ModelRate,
   SessionUsageSummary,
   UsageEvent,
@@ -192,6 +193,7 @@ export class AgentSourceAggregator {
           return {
             ...summarizeUsage(snapshot.usage, request.rates),
             sessionLastActiveAt: snapshot.lastActiveAt,
+            sessionStatus: snapshot.status,
           };
         }))
       .finally(() => {
@@ -245,7 +247,8 @@ export class AgentSourceAggregator {
       .map((event) => ({ value: event.ts, ms: Date.parse(event.ts) }))
       .filter((timestamp) => Number.isFinite(timestamp.ms))
       .sort((a, b) => b.ms - a.ms);
-    return { usage, lastActiveAt: valid_timestamps[0]?.value ?? null };
+    const lastActiveAt = valid_timestamps[0]?.value ?? null;
+    return { usage, lastActiveAt, status: status_from_activity(lastActiveAt) };
   }
 
   getUsageForScan(
@@ -264,6 +267,15 @@ export class AgentSourceAggregator {
   has(provider: AgentProvider): boolean {
     return this.sources.has(provider);
   }
+}
+
+function status_from_activity(last_active_at: string | null): AgentSessionStatus {
+  if (last_active_at === null) return 'lost';
+  const age_minutes = (Date.now() - Date.parse(last_active_at)) / 60_000;
+  if (!Number.isFinite(age_minutes)) return 'lost';
+  if (age_minutes < 5) return 'running';
+  if (age_minutes < 30) return 'idle';
+  return 'lost';
 }
 
 function usageKey(provider: AgentProvider, sourcePath: string): string {

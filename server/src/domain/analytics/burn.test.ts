@@ -161,14 +161,14 @@ describe('BurnService', () => {
     const s = makeSession({ id: 'a', sourcePath: '/p/a.jsonl', projectId: 'proj-1' });
     const usage: Record<string, UsageEvent[]> = {
       '/p/a.jsonl': [
-        { ts: '2026-05-14T09:00:00.000Z', model: 'claude-opus-4-8', inputTokens: 5_000_000, outputTokens: 1_000_000, sourcePath: '/p/a.jsonl' },
+        { ts: '2026-05-14T09:00:00.000Z', model: 'claude-opus-4-8', inputTokens: 5_000_000, outputTokens: 1_000_000, cacheReadTokens: 250_000, sourcePath: '/p/a.jsonl' },
       ],
     };
     const { data } = await build([s], usage).budgetSpendSnapshotAsync();
 
     expect(data.periods.month.totals.cost).toBe(0);
     expect(data.pricing.unknownModels).toEqual(['claude-opus-4-8']);
-    expect(data.pricing.unpricedTokens).toBe(6_000_000);
+    expect(data.pricing.unpricedTokens).toBe(6_250_000);
   });
 
   test('hourly heatmap places event in the right (dow, hour) cell', () => {
