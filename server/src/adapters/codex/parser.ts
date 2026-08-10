@@ -227,6 +227,7 @@ export function parseCodexUsage(sourcePath: string): UsageEvent[] {
 
 export interface CodexAnalyticsData {
   lastActiveAt: string;
+  status: AgentSessionStatus;
   usage: UsageEvent[];
 }
 
@@ -243,6 +244,8 @@ export function parseCodexAnalytics(
   const reverseRecords: RawRecord[] = [];
   let lastActiveAt: string | undefined;
   let lastActiveMs = Number.NEGATIVE_INFINITY;
+  let lifecycleSeen = false;
+  let lifecycleTerminal = false;
 
   for (const line of readJsonlLinesReverse(sourcePath, undefined, sourceSizeBytes)) {
     if (!line.text.trim()) continue;
@@ -266,6 +269,15 @@ export function parseCodexAnalytics(
         lastActiveMs = timestampMs;
         lastActiveAt = rec.timestamp;
       }
+      const isTerminal = rec.type === 'event_msg'
+        && (rec.payload?.type === 'task_completed' || rec.payload?.type === 'turn_aborted');
+      const isActive = (rec.type === 'event_msg' && rec.payload?.type === 'task_started')
+        || (rec.type === 'response_item'
+          && (rec.payload?.type === 'message' || rec.payload?.type === 'function_call'));
+      if ((isTerminal || isActive) && !lifecycleSeen) {
+        lifecycleSeen = true;
+        lifecycleTerminal = isTerminal;
+      }
     }
 
     const isToken = rec.type === 'event_msg' && rec.payload?.type === 'token_count';
@@ -281,7 +293,11 @@ export function parseCodexAnalytics(
     throw new Error(`Codex session has no valid timestamped records: ${sourcePath}`);
   }
   reverseRecords.reverse();
-  return { lastActiveAt, usage: codexDeltaUsageFromRecords(reverseRecords, sourcePath) };
+  return {
+    lastActiveAt,
+    status: lifecycleTerminal ? 'completed' : computeStatus(lastActiveAt),
+    usage: codexDeltaUsageFromRecords(reverseRecords, sourcePath),
+  };
 }
 
 interface CumulativeTokens {

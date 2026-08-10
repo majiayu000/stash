@@ -239,6 +239,7 @@ function emptyUsageSummary(): SessionUsageSummary {
     modelMix: [],
     pricing: { unknownModels: [], unpricedTokens: 0 },
     sessionLastActiveAt: null,
+    sessionStatus: 'lost',
   };
 }
 

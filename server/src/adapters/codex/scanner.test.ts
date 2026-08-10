@@ -69,6 +69,24 @@ describe('CodexSource.scan', () => {
     expect(u.outputTokens).toBe(420);
     expect(u.cacheReadTokens).toBe(3200);
     expect(u.ts).toBe('2026-05-14T08:00:30.000Z');
+    expect(source.getSessionUsageSnapshot(sessions[0]!.sourcePath).status).toBe('completed');
+  });
+
+  test('derives lifecycle from append order when a resumed turn has an older timestamp', () => {
+    const root = mkdtempSync(join(tmpdir(), 'stash-codex-lifecycle-'));
+    try {
+      const sourcePath = join(root, 'rollout-lifecycle.jsonl');
+      const records = [
+        { timestamp: '2026-05-14T08:00:00.000Z', type: 'session_meta', payload: { id: 'lifecycle', cwd: '/tmp' } },
+        { timestamp: '2026-05-14T08:05:00.000Z', type: 'event_msg', payload: { type: 'task_completed' } },
+        { timestamp: '2026-05-14T08:04:00.000Z', type: 'event_msg', payload: { type: 'task_started' } },
+      ];
+      writeFileSync(sourcePath, `${records.map((record) => JSON.stringify(record)).join('\n')}\n`);
+
+      expect(new CodexSource().getSessionUsageSnapshot(sourcePath).status).toBe('lost');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   test('getSessionUsage preserves the model context for each cumulative delta', () => {

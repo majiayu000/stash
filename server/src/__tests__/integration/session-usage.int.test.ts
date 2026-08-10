@@ -61,7 +61,7 @@ function setupCodexApp(): Hono {
         input_tokens: input,
         output_tokens: output,
         cached_input_tokens: cached,
-        total_tokens: input + output + cached,
+        total_tokens: input + output,
       } },
     },
   });
@@ -110,6 +110,7 @@ describe('GET /api/agent-sessions/:provider/:id/usage', () => {
     expect(res.body.data.totals.cost).toBeCloseTo(21, 10);
     expect(res.body.data.pricing.unknownModels).toEqual([]);
     expect(res.body.data.sessionLastActiveAt).toBe('2026-05-14T09:00:00.000Z');
+    expect(res.body.data.sessionStatus).toBe('lost');
     expect(res.body.data.modelMix).toEqual([
       { model: 'claude-sonnet-4-6', tokens: 3_000_000, cost: 21 },
     ]);
@@ -159,6 +160,7 @@ describe('GET /api/agent-sessions/:provider/:id/usage', () => {
     for (const events of [[priced, unpriced_cache], [unpriced_cache, priced]]) {
       const summary = summarizeUsage(events, rates);
       expect(summary.modelMix).toEqual([{ model: 'k3', tokens: 2_000_000, cost: undefined }]);
+      expect(summary.pricing.unpricedTokens).toBe(1_500_000);
     }
   });
 
@@ -186,8 +188,9 @@ describe('GET /api/agent-sessions/:provider/:id/usage', () => {
       .toEqual(['gpt-4.1', 'gpt-5']);
     expect(res.body.data.totals.cacheReadTokens).toBe(750_000);
     expect(res.body.data.pricing.unknownModels).toEqual([]);
-    // gpt-5: 1M input + .5M cache read; gpt-4.1: 1M input + 1M output + .25M cache read.
-    expect(res.body.data.totals.cost).toBeCloseTo(11.4375, 10);
+    // Codex input totals include cache: gpt-5 has .5M uncached + .5M cache;
+    // gpt-4.1 adds .75M uncached + 1M output + .25M cache.
+    expect(res.body.data.totals.cost).toBeCloseTo(10.3125, 10);
   });
 
   test('404s for a session that does not exist', async () => {

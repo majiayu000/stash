@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { AgentProvider, SessionUsageSummary } from '@stash/shared';
+import type { AgentProvider, AgentSessionStatus, SessionUsageSummary } from '@stash/shared';
 import { isFullyPriced } from '@stash/shared';
 import { getAgentSessionUsage } from '../../api/agent-sessions';
 import { fmt, type WBSession } from '../data';
@@ -7,11 +7,22 @@ import { LoadErrorPanel, Tile, toError } from '../shared';
 
 const LIVE_USAGE_REFRESH_MS = 15_000;
 const LIVE_SESSION_AGE_MS = 5 * 60_000;
+const FAILED_REFRESH_MAX_AGE_MS = 30 * 60_000;
+const MAX_FAILED_REFRESH_MS = 60_000;
 
-function session_is_live(last_active_at: string | null): boolean {
+function session_should_poll(
+  status: AgentSessionStatus | undefined,
+  last_active_at: string | null,
+  refresh_failed: boolean,
+): boolean {
+  if (status === 'lost' || status === 'completed') return false;
   if (last_active_at === null) return false;
   const last_active_ms = Date.parse(last_active_at);
-  return Number.isFinite(last_active_ms) && Date.now() - last_active_ms < LIVE_SESSION_AGE_MS;
+  if (!Number.isFinite(last_active_ms)) return false;
+  const age_ms = Date.now() - last_active_ms;
+  if (status === undefined) return age_ms < LIVE_SESSION_AGE_MS;
+  if (refresh_failed) return age_ms < FAILED_REFRESH_MAX_AGE_MS;
+  return status === 'running' || status === 'waiting' || status === 'idle';
 }
 
 /**
@@ -47,7 +58,12 @@ export function SessionUsageMetrics({
   const last_activity_ref = useRef<{
     key: string;
     last_active_at: string | null;
+    status: AgentSessionStatus;
   } | null>(null);
+  const refresh_failures_ref = useRef({ key: usage_key, count: 0 });
+  if (refresh_failures_ref.current.key !== usage_key) {
+    refresh_failures_ref.current = { key: usage_key, count: 0 };
+  }
   const request_sequence_ref = useRef(0);
   const active_request_ref = useRef<number | null>(null);
   const usage = result.key === usage_key ? result.usage : null;
@@ -64,6 +80,7 @@ export function SessionUsageMetrics({
     let cancelled = false;
     let refresh_timer: number | undefined;
     async function load() {
+      let refresh_failed = false;
       const request_id = request_sequence_ref.current + 1;
       request_sequence_ref.current = request_id;
       active_request_ref.current = request_id;
@@ -76,14 +93,21 @@ export function SessionUsageMetrics({
       try {
         const next = await getAgentSessionUsage(provider, sessionId);
         if (!cancelled) {
+          refresh_failures_ref.current = { key: usage_key, count: 0 };
           last_activity_ref.current = {
             key: usage_key,
             last_active_at: next.sessionLastActiveAt,
+            status: next.sessionStatus,
           };
           setResult({ key: usage_key, usage: next, error: null, loading: false });
         }
       } catch (load_error) {
         if (!cancelled) {
+          refresh_failed = true;
+          refresh_failures_ref.current = {
+            key: usage_key,
+            count: refresh_failures_ref.current.count + 1,
+          };
           setResult((current) => ({
             key: usage_key,
             usage: current.key === usage_key ? current.usage : null,
@@ -96,10 +120,31 @@ export function SessionUsageMetrics({
           active_request_ref.current = null;
         }
         const last_activity = last_activity_ref.current;
-        const session_live = last_activity?.key === usage_key
-          && session_is_live(last_activity.last_active_at);
-        if (!cancelled && session_live) {
-          refresh_timer = window.setTimeout(load, LIVE_USAGE_REFRESH_MS);
+        const should_poll = last_activity?.key === usage_key
+          && session_should_poll(
+            last_activity.status,
+            last_activity.last_active_at,
+            refresh_failed,
+          );
+        if (!cancelled && should_poll) {
+          const failure_count = refresh_failures_ref.current.count;
+          const refresh_delay = refresh_failed
+            ? Math.min(
+                LIVE_USAGE_REFRESH_MS * (2 ** Math.max(0, failure_count - 1)),
+                MAX_FAILED_REFRESH_MS,
+              )
+            : LIVE_USAGE_REFRESH_MS;
+          refresh_timer = window.setTimeout(() => {
+            const latest_activity = last_activity_ref.current;
+            if (latest_activity?.key === usage_key
+              && session_should_poll(
+                latest_activity.status,
+                latest_activity.last_active_at,
+                refresh_failed,
+              )) {
+              void load();
+            }
+          }, refresh_delay);
         }
       }
     }
@@ -159,6 +204,7 @@ export function SessionUsageMetrics({
 
   const fullyPriced = isFullyPriced(usage.pricing);
   const unpricedModels = usage.modelMix.filter((m) => m.cost === undefined);
+  const total_cost = format_session_cost(usage.totals.cost, fullyPriced);
 
   return (
     <>
@@ -170,7 +216,7 @@ export function SessionUsageMetrics({
           <Tile k="tokens" v={fmt.k(usage.totals.tokens)} c="var(--neon-cyan)" />
           <Tile
             k="cost"
-            v={(fullyPriced ? '$' : '≥ $') + usage.totals.cost.toFixed(2)}
+            v={total_cost}
             c={fullyPriced ? 'var(--neon-green)' : 'var(--neon-orange)'}
           />
           <Tile k="input" v={fmt.k(usage.totals.inputTokens)} />
@@ -191,7 +237,7 @@ export function SessionUsageMetrics({
               {entry.cost === undefined ? (
                 <span style={{ color: 'var(--neon-orange)', fontWeight: 600 }} title="no rate configured for this model">no rate</span>
               ) : (
-                <span style={{ color: 'var(--text-primary)' }}>${entry.cost.toFixed(2)}</span>
+                <span style={{ color: 'var(--text-primary)' }}>{format_known_cost(entry.cost)}</span>
               )}
             </div>
           ))}
@@ -206,6 +252,41 @@ export function SessionUsageMetrics({
       {error && <UsageRefreshError provider={provider} sessionId={sessionId} error={error} onRetry={loading ? undefined : retry_usage} />}
     </>
   );
+}
+
+function format_known_cost(cost: number): string {
+  return cost > 0 && cost < 0.01 ? '< $0.01' : `$${cost.toFixed(2)}`;
+}
+
+function format_session_cost(cost: number, fully_priced: boolean): string {
+  if (fully_priced) return format_known_cost(cost);
+  if (cost === 0) return 'unpriced';
+  if (cost < 0.01) {
+    if (cost < 0.00000001) return `≥ $${floor_scientific(cost, 2)}`;
+    const decimals = Math.min(8, Math.max(3, Math.ceil(-Math.log10(cost)) + 1));
+    return `≥ $${floor_fixed(cost, decimals)}`;
+  }
+  return `≥ $${floor_fixed(cost, 2)}`;
+}
+
+function floor_fixed(value: number, decimals: number): string {
+  const scale = 10 ** decimals;
+  let units = Math.floor(value * scale);
+  if (units / scale > value) units--;
+  return (units / scale).toFixed(decimals);
+}
+
+function floor_scientific(value: number, decimals: number): string {
+  const [raw_mantissa, raw_exponent] = value.toExponential(15).split('e');
+  const scale = 10 ** decimals;
+  const exponent = Number(raw_exponent);
+  let units = Math.floor(Number(raw_mantissa) * scale);
+  let mantissa = units / scale;
+  if (Number(`${mantissa}e${exponent}`) > value) {
+    units--;
+    mantissa = units / scale;
+  }
+  return `${mantissa.toFixed(decimals)}e${exponent}`;
 }
 
 function UsageRefreshError({

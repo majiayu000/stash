@@ -75,6 +75,7 @@ self.onmessage = (event: MessageEvent<SessionWorkerRequest>) => {
       const result = {
         ...summarizeUsage(snapshot.usage, request.request.rates),
         sessionLastActiveAt: snapshot.lastActiveAt,
+        sessionStatus: snapshot.status,
       };
       const response: SessionWorkerResponse = {
         id: request.id,

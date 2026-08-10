@@ -130,8 +130,53 @@ describe('SessionScanWorker', () => {
       globalThis.Worker = InvalidPayloadWorker as unknown as typeof Worker;
       const scanner = new SessionScanWorker({ roots: {} });
       await expect(scanner.aggregateBurn(burnRequest({ startMs: 0, days: 1, rates: [] }))).rejects.toThrow(
-        'session scan worker returned an unreadable response',
+        'session scan worker returned an invalid burn response',
       );
+    } finally {
+      globalThis.Worker = originalWorker;
+    }
+  });
+
+  test('rejects an invalid usage response without terminating the shared worker', async () => {
+    const originalWorker = globalThis.Worker;
+    let instances = 0;
+    let terminated = false;
+    class InvalidUsageWorker {
+      onmessage: ((event: MessageEvent) => void) | null = null;
+      onerror: ((event: ErrorEvent) => void) | null = null;
+      onmessageerror: ((event: MessageEvent) => void) | null = null;
+
+      constructor() { instances++; }
+      terminate(): void { terminated = true; }
+      postMessage(request: { id: number; kind: string }): void {
+        const data = request.kind === 'usage-summary'
+          ? {
+              id: request.id,
+              kind: 'usage-summary',
+              result: {
+                totals: {
+                  inputTokens: -1, outputTokens: 0, cacheReadTokens: 0,
+                  cacheWriteTokens: 0, tokens: 0, cost: 0,
+                },
+                modelMix: [],
+                pricing: { unknownModels: [], unpricedTokens: 0 },
+                sessionLastActiveAt: null,
+                sessionStatus: 'idle',
+              },
+            }
+          : { id: request.id, kind: 'scan', result: emptyScanResult() };
+        this.onmessage?.(new MessageEvent('message', { data }));
+      }
+    }
+
+    try {
+      globalThis.Worker = InvalidUsageWorker as unknown as typeof Worker;
+      const scanner = new SessionScanWorker({ roots: {} });
+      await expect(scanner.usageSummary({ provider: 'claude', sourcePath: '/tmp/x', rates: [] }))
+        .rejects.toThrow('session scan worker returned an invalid usage-summary response');
+      await expect(scanner.scan('full', {})).resolves.toEqual(emptyScanResult());
+      expect(instances).toBe(1);
+      expect(terminated).toBe(false);
     } finally {
       globalThis.Worker = originalWorker;
     }
@@ -157,7 +202,7 @@ describe('SessionScanWorker', () => {
       globalThis.Worker = MissingCalendarWorker as unknown as typeof Worker;
       const scanner = new SessionScanWorker({ roots: {} });
       await expect(scanner.aggregateBurn(burnRequest({ startMs: 0, days: 1, rates: [] }))).rejects.toThrow(
-        'session scan worker returned an unreadable response',
+        'session scan worker returned an invalid burn response',
       );
     } finally {
       globalThis.Worker = originalWorker;
@@ -275,6 +320,7 @@ describe('SessionScanWorker', () => {
       });
       expect(result.modelMix).toEqual([{ model: 'custom-model', tokens: 150, cost: 0.002 }]);
       expect(result.sessionLastActiveAt).toBe('2026-05-14T08:00:00.000Z');
+      expect(result.sessionStatus).toBe('lost');
       expect(JSON.stringify(result)).not.toContain(sourcePath);
     } finally {
       rmSync(root, { recursive: true, force: true });
