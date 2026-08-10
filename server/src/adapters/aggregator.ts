@@ -65,6 +65,7 @@ export class AgentSourceAggregator {
   private readonly eventPageInflight = new Map<string, Promise<AgentSessionEventPage>>();
   private readonly decisionInflight = new Map<string, Promise<DecisionCandidate[]>>();
   private readonly usageSummaryInflight = new Map<string, Promise<SessionUsageSummary>>();
+  private readonly sessionSourcePaths = new Map<string, string>();
 
   constructor(
     private readonly sources: Map<AgentProvider, { source: AgentSource; root: string }>,
@@ -118,13 +119,15 @@ export class AgentSourceAggregator {
     }
 
     sessions.sort((a, b) => (a.lastActiveAt < b.lastActiveAt ? 1 : -1));
-    return {
+    const result = {
       sessions,
       errors,
       cache: aggregateCacheStats(sourceStats, 'fresh'),
       ...(usageBySource.size > 0 ? { usageBySource } : {}),
       ...(fingerprintsBySource.size > 0 ? { fingerprintsBySource } : {}),
     };
+    this.rememberSessionSourcePaths(result.sessions);
+    return result;
   }
 
   scanAsync(options: AggregateOptions = {}): Promise<AggregateResult> {
@@ -203,6 +206,15 @@ export class AgentSourceAggregator {
     return pending;
   }
 
+  /**
+   * Resolve a session already discovered by a recent list/detail scan without
+   * recursively walking the provider root again. Session detail loads always
+   * perform such a scan before their live usage polling starts.
+   */
+  sessionSourcePath(provider: AgentProvider, sessionId: string): string | undefined {
+    return this.sessionSourcePaths.get(sessionKey(provider, sessionId));
+  }
+
   private scanWithSingleflight(
     options: AggregateOptions,
     mode: SessionScanMode,
@@ -214,11 +226,24 @@ export class AgentSourceAggregator {
     const pending = (this.scanExecutor
       ? this.scanExecutor.scan(mode, options)
       : Promise.resolve().then(() => mode === 'activity' ? this.scanActivity(options) : this.scan(options)))
+      .then((result) => {
+        this.rememberSessionSourcePaths(result.sessions);
+        return result;
+      })
       .finally(() => {
         this.inflight.delete(key);
       });
     this.inflight.set(key, pending);
     return pending;
+  }
+
+  private rememberSessionSourcePaths(sessions: AgentSession[]): void {
+    const newest = new Map<string, string>();
+    for (const session of sessions) {
+      const key = sessionKey(session.provider, session.id);
+      if (!newest.has(key)) newest.set(key, session.sourcePath);
+    }
+    for (const [key, sourcePath] of newest) this.sessionSourcePaths.set(key, sourcePath);
   }
 
   getEvents(provider: AgentProvider, sourcePath: string, limit?: number): AgentSessionEvent[] {
@@ -280,6 +305,10 @@ function status_from_activity(last_active_at: string | null): AgentSessionStatus
 
 function usageKey(provider: AgentProvider, sourcePath: string): string {
   return `${provider}\0${sourcePath}`;
+}
+
+function sessionKey(provider: AgentProvider, sessionId: string): string {
+  return `${provider}\0${sessionId}`;
 }
 
 function scanKey(options: AggregateOptions, mode: SessionScanMode): string {

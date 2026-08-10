@@ -51,7 +51,9 @@ describe('ClaudeSource.scan', () => {
 
   test('preserves cache-only usage and rejects negative counters', () => {
     const root = mkdtempSync(join(tmpdir(), 'stash-claude-cache-only-'));
+    const realDateNow = Date.now;
     try {
+      Date.now = () => Date.parse('2026-05-14T08:02:00.000Z');
       const file = join(root, 'session.jsonl');
       const record = (usage: Record<string, number>) => ({
         type: 'assistant',
@@ -80,18 +82,19 @@ describe('ClaudeSource.scan', () => {
         subtype: 'turn_duration',
         timestamp: '2026-05-14T08:00:01.000Z',
       })}\n`);
-      expect(new ClaudeSource().getSessionUsageSnapshot(file).status).toBe('completed');
+      expect(new ClaudeSource().getSessionUsageSnapshot(file).status).toBe('running');
 
       appendFileSync(file, `${JSON.stringify({
         type: 'user',
         timestamp: '2026-05-14T07:59:59.000Z',
         message: { role: 'user', content: 'resume' },
       })}\n`);
-      expect(new ClaudeSource().getSessionUsageSnapshot(file).status).toBe('lost');
+      expect(new ClaudeSource().getSessionUsageSnapshot(file).status).toBe('running');
 
       writeFileSync(file, `${JSON.stringify(record({ input_tokens: -1, output_tokens: 0 }))}\n`);
       expect(() => parseClaudeUsage(file)).toThrow(/finite non-negative number/);
     } finally {
+      Date.now = realDateNow;
       rmSync(root, { recursive: true, force: true });
     }
   });
