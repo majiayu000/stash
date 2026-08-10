@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import type {
   AgentProvider,
+  AgentSession,
   AgentSessionEvent,
   AgentSessionEventPage,
   ModelRate,
@@ -41,6 +42,21 @@ class CountingSource implements AgentSource {
   getUsage(_sourcePath: string): UsageEvent[] {
     return [];
   }
+}
+
+function session(id: string, sourcePath: string): AgentSession {
+  return {
+    id,
+    provider: 'claude',
+    sourcePath,
+    cwd: '/tmp/project',
+    status: 'idle',
+    title: id,
+    filesTouched: [],
+    toolCount: 0,
+    messageCount: 0,
+    lastActiveAt: '2026-05-14T08:00:00.000Z',
+  };
 }
 
 class CountingExecutor implements SessionScanExecutor {
@@ -121,6 +137,32 @@ describe('AgentSourceAggregator.scanAsync', () => {
     await Promise.all([full, activity]);
     expect(source.scanCount).toBe(1);
     expect(source.activityScanCount).toBe(1);
+  });
+
+  test('indexes worker scan results for direct session-path reuse', async () => {
+    let scanCount = 0;
+    const discovered = session('session-1', '/tmp/session-1.jsonl');
+    const executor: SessionScanExecutor = {
+      scan: async () => {
+        scanCount++;
+        return {
+          sessions: [discovered],
+          errors: [],
+          cache: emptyBurnAggregate().cache,
+        };
+      },
+      aggregateBurn: () => Promise.reject(new Error('unused')),
+      eventPage: () => Promise.reject(new Error('unused')),
+      decisionCandidates: () => Promise.reject(new Error('unused')),
+      usageSummary: () => Promise.reject(new Error('unused')),
+    };
+    const aggregator = new AgentSourceAggregator(new Map(), executor);
+
+    expect(aggregator.sessionSourcePath('claude', 'session-1')).toBeUndefined();
+    await aggregator.scanAsync({ provider: 'claude' });
+    expect(aggregator.sessionSourcePath('claude', 'session-1')).toBe('/tmp/session-1.jsonl');
+    expect(aggregator.sessionSourcePath('codex', 'session-1')).toBeUndefined();
+    expect(scanCount).toBe(1);
   });
 
   test('shares Burn work only when window and complete rates match', async () => {

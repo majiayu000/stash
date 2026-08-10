@@ -219,7 +219,6 @@ export function parseClaudeAnalytics(
   const usage: UsageEvent[] = [];
   let lastActiveAt: string | undefined;
   let lastActiveMs = Number.NEGATIVE_INFINITY;
-  let lifecycleTerminal = false;
   for (const rec of parseClaudeAnalyticsRecords(raw, sourcePath)) {
     if (rec.timestamp) {
       const timestampMs = Date.parse(rec.timestamp);
@@ -229,12 +228,6 @@ export function parseClaudeAnalytics(
       if (timestampMs >= lastActiveMs) {
         lastActiveMs = timestampMs;
         lastActiveAt = rec.timestamp;
-      }
-      const isTerminal = rec.type === 'system'
-        && (rec.subtype === 'turn_duration' || rec.subtype === 'stop_hook_summary');
-      const isActive = rec.type === 'user' || rec.type === 'assistant';
-      if (isTerminal || isActive) {
-        lifecycleTerminal = isTerminal;
       }
     }
     const event = claudeUsageEvent(rec, sourcePath);
@@ -248,7 +241,9 @@ export function parseClaudeAnalytics(
   if (!lastActiveAt) throw new Error(`Claude session has no valid timestamped records: ${sourcePath}`);
   return {
     lastActiveAt,
-    status: lifecycleTerminal ? 'completed' : computeStatus(lastActiveAt),
+    // turn_duration and stop_hook_summary close one turn, not the resumable
+    // JSONL session. Freshness is the only reliable whole-session signal.
+    status: computeStatus(lastActiveAt),
     usage,
   };
 }

@@ -129,6 +129,20 @@ describe('GET /api/agent-sessions/:provider/:id/usage', () => {
     expect(res.body.data.totals.inputTokens).toBe(2_000_000);
   });
 
+  test('reuses the discovered source path instead of rescanning on every usage poll', async () => {
+    const app = setupApp([
+      { model: 'claude-sonnet-4-6', input: 1_000, output: 500, at: '2026-05-14T08:00:00.000Z' },
+    ]);
+
+    const first = await jsonReq(app, 'GET', usagePath);
+    const second = await jsonReq(app, 'GET', usagePath);
+
+    expect(first.status).toBe(200);
+    expect(first.body.cache).toBeDefined();
+    expect(second.status).toBe(200);
+    expect(second.body.cache).toBeUndefined();
+  });
+
   test('reports an unpriced model instead of counting it as free', async () => {
     const app = setupApp([
       { model: 'claude-sonnet-4-6', input: 1_000_000, output: 0, at: '2026-05-14T08:00:00.000Z' },

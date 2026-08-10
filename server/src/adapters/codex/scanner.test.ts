@@ -69,12 +69,14 @@ describe('CodexSource.scan', () => {
     expect(u.outputTokens).toBe(420);
     expect(u.cacheReadTokens).toBe(3200);
     expect(u.ts).toBe('2026-05-14T08:00:30.000Z');
-    expect(source.getSessionUsageSnapshot(sessions[0]!.sourcePath).status).toBe('completed');
+    expect(source.getSessionUsageSnapshot(sessions[0]!.sourcePath).status).toBe('lost');
   });
 
-  test('derives lifecycle from append order when a resumed turn has an older timestamp', () => {
+  test('does not treat a per-turn completion marker as a terminal session state', () => {
     const root = mkdtempSync(join(tmpdir(), 'stash-codex-lifecycle-'));
+    const realDateNow = Date.now;
     try {
+      Date.now = () => Date.parse('2026-05-14T08:06:00.000Z');
       const sourcePath = join(root, 'rollout-lifecycle.jsonl');
       const records = [
         { timestamp: '2026-05-14T08:00:00.000Z', type: 'session_meta', payload: { id: 'lifecycle', cwd: '/tmp' } },
@@ -83,8 +85,9 @@ describe('CodexSource.scan', () => {
       ];
       writeFileSync(sourcePath, `${records.map((record) => JSON.stringify(record)).join('\n')}\n`);
 
-      expect(new CodexSource().getSessionUsageSnapshot(sourcePath).status).toBe('lost');
+      expect(new CodexSource().getSessionUsageSnapshot(sourcePath).status).toBe('running');
     } finally {
+      Date.now = realDateNow;
       rmSync(root, { recursive: true, force: true });
     }
   });

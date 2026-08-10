@@ -127,15 +127,20 @@ export function createAgentSessionsRouter(
     try {
       const provider = ProviderParam.parse(c.req.param('provider'));
       const id = c.req.param('id');
-      const { sessions, cache } = await aggregator.scanAsync({ provider });
-      const found = sessions.find((s) => s.id === id);
-      if (!found) return c.json({ error: { code: 'NOT_FOUND', message: 'session not found' } }, 404);
+      let sourcePath = aggregator.sessionSourcePath(provider, id);
+      let cache;
+      if (!sourcePath) {
+        const scan = await aggregator.scanAsync({ provider });
+        cache = scan.cache;
+        sourcePath = scan.sessions.find((session) => session.id === id)?.sourcePath;
+      }
+      if (!sourcePath) return c.json({ error: { code: 'NOT_FOUND', message: 'session not found' } }, 404);
       const data = await aggregator.getUsageSummaryAsync({
         provider,
-        sourcePath: found.sourcePath,
+        sourcePath,
         rates: rates(),
       });
-      return c.json({ data, cache });
+      return c.json({ data, ...(cache ? { cache } : {}) });
     } catch (e) {
       return handleError(c, e);
     }
