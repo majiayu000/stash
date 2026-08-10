@@ -1,4 +1,4 @@
-import type { CalendarRange } from './calendar.js';
+import { parse_calendar_date, type CalendarRange } from './calendar.js';
 
 /**
  * Per-million-token rates (USD). Sources: published Anthropic/OpenAI rate cards.
@@ -252,7 +252,23 @@ export function findModelRate(
 
 /** Canonical family id used by provider rate cards for dated transcript ids. */
 export function normalize_model_rate_id(model: string): string {
-  return model.trim().replace(/-(?:\d{8}|\d{4}-\d{2}-\d{2})$/, '');
+  const trimmed_model = model.trim();
+  const suffix = /-(\d{8}|\d{4}-\d{2}-\d{2})$/.exec(trimmed_model);
+  if (!suffix) return trimmed_model;
+
+  const raw_date = suffix[1]!;
+  const calendar_date = raw_date.includes('-')
+    ? raw_date
+    : `${raw_date.slice(0, 4)}-${raw_date.slice(4, 6)}-${raw_date.slice(6, 8)}`;
+  try {
+    parse_calendar_date(calendar_date);
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith('invalid calendar date')) {
+      return trimmed_model;
+    }
+    throw error;
+  }
+  return trimmed_model.slice(0, suffix.index);
 }
 
 /**

@@ -6,6 +6,7 @@ import {
   fixedClock,
   findModelRate,
   mergeModelRates,
+  normalize_model_rate_id,
 } from '@stash/shared';
 import { freshDb } from '../../db/test-helpers.js';
 import { ModelRateNotFoundError, ModelRateService } from './service.js';
@@ -89,6 +90,23 @@ describe('ModelRateService', () => {
     expect(stored.model).toBe('deepseek-v4');
     expect(findModelRate('deepseek-v4-20260401', svc.effectiveRates())?.inputPerM).toBe(0.5);
     expect(findModelRate('deepseek-v4-2026-04-01', svc.effectiveRates())?.inputPerM).toBe(0.5);
+  });
+
+  test('canonicalizes only suffixes that are real calendar dates', () => {
+    expect(normalize_model_rate_id('deepseek-v4-20240229')).toBe('deepseek-v4');
+    expect(normalize_model_rate_id('deepseek-v4-2026-04-01')).toBe('deepseek-v4');
+
+    for (const model of [
+      'deepseek-v4-00000101',
+      'deepseek-v4-20260229',
+      'deepseek-v4-20260431',
+      'deepseek-v4-20261301',
+      'deepseek-v4-2026-02-29',
+    ]) {
+      expect(normalize_model_rate_id(model)).toBe(model);
+      expect(findModelRate(model, [{ model: 'deepseek-v4', inputPerM: 1, outputPerM: 2 }]))
+        .toBeUndefined();
+    }
   });
 
   test('upsert removes a legacy dated row that would otherwise shadow the canonical rate', () => {
