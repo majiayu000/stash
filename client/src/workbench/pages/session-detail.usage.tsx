@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { AgentProvider, SessionUsageSummary } from '@stash/shared';
 import { isFullyPriced } from '@stash/shared';
 import { getAgentSessionUsage } from '../../api/agent-sessions';
@@ -41,21 +41,46 @@ export function SessionUsageMetrics({
     key: string;
     usage: SessionUsageSummary | null;
     error: Error | null;
-  }>({ key: usage_key, usage: null, error: null });
+    loading: boolean;
+  }>({ key: usage_key, usage: null, error: null, loading: false });
   const [retry_tick, setRetryTick] = useState(0);
+  const last_activity_ref = useRef<{
+    key: string;
+    last_active_at: string | null;
+  } | null>(null);
+  const request_sequence_ref = useRef(0);
+  const active_request_ref = useRef<number | null>(null);
   const usage = result.key === usage_key ? result.usage : null;
   const error = result.key === usage_key ? result.error : null;
+  const loading = result.key === usage_key && result.loading;
+
+  function retry_usage() {
+    if (active_request_ref.current === null) {
+      setRetryTick((tick) => tick + 1);
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
     let refresh_timer: number | undefined;
     async function load() {
-      let continue_refresh = false;
+      const request_id = request_sequence_ref.current + 1;
+      request_sequence_ref.current = request_id;
+      active_request_ref.current = request_id;
+      setResult((current) => ({
+        key: usage_key,
+        usage: current.key === usage_key ? current.usage : null,
+        error: current.key === usage_key ? current.error : null,
+        loading: true,
+      }));
       try {
         const next = await getAgentSessionUsage(provider, sessionId);
         if (!cancelled) {
-          setResult({ key: usage_key, usage: next, error: null });
-          continue_refresh = session_is_live(next.sessionLastActiveAt);
+          last_activity_ref.current = {
+            key: usage_key,
+            last_active_at: next.sessionLastActiveAt,
+          };
+          setResult({ key: usage_key, usage: next, error: null, loading: false });
         }
       } catch (load_error) {
         if (!cancelled) {
@@ -63,10 +88,17 @@ export function SessionUsageMetrics({
             key: usage_key,
             usage: current.key === usage_key ? current.usage : null,
             error: toError(load_error),
+            loading: false,
           }));
         }
       } finally {
-        if (!cancelled && continue_refresh) {
+        if (active_request_ref.current === request_id) {
+          active_request_ref.current = null;
+        }
+        const last_activity = last_activity_ref.current;
+        const session_live = last_activity?.key === usage_key
+          && session_is_live(last_activity.last_active_at);
+        if (!cancelled && session_live) {
           refresh_timer = window.setTimeout(load, LIVE_USAGE_REFRESH_MS);
         }
       }
@@ -84,7 +116,7 @@ export function SessionUsageMetrics({
         title="measured session usage failed to load"
         endpoint={`/api/agent-sessions/${provider}/${sessionId}/usage`}
         error={error}
-        onRetry={() => setRetryTick((tick) => tick + 1)}
+        onRetry={loading ? undefined : retry_usage}
         compact
       />
     );
@@ -106,7 +138,10 @@ export function SessionUsageMetrics({
 
   // No usage records at all is a real answer — the session did no billable
   // work — and is not the same as usage that could not be priced.
-  if (usage.totals.tokens === 0) {
+  const has_recorded_usage = usage.totals.tokens > 0
+    || usage.totals.cacheReadTokens > 0
+    || usage.totals.cacheWriteTokens > 0;
+  if (!has_recorded_usage) {
     return (
       <>
         <div className="surface" data-testid="measured-session-metrics" style={{ padding: '1rem' }}>
@@ -117,7 +152,7 @@ export function SessionUsageMetrics({
             no token usage recorded for this session · {fmt.dur(session.estimatedDuration)} estimated duration
           </div>
         </div>
-        {error && <UsageRefreshError provider={provider} sessionId={sessionId} error={error} onRetry={() => setRetryTick((tick) => tick + 1)} />}
+        {error && <UsageRefreshError provider={provider} sessionId={sessionId} error={error} onRetry={loading ? undefined : retry_usage} />}
       </>
     );
   }
@@ -168,7 +203,7 @@ export function SessionUsageMetrics({
           </div>
         )}
       </div>
-      {error && <UsageRefreshError provider={provider} sessionId={sessionId} error={error} onRetry={() => setRetryTick((tick) => tick + 1)} />}
+      {error && <UsageRefreshError provider={provider} sessionId={sessionId} error={error} onRetry={loading ? undefined : retry_usage} />}
     </>
   );
 }
@@ -182,7 +217,7 @@ function UsageRefreshError({
   provider: AgentProvider;
   sessionId: string;
   error: Error;
-  onRetry: () => void;
+  onRetry?: () => void;
 }) {
   return (
     <LoadErrorPanel

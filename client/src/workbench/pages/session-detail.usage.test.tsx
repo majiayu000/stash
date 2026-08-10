@@ -11,6 +11,19 @@ vi.mock('../../api/agent-sessions', () => ({
   getAgentSessionUsage: vi.fn(),
 }));
 
+interface Deferred<T> {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+}
+
+function deferred<T>(): Deferred<T> {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((yes) => {
+    resolve = yes;
+  });
+  return { promise, resolve };
+}
+
 function session(): WBSession {
   return {
     id: 'codex-fixture-1',
@@ -139,6 +152,25 @@ describe('SessionUsageMetrics', () => {
     expect(metrics).toHaveTextContent(/cache write/);
   });
 
+  test('renders cache-only usage as measured billable activity', async () => {
+    vi.mocked(getAgentSessionUsage).mockResolvedValue(usage({
+      totals: {
+        inputTokens: 0, outputTokens: 0,
+        cacheReadTokens: 250_000, cacheWriteTokens: 50_000,
+        tokens: 0, cost: 0.25,
+      },
+      modelMix: [{ model: 'gpt-5', tokens: 0, cost: 0.25 }],
+    }));
+
+    renderMetrics();
+
+    const metrics = await screen.findByTestId('measured-session-metrics');
+    expect(metrics).toHaveTextContent('$0.25');
+    expect(metrics).toHaveTextContent(/cache read/);
+    expect(metrics).toHaveTextContent(/cache write/);
+    expect(metrics).not.toHaveTextContent('no token usage recorded');
+  });
+
   test('refreshes measured usage while the session is live', async () => {
     vi.useFakeTimers();
     try {
@@ -170,7 +202,7 @@ describe('SessionUsageMetrics', () => {
     }
   });
 
-  test('preserves measured usage and retries after a live refresh fails', async () => {
+  test('preserves measured usage and automatically retries after a live refresh fails', async () => {
     vi.useFakeTimers();
     try {
       vi.mocked(getAgentSessionUsage)
@@ -192,11 +224,70 @@ describe('SessionUsageMetrics', () => {
       expect(screen.getByTestId('measured-session-metrics')).toHaveTextContent('$4.50');
       expect(screen.getByTestId('load-error-panel')).toHaveTextContent('refresh failed');
 
-      fireEvent.click(screen.getByRole('button', { name: 'retry' }));
-      await act(async () => { await Promise.resolve(); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
 
       expect(getAgentSessionUsage).toHaveBeenCalledTimes(3);
       expect(screen.getByTestId('measured-session-metrics')).toHaveTextContent('$6.00');
+      expect(screen.queryByTestId('load-error-panel')).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test('keeps polling when a manual retry of a live refresh also fails', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.mocked(getAgentSessionUsage)
+        .mockResolvedValueOnce(usage({ sessionLastActiveAt: new Date().toISOString() }))
+        .mockRejectedValueOnce(new Error('automatic refresh failed'))
+        .mockRejectedValueOnce(new Error('manual refresh failed'))
+        .mockResolvedValueOnce(usage({
+          totals: {
+            inputTokens: 1_100_000, outputTokens: 200_000,
+            cacheReadTokens: 0, cacheWriteTokens: 0,
+            tokens: 1_300_000, cost: 6,
+          },
+          modelMix: [{ model: 'gpt-5', tokens: 1_300_000, cost: 6 }],
+        }));
+
+      renderMetrics({ ...session(), state: 'live' });
+      await act(async () => { await Promise.resolve(); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+
+      fireEvent.click(screen.getByRole('button', { name: 'retry' }));
+      await act(async () => { await Promise.resolve(); });
+      expect(screen.getByTestId('load-error-panel')).toHaveTextContent('manual refresh failed');
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+
+      expect(getAgentSessionUsage).toHaveBeenCalledTimes(4);
+      expect(screen.getByTestId('measured-session-metrics')).toHaveTextContent('$6.00');
+      expect(screen.queryByTestId('load-error-panel')).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test('does not expose manual retry while an automatic retry is in flight', async () => {
+    vi.useFakeTimers();
+    try {
+      const retry_request = deferred<SessionUsageSummary>();
+      vi.mocked(getAgentSessionUsage)
+        .mockResolvedValueOnce(usage({ sessionLastActiveAt: new Date().toISOString() }))
+        .mockRejectedValueOnce(new Error('refresh failed'))
+        .mockReturnValueOnce(retry_request.promise);
+
+      renderMetrics({ ...session(), state: 'live' });
+      await act(async () => { await Promise.resolve(); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+      expect(screen.getByRole('button', { name: 'retry' })).toBeInTheDocument();
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+
+      expect(getAgentSessionUsage).toHaveBeenCalledTimes(3);
+      expect(screen.queryByRole('button', { name: 'retry' })).not.toBeInTheDocument();
+
+      await act(async () => retry_request.resolve(usage()));
       expect(screen.queryByTestId('load-error-panel')).not.toBeInTheDocument();
     } finally {
       vi.useRealTimers();
