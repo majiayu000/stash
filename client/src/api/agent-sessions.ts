@@ -2,6 +2,7 @@ import type {
   AgentProvider,
   AgentSession,
   AgentSessionEventPage,
+  SessionUsageSummary,
 } from '@stash/shared';
 import type { DecisionCandidateRecord } from '@stash/shared';
 import { apiDelete, apiGet, apiPost } from './client';
@@ -53,6 +54,17 @@ export async function getAgentSession(
 ): Promise<AgentSessionWithLinks> {
   const res = await apiGet<{ data: AgentSessionWithLinks }>(
     `/agent-sessions/${provider}/${encodeURIComponent(id)}`,
+  );
+  return res.data;
+}
+
+/** Measured token usage for one session, with its own pricing coverage. */
+export async function getAgentSessionUsage(
+  provider: AgentProvider,
+  id: string,
+): Promise<SessionUsageSummary> {
+  const res = await apiGet<{ data: SessionUsageSummary }>(
+    `/agent-sessions/${provider}/${encodeURIComponent(id)}/usage`,
   );
   return res.data;
 }

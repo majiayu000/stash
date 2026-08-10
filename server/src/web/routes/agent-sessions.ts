@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
+import type { ModelRate } from '@stash/shared';
 import type { AgentSourceAggregator } from '../../adapters/aggregator.js';
 import type { DecisionCandidateService } from '../../domain/capture/decision-candidates.js';
 import type { WorkItemSessionService } from '../../domain/work-item-session/service.js';
@@ -35,6 +36,7 @@ export function createAgentSessionsRouter(
   aggregator: AgentSourceAggregator,
   links: WorkItemSessionService,
   candidates: DecisionCandidateService,
+  rates: () => ModelRate[],
 ): Hono {
   const r = new Hono();
 
@@ -108,6 +110,37 @@ export function createAgentSessionsRouter(
         limit: query.limit,
       });
       return c.json({ ...page, count: page.data.length, cache });
+    } catch (e) {
+      return handleError(c, e);
+    }
+  });
+
+  /**
+   * Measured usage for one session.
+   *
+   * Reads the session's own file rather than the list scan's window-scoped
+   * usage: this is a per-session total, and a bounded window would silently
+   * undercount a session that started before it. The list scan is untouched —
+   * it already drives a full JSONL sweep and must not get more expensive.
+   */
+  r.get('/:provider/:id/usage', async (c) => {
+    try {
+      const provider = ProviderParam.parse(c.req.param('provider'));
+      const id = c.req.param('id');
+      let sourcePath = aggregator.sessionSourcePath(provider, id);
+      let cache;
+      if (!sourcePath) {
+        const scan = await aggregator.scanAsync({ provider });
+        cache = scan.cache;
+        sourcePath = scan.sessions.find((session) => session.id === id)?.sourcePath;
+      }
+      if (!sourcePath) return c.json({ error: { code: 'NOT_FOUND', message: 'session not found' } }, 404);
+      const data = await aggregator.getUsageSummaryAsync({
+        provider,
+        sourcePath,
+        rates: rates(),
+      });
+      return c.json({ data, ...(cache ? { cache } : {}) });
     } catch (e) {
       return handleError(c, e);
     }

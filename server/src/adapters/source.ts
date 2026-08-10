@@ -1,4 +1,10 @@
-import type { AgentProvider, AgentSession, AgentSessionEvent, UsageEvent } from '@stash/shared';
+import type {
+  AgentProvider,
+  AgentSession,
+  AgentSessionEvent,
+  AgentSessionStatus,
+  UsageEvent,
+} from '@stash/shared';
 import type { SessionFileFingerprint } from './session-cache.js';
 
 export interface ScanOptions {
@@ -41,6 +47,14 @@ export interface SourceParseError {
   message: string;
 }
 
+export interface SessionUsageSnapshot {
+  /** Null only for a source that cannot report activity independently of usage. */
+  lastActiveAt: string | null;
+  /** Lifecycle state derived by the source during the same parse. */
+  status: AgentSessionStatus;
+  usage: UsageEvent[];
+}
+
 export interface AgentSource {
   provider: AgentProvider;
   scan(options: ScanOptions): SourceScanResult;
@@ -49,4 +63,6 @@ export interface AgentSource {
   getEvents(sourcePath: string, limit?: number): AgentSessionEvent[];
   /** Extract token usage events from a parsed session file. Empty when unsupported. */
   getUsage(sourcePath: string, fingerprint?: SessionFileFingerprint): UsageEvent[];
+  /** Full-session usage and freshness produced by the same parse. */
+  getSessionUsageSnapshot?(sourcePath: string): SessionUsageSnapshot;
 }

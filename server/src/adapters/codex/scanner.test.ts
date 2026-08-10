@@ -69,6 +69,98 @@ describe('CodexSource.scan', () => {
     expect(u.outputTokens).toBe(420);
     expect(u.cacheReadTokens).toBe(3200);
     expect(u.ts).toBe('2026-05-14T08:00:30.000Z');
+    expect(source.getSessionUsageSnapshot(sessions[0]!.sourcePath).status).toBe('lost');
+  });
+
+  test('does not treat a per-turn completion marker as a terminal session state', () => {
+    const root = mkdtempSync(join(tmpdir(), 'stash-codex-lifecycle-'));
+    const realDateNow = Date.now;
+    try {
+      Date.now = () => Date.parse('2026-05-14T08:06:00.000Z');
+      const sourcePath = join(root, 'rollout-lifecycle.jsonl');
+      const records = [
+        { timestamp: '2026-05-14T08:00:00.000Z', type: 'session_meta', payload: { id: 'lifecycle', cwd: '/tmp' } },
+        { timestamp: '2026-05-14T08:05:00.000Z', type: 'event_msg', payload: { type: 'task_completed' } },
+        { timestamp: '2026-05-14T08:04:00.000Z', type: 'event_msg', payload: { type: 'task_started' } },
+      ];
+      writeFileSync(sourcePath, `${records.map((record) => JSON.stringify(record)).join('\n')}\n`);
+
+      expect(new CodexSource().getSessionUsageSnapshot(sourcePath).status).toBe('running');
+    } finally {
+      Date.now = realDateNow;
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('getSessionUsage preserves the model context for each cumulative delta', () => {
+    const root = mkdtempSync(join(tmpdir(), 'stash-codex-session-usage-'));
+    try {
+      const sourcePath = join(root, 'rollout-models.jsonl');
+      const token = (timestamp: string, input: number, output: number) => ({
+        timestamp,
+        type: 'event_msg',
+        payload: {
+          type: 'token_count',
+          info: { total_token_usage: { input_tokens: input, output_tokens: output } },
+        },
+      });
+      const records = [
+        { timestamp: '2026-05-14T08:00:00.000Z', type: 'session_meta', payload: { id: 'models', cwd: '/tmp' } },
+        { timestamp: '2026-05-14T08:01:00.000Z', type: 'turn_context', payload: { model: 'gpt-5' } },
+        token('2026-05-14T08:02:00.000Z', 100, 10),
+        { timestamp: '2026-05-14T08:03:00.000Z', type: 'turn_context', payload: { model: 'gpt-4.1' } },
+        token('2026-05-14T08:04:00.000Z', 150, 30),
+      ];
+      writeFileSync(sourcePath, `${records.map((record) => JSON.stringify(record)).join('\n')}\n`);
+
+      expect(new CodexSource().getSessionUsageSnapshot(sourcePath).usage.map((event) => [
+        event.model,
+        event.inputTokens,
+        event.outputTokens,
+      ])).toEqual([
+        ['gpt-5', 100, 10],
+        ['gpt-4.1', 50, 20],
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('getSessionUsage retains a delta containing only cached input growth', () => {
+    const root = mkdtempSync(join(tmpdir(), 'stash-codex-cache-only-'));
+    try {
+      const sourcePath = join(root, 'rollout-cache-only.jsonl');
+      const token = (timestamp: string, input: number, output: number, cached: number) => ({
+        timestamp,
+        type: 'event_msg',
+        payload: {
+          type: 'token_count',
+          info: { total_token_usage: {
+            input_tokens: input,
+            output_tokens: output,
+            cached_input_tokens: cached,
+          } },
+        },
+      });
+      const records = [
+        { timestamp: '2026-05-14T08:00:00.000Z', type: 'session_meta', payload: { id: 'cache-only', cwd: '/tmp' } },
+        { timestamp: '2026-05-14T08:01:00.000Z', type: 'turn_context', payload: { model: 'gpt-5' } },
+        token('2026-05-14T08:02:00.000Z', 100, 10, 20),
+        token('2026-05-14T08:03:00.000Z', 110, 10, 30),
+      ];
+      writeFileSync(sourcePath, `${records.map((record) => JSON.stringify(record)).join('\n')}\n`);
+
+      const usage = new CodexSource().getSessionUsageSnapshot(sourcePath).usage;
+
+      expect(usage).toHaveLength(2);
+      expect(usage[1]).toMatchObject({
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 10,
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   test('getUsage returns empty when the session has no token_count events', () => {

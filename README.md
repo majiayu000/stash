@@ -108,7 +108,7 @@ from the object they act on, rather than appearing as unrelated destinations.
 | `/projects/:projectId/settings` | edit or delete one project |
 | `/sessions` | live agents and session history |
 | `/sessions/new?todoId=...` | start a session from a specific task |
-| `/sessions/:provider/:sessionId` | transcript, tools, files, related task, and project context |
+| `/sessions/:provider/:sessionId` | transcript, tools, files, measured usage, related task, and project context |
 | `/sessions/:sessionId` | compatibility link; redirects only when the provider is unambiguous |
 | `/review` | weekly review and next-week planning |
 | `/review/usage` | token, cost, model, project, and budget review |
@@ -286,8 +286,8 @@ Current highest-priority gaps:
 - Skills library: search + tabs filter, install/uninstall, per-project bindings,
   new-skill creation, delete with binding cleanup, install command copy
 - Provider-qualified session detail with exact old-session lookup, bounded
-  incremental transcript pages, complete tool/file summaries, and legacy-link
-  disambiguation
+  incremental transcript pages, complete tool/file summaries, measured
+  per-session tokens and cost, and legacy-link disambiguation
 - Decision candidate extraction from JSONL (accept/ignore inline)
 - Connected session starter: composes a prompt and spawns Claude / Codex
 - Analytics: configured-zone rolling burn (daily spend / hourly heatmap / model

@@ -30,7 +30,7 @@ const PAGE_MARKERS: Record<PageMarker, (page: Page) => Locator> = {
   'project-detail': (page) => page.getByTestId('kw-intent'),
   sessions: (page) => page.locator('.sessions-page'),
   'session-start': (page) => page.getByTestId('ss-prompt'),
-  'session-detail': (page) => page.getByTestId('estimated-session-metrics'),
+  'session-detail': (page) => page.getByTestId('measured-session-metrics'),
   review: (page) => page.getByText(/\b\d{4}-W\d{2}\b/).first(),
   usage: (page) => page.getByText(/no usage data yet|last 30 days/i).first(),
   settings: (page) => page.locator('h2', { hasText: 'appearance' }),

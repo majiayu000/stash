@@ -227,6 +227,7 @@ export function parseCodexUsage(sourcePath: string): UsageEvent[] {
 
 export interface CodexAnalyticsData {
   lastActiveAt: string;
+  status: AgentSessionStatus;
   usage: UsageEvent[];
 }
 
@@ -281,7 +282,13 @@ export function parseCodexAnalytics(
     throw new Error(`Codex session has no valid timestamped records: ${sourcePath}`);
   }
   reverseRecords.reverse();
-  return { lastActiveAt, usage: codexDeltaUsageFromRecords(reverseRecords, sourcePath) };
+  return {
+    lastActiveAt,
+    // task_completed and turn_aborted end one turn, not the resumable JSONL
+    // session. Freshness is the only reliable whole-session signal here.
+    status: computeStatus(lastActiveAt),
+    usage: codexDeltaUsageFromRecords(reverseRecords, sourcePath),
+  };
 }
 
 interface CumulativeTokens {

@@ -3,15 +3,24 @@ import type {
   AgentSession,
   AgentSessionEvent,
   AgentSessionEventPage,
+  AgentSessionStatus,
+  ModelRate,
+  SessionUsageSummary,
   UsageEvent,
 } from '@stash/shared';
+import { summarizeUsage } from '@stash/shared';
 import {
   aggregateBurnFromScan,
   type BurnAggregate,
   type BurnAggregationRequest,
 } from '../domain/analytics/burn.js';
 import { extractDecisions, type DecisionCandidate } from '../domain/capture/decision-extract.js';
-import type { AgentSource, SourceParseError, SourceScanCacheStats } from './source.js';
+import type {
+  AgentSource,
+  SessionUsageSnapshot,
+  SourceParseError,
+  SourceScanCacheStats,
+} from './source.js';
 import type { SessionFileFingerprint } from './session-cache.js';
 import { buildSessionEventPage } from './session-event-page.js';
 import type {
@@ -19,6 +28,7 @@ import type {
   SessionEvidenceRequest,
   SessionScanExecutor,
   SessionScanMode,
+  SessionUsageSummaryRequest,
 } from './session-scan-worker.js';
 
 export interface AggregateOptions {
@@ -54,6 +64,8 @@ export class AgentSourceAggregator {
   private readonly burnInflight = new Map<string, Promise<BurnAggregate>>();
   private readonly eventPageInflight = new Map<string, Promise<AgentSessionEventPage>>();
   private readonly decisionInflight = new Map<string, Promise<DecisionCandidate[]>>();
+  private readonly usageSummaryInflight = new Map<string, Promise<SessionUsageSummary>>();
+  private readonly sessionSourcePaths = new Map<string, string>();
 
   constructor(
     private readonly sources: Map<AgentProvider, { source: AgentSource; root: string }>,
@@ -107,13 +119,15 @@ export class AgentSourceAggregator {
     }
 
     sessions.sort((a, b) => (a.lastActiveAt < b.lastActiveAt ? 1 : -1));
-    return {
+    const result = {
       sessions,
       errors,
       cache: aggregateCacheStats(sourceStats, 'fresh'),
       ...(usageBySource.size > 0 ? { usageBySource } : {}),
       ...(fingerprintsBySource.size > 0 ? { fingerprintsBySource } : {}),
     };
+    this.rememberSessionSourcePaths(result.sessions);
+    return result;
   }
 
   scanAsync(options: AggregateOptions = {}): Promise<AggregateResult> {
@@ -171,6 +185,36 @@ export class AgentSourceAggregator {
     return pending;
   }
 
+  getUsageSummaryAsync(request: SessionUsageSummaryRequest): Promise<SessionUsageSummary> {
+    const key = JSON.stringify(request);
+    const current = this.usageSummaryInflight.get(key);
+    if (current) return current;
+    const pending = (this.scanExecutor
+      ? this.scanExecutor.usageSummary(request)
+      : Promise.resolve().then(() => {
+          const snapshot = this.getSessionUsageSnapshot(request.provider, request.sourcePath);
+          return {
+            ...summarizeUsage(snapshot.usage, request.rates),
+            sessionLastActiveAt: snapshot.lastActiveAt,
+            sessionStatus: snapshot.status,
+          };
+        }))
+      .finally(() => {
+        this.usageSummaryInflight.delete(key);
+      });
+    this.usageSummaryInflight.set(key, pending);
+    return pending;
+  }
+
+  /**
+   * Resolve a session already discovered by a recent list/detail scan without
+   * recursively walking the provider root again. Session detail loads always
+   * perform such a scan before their live usage polling starts.
+   */
+  sessionSourcePath(provider: AgentProvider, sessionId: string): string | undefined {
+    return this.sessionSourcePaths.get(sessionKey(provider, sessionId));
+  }
+
   private scanWithSingleflight(
     options: AggregateOptions,
     mode: SessionScanMode,
@@ -182,11 +226,24 @@ export class AgentSourceAggregator {
     const pending = (this.scanExecutor
       ? this.scanExecutor.scan(mode, options)
       : Promise.resolve().then(() => mode === 'activity' ? this.scanActivity(options) : this.scan(options)))
+      .then((result) => {
+        this.rememberSessionSourcePaths(result.sessions);
+        return result;
+      })
       .finally(() => {
         this.inflight.delete(key);
       });
     this.inflight.set(key, pending);
     return pending;
+  }
+
+  private rememberSessionSourcePaths(sessions: AgentSession[]): void {
+    const newest = new Map<string, string>();
+    for (const session of sessions) {
+      const key = sessionKey(session.provider, session.id);
+      if (!newest.has(key)) newest.set(key, session.sourcePath);
+    }
+    for (const [key, sourcePath] of newest) this.sessionSourcePaths.set(key, sourcePath);
   }
 
   getEvents(provider: AgentProvider, sourcePath: string, limit?: number): AgentSessionEvent[] {
@@ -203,6 +260,20 @@ export class AgentSourceAggregator {
     const entry = this.sources.get(provider);
     if (!entry) return [];
     return entry.source.getUsage(sourcePath, fingerprint);
+  }
+
+  getSessionUsageSnapshot(provider: AgentProvider, sourcePath: string): SessionUsageSnapshot {
+    const entry = this.sources.get(provider);
+    if (!entry) throw new Error(`Agent source is not configured: ${provider}`);
+    const snapshot = entry.source.getSessionUsageSnapshot?.(sourcePath);
+    if (snapshot) return snapshot;
+    const usage = entry.source.getUsage(sourcePath);
+    const valid_timestamps = usage
+      .map((event) => ({ value: event.ts, ms: Date.parse(event.ts) }))
+      .filter((timestamp) => Number.isFinite(timestamp.ms))
+      .sort((a, b) => b.ms - a.ms);
+    const lastActiveAt = valid_timestamps[0]?.value ?? null;
+    return { usage, lastActiveAt, status: status_from_activity(lastActiveAt) };
   }
 
   getUsageForScan(
@@ -223,8 +294,21 @@ export class AgentSourceAggregator {
   }
 }
 
+function status_from_activity(last_active_at: string | null): AgentSessionStatus {
+  if (last_active_at === null) return 'lost';
+  const age_minutes = (Date.now() - Date.parse(last_active_at)) / 60_000;
+  if (!Number.isFinite(age_minutes)) return 'lost';
+  if (age_minutes < 5) return 'running';
+  if (age_minutes < 30) return 'idle';
+  return 'lost';
+}
+
 function usageKey(provider: AgentProvider, sourcePath: string): string {
   return `${provider}\0${sourcePath}`;
+}
+
+function sessionKey(provider: AgentProvider, sessionId: string): string {
+  return `${provider}\0${sessionId}`;
 }
 
 function scanKey(options: AggregateOptions, mode: SessionScanMode): string {

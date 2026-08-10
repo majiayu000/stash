@@ -240,6 +240,10 @@ export class CodexSource implements AgentSource {
     return parseCodexEvents(sourcePath, limit);
   }
 
+  getSessionUsageSnapshot(sourcePath: string) {
+    return parseCodexAnalytics(sourcePath, Number.NEGATIVE_INFINITY);
+  }
+
   getUsage(
     sourcePath: string,
     fingerprint?: SessionFileFingerprint,

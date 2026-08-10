@@ -1,4 +1,5 @@
 import { parse_calendar_date, type CalendarRange } from './calendar.js';
+import type { AgentSessionStatus } from './agent-session.js';
 
 /**
  * Per-million-token rates (USD). Sources: published Anthropic/OpenAI rate cards.
@@ -108,7 +109,7 @@ export interface ModelMixItem {
 export interface BurnPricingCoverage {
   /** Distinct model ids seen with usage but no matching rate, ascending. */
   unknownModels: string[];
-  /** Input+output tokens that could not be priced. */
+  /** Input, output, cache-read, and cache-write tokens that could not be priced. */
   unpricedTokens: number;
 }
 
@@ -297,4 +298,99 @@ export function eventCost(
     throw new Error(`cost overflow for model ${e.model}`);
   }
   return total;
+}
+
+export interface UsageModelBreakdown {
+  model: string;
+  tokens: number;
+  /** `undefined` when the model has no rate — never collapsed to 0. */
+  cost: number | undefined;
+}
+
+export interface UsageSummary {
+  totals: {
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadTokens: number;
+    cacheWriteTokens: number;
+    /** input + output, counted the same way the burn aggregate counts them. */
+    tokens: number;
+    /** Priced usage only — a floor whenever `pricing` reports gaps. */
+    cost: number;
+  };
+  /** Per-model split, so a caller can name which model is missing a rate. */
+  modelMix: UsageModelBreakdown[];
+  pricing: BurnPricingCoverage;
+}
+
+/** Token classes whose monetary value is unknown when an event has no rate. */
+export function usage_event_pricing_token_count(event: UsageEvent): number {
+  return event.inputTokens
+    + event.outputTokens
+    + (event.cacheReadTokens ?? 0)
+    + (event.cacheWriteTokens ?? 0);
+}
+
+/** API payload for one session, including activity freshness for live refresh. */
+export interface SessionUsageSummary extends UsageSummary {
+  /** Last activity seen during the scan that produced this usage summary. */
+  sessionLastActiveAt: string | null;
+  /** Freshly parsed lifecycle state from the same source snapshot. */
+  sessionStatus: AgentSessionStatus;
+}
+
+/**
+ * Totals for an arbitrary set of usage events.
+ *
+ * The accounting rules here are the burn aggregate's, deliberately: tokens are
+ * input + output, cost sums priced events only, and an unpriced event still
+ * contributes its tokens while its model is recorded in `pricing`. Any surface
+ * showing a cost has to answer "is this the whole number?", and it can only do
+ * that consistently if there is one definition of the answer.
+ */
+export function summarizeUsage(
+  events: UsageEvent[],
+  rates: ModelRate[] = DEFAULT_MODEL_RATES,
+): UsageSummary {
+  const totals = {
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    tokens: 0,
+    cost: 0,
+  };
+  const models = new Map<string, UsageModelBreakdown>();
+  const unknown = new Set<string>();
+  let unpricedTokens = 0;
+
+  for (const event of events) {
+    const tokens = event.inputTokens + event.outputTokens;
+    const priced = eventCost(event, rates);
+
+    totals.inputTokens += event.inputTokens;
+    totals.outputTokens += event.outputTokens;
+    totals.cacheReadTokens += event.cacheReadTokens ?? 0;
+    totals.cacheWriteTokens += event.cacheWriteTokens ?? 0;
+    totals.tokens += tokens;
+    totals.cost += priced ?? 0;
+
+    if (priced === undefined) {
+      unknown.add(event.model);
+      unpricedTokens += usage_event_pricing_token_count(event);
+    }
+
+    const model = models.get(event.model) ?? { model: event.model, tokens: 0, cost: 0 };
+    model.tokens += tokens;
+    // Once any event for a model is unpriced, its aggregate stays incomplete.
+    if (priced === undefined) model.cost = undefined;
+    else if (model.cost !== undefined) model.cost += priced;
+    models.set(event.model, model);
+  }
+
+  return {
+    totals,
+    modelMix: Array.from(models.values()).sort((a, b) => b.tokens - a.tokens),
+    pricing: { unknownModels: Array.from(unknown).sort(), unpricedTokens },
+  };
 }

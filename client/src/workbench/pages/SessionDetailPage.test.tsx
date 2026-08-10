@@ -3,13 +3,15 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import type { AgentSession, AgentSessionEvent, AgentSessionEventPage } from '@stash/shared';
-import { getAgentSession, getAgentSessionEvents } from '../../api/agent-sessions';
-import { SessionDetailPage, EmptyTranscript, EstimatedSessionMetrics, formatToolCallDetails, RealTranscript } from './SessionDetailPage';
+import { getAgentSession, getAgentSessionEvents, getAgentSessionUsage } from '../../api/agent-sessions';
+import { SessionDetailPage, EmptyTranscript, formatToolCallDetails, RealTranscript } from './SessionDetailPage';
+import { SessionUsageMetrics } from './session-detail.usage';
 import type { WBData, WBSession } from '../data';
 
 vi.mock('../../api/agent-sessions', () => ({
   getAgentSession: vi.fn(),
   getAgentSessionEvents: vi.fn(),
+  getAgentSessionUsage: vi.fn(),
 }));
 
 function session(overrides: Partial<WBSession> = {}): WBSession {
@@ -106,6 +108,16 @@ beforeEach(() => {
     linkedWorkItemIds: [],
   }));
   vi.mocked(getAgentSessionEvents).mockResolvedValue(eventPage([]));
+  vi.mocked(getAgentSessionUsage).mockResolvedValue({
+    totals: {
+      inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0,
+      tokens: 0, cost: 0,
+    },
+    modelMix: [],
+    pricing: { unknownModels: [], unpricedTokens: 0 },
+    sessionLastActiveAt: agentSession().lastActiveAt,
+    sessionStatus: 'idle',
+  });
 });
 
 describe('SessionDetailPage real transcript', () => {
@@ -188,7 +200,15 @@ describe('SessionDetailPage real transcript', () => {
   });
 
   test('labels all activity-derived session metrics as estimates', () => {
-    render(<EstimatedSessionMetrics session={session({ estimatedTokens: 640, estimatedDuration: 90 })} />);
+    // Measured usage has not resolved yet, so the panel is still the estimate.
+    vi.mocked(getAgentSessionUsage).mockReturnValue(new Promise(() => {}));
+    render(
+      <SessionUsageMetrics
+        provider="codex"
+        sessionId="codex-fixture-1"
+        session={session({ estimatedTokens: 640, estimatedDuration: 90 })}
+      />,
+    );
 
     const metrics = screen.getByTestId('estimated-session-metrics');
     expect(metrics).toHaveTextContent('estimated from activity counts');

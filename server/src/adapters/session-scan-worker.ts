@@ -1,4 +1,9 @@
-import type { AgentProvider, AgentSessionEventPage } from '@stash/shared';
+import type {
+  AgentProvider,
+  AgentSessionEventPage,
+  ModelRate,
+  SessionUsageSummary,
+} from '@stash/shared';
 import type { BurnAggregate, BurnAggregationRequest } from '../domain/analytics/burn.js';
 import type { DecisionCandidate } from '../domain/capture/decision-extract.js';
 import type { AggregateOptions, AggregateResult } from './aggregator.js';
@@ -10,6 +15,7 @@ export interface SessionScanExecutor {
   aggregateBurn(request: BurnAggregationRequest): Promise<BurnAggregate>;
   eventPage(request: SessionEventPageRequest): Promise<AgentSessionEventPage>;
   decisionCandidates(request: SessionEvidenceRequest): Promise<DecisionCandidate[]>;
+  usageSummary(request: SessionUsageSummaryRequest): Promise<SessionUsageSummary>;
 }
 
 export interface SessionScanWorkerConfig {
@@ -58,21 +64,36 @@ export interface SessionDecisionCandidatesWorkerRequest {
   config: SessionScanWorkerConfig;
 }
 
+export interface SessionUsageSummaryRequest {
+  provider: AgentProvider;
+  sourcePath: string;
+  rates: ModelRate[];
+}
+
+export interface SessionUsageSummaryWorkerRequest {
+  id: number;
+  kind: 'usage-summary';
+  request: SessionUsageSummaryRequest;
+  config: SessionScanWorkerConfig;
+}
+
 export type SessionWorkerRequest =
   | SessionScanRequest
   | BurnAggregationWorkerRequest
   | SessionEventPageWorkerRequest
-  | SessionDecisionCandidatesWorkerRequest;
+  | SessionDecisionCandidatesWorkerRequest
+  | SessionUsageSummaryWorkerRequest;
 
 export type SessionWorkerResponse =
   | { id: number; kind: 'scan'; result: AggregateResult }
   | { id: number; kind: 'burn'; result: BurnAggregate }
   | { id: number; kind: 'event-page'; result: AgentSessionEventPage }
   | { id: number; kind: 'decision-candidates'; result: DecisionCandidate[] }
+  | { id: number; kind: 'usage-summary'; result: SessionUsageSummary }
   | { id: number; kind: 'error'; error: string };
 
 interface PendingRequest {
-  kind: 'scan' | 'burn' | 'event-page' | 'decision-candidates';
+  kind: 'scan' | 'burn' | 'event-page' | 'decision-candidates' | 'usage-summary';
   accept: (response: SessionWorkerResponse) => void;
   reject: (error: Error) => void;
 }
@@ -166,6 +187,25 @@ export class SessionScanWorker implements SessionScanExecutor {
     });
   }
 
+  usageSummary(request: SessionUsageSummaryRequest): Promise<SessionUsageSummary> {
+    const id = this.nextId++;
+    return new Promise((resolve, reject) => {
+      const workerRequest: SessionUsageSummaryWorkerRequest = {
+        id,
+        kind: 'usage-summary',
+        request,
+        config: this.config,
+      };
+      this.post(workerRequest, {
+        kind: 'usage-summary',
+        accept: (response) => {
+          if (response.kind === 'usage-summary') resolve(response.result);
+        },
+        reject,
+      });
+    });
+  }
+
   private post(request: SessionWorkerRequest, pending: PendingRequest): void {
     const worker = this.getWorker();
     this.pending.set(request.id, pending);
@@ -187,6 +227,15 @@ export class SessionScanWorker implements SessionScanExecutor {
     worker.onmessage = (event: MessageEvent<unknown>) => {
       const response = decodeWorkerResponse(event.data);
       if (!response) {
+        const identity = decodeWorkerResponseIdentity(event.data);
+        const pending = identity ? this.pending.get(identity.id) : undefined;
+        if (identity && pending) {
+          this.pending.delete(identity.id);
+          pending.reject(new Error(
+            `session scan worker returned an invalid ${pending.kind} response`,
+          ));
+          return;
+        }
         this.failWorker(worker, new Error('session scan worker returned an unreadable response'));
         return;
       }
@@ -224,6 +273,14 @@ export class SessionScanWorker implements SessionScanExecutor {
   }
 }
 
+function decodeWorkerResponseIdentity(value: unknown): { id: number; kind: string } | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const response = value as { id?: unknown; kind?: unknown };
+  return typeof response.id === 'number' && typeof response.kind === 'string'
+    ? { id: response.id, kind: response.kind }
+    : undefined;
+}
+
 function decodeWorkerResponse(value: unknown): SessionWorkerResponse | undefined {
   if (!value || typeof value !== 'object') return undefined;
   const response = value as Partial<SessionWorkerResponse>;
@@ -253,7 +310,48 @@ function decodeWorkerResponse(value: unknown): SessionWorkerResponse | undefined
       result: DecisionCandidate[];
     };
   }
+  if (response.kind === 'usage-summary') {
+    if (!('result' in response) || !isUsageSummary(response.result)) return undefined;
+    return response as { id: number; kind: 'usage-summary'; result: SessionUsageSummary };
+  }
   return undefined;
+}
+
+function isUsageSummary(value: unknown): value is SessionUsageSummary {
+  if (!value || typeof value !== 'object') return false;
+  const result = value as Partial<SessionUsageSummary>;
+  if (result.sessionLastActiveAt !== null
+    && (typeof result.sessionLastActiveAt !== 'string'
+      || !Number.isFinite(Date.parse(result.sessionLastActiveAt)))) return false;
+  if (!['running', 'waiting', 'idle', 'lost', 'completed'].includes(result.sessionStatus ?? '')) {
+    return false;
+  }
+  if (!result.totals || typeof result.totals !== 'object') return false;
+  const totals = result.totals as Record<string, unknown>;
+  const total_fields = [
+    'inputTokens',
+    'outputTokens',
+    'cacheReadTokens',
+    'cacheWriteTokens',
+    'tokens',
+    'cost',
+  ];
+  if (!total_fields.every((field) => isFiniteNonnegativeNumber(totals[field]))) return false;
+  if (!Array.isArray(result.modelMix) || !result.modelMix.every((entry) => {
+    if (!entry || typeof entry !== 'object') return false;
+    return typeof entry.model === 'string'
+      && isFiniteNonnegativeNumber(entry.tokens)
+      && (entry.cost === undefined || isFiniteNonnegativeNumber(entry.cost));
+  })) return false;
+  return !!result.pricing
+    && typeof result.pricing === 'object'
+    && Array.isArray(result.pricing.unknownModels)
+    && result.pricing.unknownModels.every((model) => typeof model === 'string')
+    && isFiniteNonnegativeNumber(result.pricing.unpricedTokens);
+}
+
+function isFiniteNonnegativeNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0;
 }
 
 function isAggregateResult(value: unknown): value is AggregateResult {

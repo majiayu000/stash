@@ -11,6 +11,7 @@ interface RawUsage {
 
 interface RawRecord {
   type?: string;
+  subtype?: string;
   timestamp?: string;
   sessionId?: string;
   cwd?: string;
@@ -200,6 +201,7 @@ export function parseClaudeUsage(sourcePath: string): UsageEvent[] {
 
 export interface ClaudeAnalyticsData {
   lastActiveAt: string;
+  status: AgentSessionStatus;
   usage: UsageEvent[];
 }
 
@@ -223,7 +225,7 @@ export function parseClaudeAnalytics(
       if (Number.isNaN(timestampMs)) {
         throw new Error(`Claude analytics record has an invalid timestamp: ${sourcePath}`);
       }
-      if (timestampMs > lastActiveMs) {
+      if (timestampMs >= lastActiveMs) {
         lastActiveMs = timestampMs;
         lastActiveAt = rec.timestamp;
       }
@@ -237,7 +239,13 @@ export function parseClaudeAnalytics(
     }
   }
   if (!lastActiveAt) throw new Error(`Claude session has no valid timestamped records: ${sourcePath}`);
-  return { lastActiveAt, usage };
+  return {
+    lastActiveAt,
+    // turn_duration and stop_hook_summary close one turn, not the resumable
+    // JSONL session. Freshness is the only reliable whole-session signal.
+    status: computeStatus(lastActiveAt),
+    usage,
+  };
 }
 
 function parseClaudeAnalyticsRecords(raw: string, sourcePath: string): RawRecord[] {
@@ -266,18 +274,38 @@ function claudeUsageEvent(rec: RawRecord, sourcePath: string): UsageEvent | unde
   if (rec.type !== 'assistant' || rec.message?.role !== 'assistant') return undefined;
   const usage = rec.message?.usage;
   if (!usage) return undefined;
-  const inputTokens = usage.input_tokens ?? 0;
-  const outputTokens = usage.output_tokens ?? 0;
-  if (inputTokens === 0 && outputTokens === 0) return undefined;
+  const inputTokens = claude_token_count(usage.input_tokens, 'input_tokens', sourcePath);
+  const outputTokens = claude_token_count(usage.output_tokens, 'output_tokens', sourcePath);
+  const cache_read_tokens = claude_token_count(
+    usage.cache_read_input_tokens,
+    'cache_read_input_tokens',
+    sourcePath,
+  );
+  const cache_write_tokens = claude_token_count(
+    usage.cache_creation_input_tokens,
+    'cache_creation_input_tokens',
+    sourcePath,
+  );
+  if (inputTokens === 0 && outputTokens === 0 && cache_read_tokens === 0 && cache_write_tokens === 0) {
+    return undefined;
+  }
   return {
     ts: rec.timestamp ?? new Date(0).toISOString(),
     model: rec.message?.model ?? 'unknown',
     inputTokens,
     outputTokens,
-    cacheReadTokens: usage.cache_read_input_tokens,
-    cacheWriteTokens: usage.cache_creation_input_tokens,
+    cacheReadTokens: usage.cache_read_input_tokens === undefined ? undefined : cache_read_tokens,
+    cacheWriteTokens: usage.cache_creation_input_tokens === undefined ? undefined : cache_write_tokens,
     sourcePath,
   };
+}
+
+function claude_token_count(value: unknown, field: string, sourcePath: string): number {
+  if (value === undefined) return 0;
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    throw new Error(`Claude ${field} must be a finite non-negative number: ${sourcePath}`);
+  }
+  return value;
 }
 
 function computeStatus(lastActiveAt: string): AgentSessionStatus {

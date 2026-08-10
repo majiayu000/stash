@@ -63,6 +63,18 @@ describe('AgentSessionCache', () => {
     expect(cache.getUsage('claude', file)).toBeUndefined();
   });
 
+  test('rejects non-finite or negative cached usage counters', () => {
+    const db = freshDb();
+    const cache = new AgentSessionCache(db);
+    cache.upsertSession('claude', file, session, '2026-05-14T12:01:00.000Z');
+    cache.storeUsage('claude', file, [{ ...usage[0]!, inputTokens: -1 }]);
+
+    expect(() => cache.getUsage('claude', file)).toThrow(
+      `invalid agent usage cache for claude:${file.sourcePath}`,
+    );
+    expect(cache.getUsage('claude', file)).toBeUndefined();
+  });
+
   test('session upsert invalidates stale usage until lazy indexing stores a replacement', () => {
     const db = freshDb();
     const cache = new AgentSessionCache(db);
