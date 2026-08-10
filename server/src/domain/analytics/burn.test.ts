@@ -276,6 +276,32 @@ describe('BurnService', () => {
     expect(opus?.share).toBeCloseTo(0.5, 5);
   });
 
+  test('model mix stays incomplete regardless of priced and unpriced event order', () => {
+    const sourcePath = '/mixed-pricing.jsonl';
+    const session = makeSession({ id: 'mixed-pricing', sourcePath });
+    const priced: UsageEvent = {
+      ts: '2026-05-14T09:00:00.000Z',
+      model: 'gpt-5',
+      inputTokens: 100,
+      outputTokens: 0,
+      sourcePath,
+    };
+    const missing_cache_write_rate: UsageEvent = {
+      ...priced,
+      ts: '2026-05-14T08:00:00.000Z',
+      cacheWriteTokens: 50,
+    };
+
+    for (const events of [
+      [missing_cache_write_rate, priced],
+      [priced, missing_cache_write_rate],
+    ]) {
+      const snap = build([session], { [sourcePath]: events }).snapshot({ days: 7 });
+      expect(snap.modelMix.find((item) => item.model === 'gpt-5')?.cost).toBeUndefined();
+      expect(snap.pricing.unknownModels).toEqual(['gpt-5']);
+    }
+  });
+
   test('per-project leaderboard resolves area name and shares', () => {
     const area = areaService.create({ name: 'aurora' });
     const s1 = makeSession({ id: 's1', sourcePath: '/s1.jsonl', projectId: area.id });

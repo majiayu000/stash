@@ -1,6 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
-import type { ModelRateOverride } from '@stash/shared';
-import { getBurnSnapshot } from '../../api/analytics';
+import {
+  DEFAULT_MODEL_RATES,
+  MAX_MODEL_RATE_PER_M,
+  findModelRate,
+  normalize_model_rate_id,
+  type ModelRateOverride,
+  type UpsertModelRateInput,
+} from '@stash/shared';
+import { getBudgetSpendSnapshot, invalidate_weekly_snapshot_cache } from '../../api/analytics';
 import { deleteModelRate, getModelRates, upsertModelRate } from '../../api/model-rates';
 import { useWorkbenchDialog } from '../../components/ui/workbench-dialogs';
 import { reportAsyncError } from '../reportAsyncError';
@@ -35,9 +42,9 @@ export function ModelRatesPanel() {
     // Coverage is a separate concern: the rate list is still usable when the
     // history scan fails, so a failure here must not blank the panel.
     try {
-      const burn = await getBurnSnapshot();
+      const budget_spend = await getBudgetSpendSnapshot();
       if (mounted.current) {
-        setUnknownModels(burn.pricing.unknownModels);
+        setUnknownModels(budget_spend.pricing.unknownModels);
         setCoverageFailed(false);
       }
     } catch {
@@ -52,34 +59,70 @@ export function ModelRatesPanel() {
   }, []);
 
   async function askRate(model: string, existing?: ModelRateOverride) {
+    const canonical_model = normalize_model_rate_id(model);
+    const shipped = findModelRate(canonical_model, DEFAULT_MODEL_RATES);
     const inputStr = await dialog.prompt({
-      title: `input rate for ${model}`,
+      title: `input rate for ${canonical_model}`,
       description: 'USD per million input tokens, from the provider\'s published rate card.',
       label: 'input $/M',
       defaultValue: existing ? String(existing.inputPerM) : '',
       confirmLabel: 'next',
     });
     if (inputStr === null) return;
-    const inputPerM = Number(inputStr);
-    if (!Number.isFinite(inputPerM) || inputPerM < 0) {
-      await dialog.alert({ title: 'input rate must be a number ≥ 0', tone: 'danger' });
+    const input_rate = parse_rate(inputStr, 'input', true);
+    if (!input_rate.ok) {
+      await dialog.alert({ title: input_rate.message, tone: 'danger' });
       return;
     }
     const outputStr = await dialog.prompt({
-      title: `output rate for ${model}`,
+      title: `output rate for ${canonical_model}`,
       description: 'USD per million output tokens.',
       label: 'output $/M',
       defaultValue: existing ? String(existing.outputPerM) : '',
-      confirmLabel: 'save rate',
+      confirmLabel: 'next',
     });
     if (outputStr === null) return;
-    const outputPerM = Number(outputStr);
-    if (!Number.isFinite(outputPerM) || outputPerM < 0) {
-      await dialog.alert({ title: 'output rate must be a number ≥ 0', tone: 'danger' });
+    const output_rate = parse_rate(outputStr, 'output', true);
+    if (!output_rate.ok) {
+      await dialog.alert({ title: output_rate.message, tone: 'danger' });
       return;
     }
+    const cacheReadStr = await dialog.prompt({
+      title: `cache read rate for ${canonical_model}`,
+      description: 'USD per million cache-read tokens. Leave blank only when this token class does not apply; cached usage stays unpriced without it.',
+      label: 'cache read $/M',
+      defaultValue: rate_default(existing?.cacheReadPerM ?? shipped?.cacheReadPerM),
+      confirmLabel: 'next',
+    });
+    if (cacheReadStr === null) return;
+    const cache_read_rate = parse_rate(cacheReadStr, 'cache read', false);
+    if (!cache_read_rate.ok) {
+      await dialog.alert({ title: cache_read_rate.message, tone: 'danger' });
+      return;
+    }
+    const cacheWriteStr = await dialog.prompt({
+      title: `cache write rate for ${canonical_model}`,
+      description: 'USD per million cache-write tokens. Leave blank only when this token class does not apply; cached usage stays unpriced without it.',
+      label: 'cache write $/M',
+      defaultValue: rate_default(existing?.cacheWritePerM ?? shipped?.cacheWritePerM),
+      confirmLabel: 'save rate',
+    });
+    if (cacheWriteStr === null) return;
+    const cache_write_rate = parse_rate(cacheWriteStr, 'cache write', false);
+    if (!cache_write_rate.ok) {
+      await dialog.alert({ title: cache_write_rate.message, tone: 'danger' });
+      return;
+    }
+    const input: UpsertModelRateInput = {
+      model: canonical_model,
+      inputPerM: input_rate.value!,
+      outputPerM: output_rate.value!,
+    };
+    if (cache_read_rate.value !== undefined) input.cacheReadPerM = cache_read_rate.value;
+    if (cache_write_rate.value !== undefined) input.cacheWritePerM = cache_write_rate.value;
     try {
-      await upsertModelRate({ model, inputPerM, outputPerM });
+      await upsertModelRate(input);
+      invalidate_weekly_snapshot_cache();
       await refresh();
       window.dispatchEvent(new CustomEvent('stash:captured'));
     } catch (e) {
@@ -104,15 +147,19 @@ export function ModelRatesPanel() {
   }
 
   async function remove(rate: ModelRateOverride) {
+    const has_shipped_rate = findModelRate(rate.model, DEFAULT_MODEL_RATES) !== undefined;
     const ok = await dialog.confirm({
       title: 'delete rate?',
-      description: `${rate.model} goes back to unpriced — its usage is excluded from cost totals, not counted as $0.`,
+      description: has_shipped_rate
+        ? `${rate.model} restores the shipped rate. Any cache prices omitted by that card remain visibly unpriced.`
+        : `${rate.model} goes back to unpriced — its usage is excluded from cost totals, not counted as $0.`,
       confirmLabel: 'delete rate',
       tone: 'danger',
     });
     if (!ok) return;
     try {
       await deleteModelRate(rate.model);
+      invalidate_weekly_snapshot_cache();
       await refresh();
       window.dispatchEvent(new CustomEvent('stash:captured'));
     } catch (e) {
@@ -124,8 +171,7 @@ export function ModelRatesPanel() {
     }
   }
 
-  const configured = new Set(overrides.map((r) => r.model));
-  const stillUnpriced = unknownModels.filter((m) => !configured.has(m));
+  const stillUnpriced = unknownModels;
 
   return (
     <div className="surface" style={{ padding: '1.2rem' }}>
@@ -149,12 +195,19 @@ export function ModelRatesPanel() {
             {stillUnpriced.length} model{stillUnpriced.length === 1 ? '' : 's'} in your history with no rate
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {stillUnpriced.map((model) => (
-              <div key={model} style={rowStyle}>
-                <span style={{ flex: 1, fontFamily: 'var(--font-mono)', fontSize: '0.82rem', color: 'var(--text-primary)' }}>{model}</span>
-                <button type="button" onClick={() => askRate(model)} style={rowButtonStyle}>add rate</button>
-              </div>
-            ))}
+            {stillUnpriced.map((model) => {
+              const existing = overrides.find(
+                (rate) => normalize_model_rate_id(rate.model) === normalize_model_rate_id(model),
+              );
+              return (
+                <div key={model} style={rowStyle}>
+                  <span style={{ flex: 1, fontFamily: 'var(--font-mono)', fontSize: '0.82rem', color: 'var(--text-primary)' }}>{model}</span>
+                  <button type="button" onClick={() => askRate(model, existing)} style={rowButtonStyle}>
+                    {existing ? 'edit rate' : 'add rate'}
+                  </button>
+                </div>
+              );
+            })}
           </div>
         </div>
       ) : null}
@@ -179,6 +232,26 @@ export function ModelRatesPanel() {
       )}
     </div>
   );
+}
+
+type ParsedRate = { ok: true; value: number | undefined } | { ok: false; message: string };
+
+function parse_rate(raw: string, label: string, required: boolean): ParsedRate {
+  const value = raw.trim();
+  if (!value) {
+    return required
+      ? { ok: false, message: `${label} rate is required` }
+      : { ok: true, value: undefined };
+  }
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > MAX_MODEL_RATE_PER_M) {
+    return { ok: false, message: `${label} rate must be between 0 and ${MAX_MODEL_RATE_PER_M}` };
+  }
+  return { ok: true, value: parsed };
+}
+
+function rate_default(value: number | undefined): string {
+  return value === undefined ? '' : String(value);
 }
 
 const addButtonStyle: React.CSSProperties = {

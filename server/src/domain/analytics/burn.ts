@@ -325,8 +325,11 @@ class BurnAccumulator {
 
       const model = this.models.get(event.model) ?? { tokens: 0, cost: 0 };
       model.tokens += tokens;
-      // A model is priced or it is not; the flag never flips mid-window.
-      model.cost = priced === undefined ? undefined : (model.cost ?? 0) + priced;
+      // Once any event for a model is unpriced, its aggregate stays incomplete.
+      // A later priced event must not restore a partial number and make output
+      // depend on event order.
+      if (priced === undefined) model.cost = undefined;
+      else if (model.cost !== undefined) model.cost += priced;
       this.models.set(event.model, model);
 
       const projectId = session.projectId ?? '__unlinked__';

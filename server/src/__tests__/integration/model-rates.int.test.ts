@@ -3,7 +3,7 @@ import type { Hono } from 'hono';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { fixedClock } from '@stash/shared';
+import { MAX_MODEL_RATE_PER_M, fixedClock } from '@stash/shared';
 import { openDatabase } from '../../db/connection.js';
 import { migrate } from '../../db/migrate.js';
 import { createApp } from '../../web/app-factory.js';
@@ -98,7 +98,47 @@ describe('/api/model-rates', () => {
     const app = setupApp();
     expect((await jsonReq(app, 'PUT', '/api/model-rates', { model: 'k3', inputPerM: -1, outputPerM: 2 })).status).toBe(400);
     expect((await jsonReq(app, 'PUT', '/api/model-rates', { model: '', inputPerM: 1, outputPerM: 2 })).status).toBe(400);
+    expect((await jsonReq(app, 'PUT', '/api/model-rates', { model: '   ', inputPerM: 1, outputPerM: 2 })).status).toBe(400);
+    expect((await jsonReq(app, 'PUT', '/api/model-rates', {
+      model: '-20260401', inputPerM: 1, outputPerM: 2,
+    })).status).toBe(400);
+    expect((await jsonReq(app, 'PUT', '/api/model-rates', {
+      model: 'k3', inputPerM: MAX_MODEL_RATE_PER_M + 1, outputPerM: 2,
+    })).status).toBe(400);
     expect((await jsonReq(app, 'DELETE', '/api/model-rates/ghost')).status).toBe(404);
+  });
+
+  test('maps malformed JSON to validation instead of an internal error', async () => {
+    const app = setupApp();
+    const res = await app.request('/api/model-rates', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: '{"model":',
+    });
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error.code).toBe('VALIDATION');
+  });
+
+  test('deletes a literal percent sequence without decoding it twice', async () => {
+    const app = setupApp();
+    const model = 'proxy%2Fmodel';
+    await jsonReq(app, 'PUT', '/api/model-rates', { model, inputPerM: 1, outputPerM: 2 });
+
+    expect((await jsonReq(app, 'DELETE', `/api/model-rates/${encodeURIComponent(model)}`)).status).toBe(204);
+    const card = await jsonReq(app, 'GET', '/api/model-rates');
+    expect(card.body.data.overrides).toEqual([]);
+  });
+
+  test('deletes a canonical row through the same dated id accepted by PUT', async () => {
+    const app = setupApp();
+    await jsonReq(app, 'PUT', '/api/model-rates', {
+      model: ' deepseek-v4-20260401 ', inputPerM: 1, outputPerM: 2,
+    });
+
+    expect((await jsonReq(app, 'DELETE', '/api/model-rates/deepseek-v4-20260401')).status).toBe(204);
+    const card = await jsonReq(app, 'GET', '/api/model-rates');
+    expect(card.body.data.overrides).toEqual([]);
   });
 
   test('deleting an override returns the model to unpriced rather than to $0', async () => {

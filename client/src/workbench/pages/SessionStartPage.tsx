@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import type { DispatchRun, ModelRate, Skill, WorkItem } from '@stash/shared';
-import { DEFAULT_MODEL_RATES, findModelRate } from '@stash/shared';
+import { findModelRate } from '@stash/shared';
 import { getModelRates } from '../../api/model-rates';
 import { listProjectSkills, listSkills } from '../../api/skills';
 import { closeDispatchRun, composeSession, listDispatchRuns, startSession, type DispatchResult } from '../../api/sessions';
@@ -57,19 +57,28 @@ export function SessionStartPage({ data }: { data: WBData; reload: () => void })
   const [runs, setRuns] = useState<DispatchRun[]>([]);
   const [composedPrompt, setComposedPrompt] = useState<string>('');
   const [composing, setComposing] = useState(false);
-  // The shipped card is the starting point; the configured one replaces it once
-  // it arrives. A failed load leaves the shipped card in place rather than
-  // blanking the estimate — this is a preview, not an accounting surface.
-  const [rates, setRates] = useState<ModelRate[]>(DEFAULT_MODEL_RATES);
+  const [rates, setRates] = useState<ModelRate[] | null>(null);
+  const [rateState, setRateState] = useState<'loading' | 'ready' | 'failed'>('loading');
 
   useEffect(() => {
     let cancelled = false;
     async function loadRates() {
+      if (!cancelled) {
+        setRates(null);
+        setRateState('loading');
+      }
       try {
         const card = await getModelRates();
-        if (!cancelled) setRates(card.effective);
-      } catch {
-        // Keep DEFAULT_MODEL_RATES.
+        if (!cancelled) {
+          setRates(card.effective);
+          setRateState('ready');
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setRates(null);
+          setRateState('failed');
+          reportAsyncError('load model rates', error, loadRates);
+        }
       }
     }
     void loadRates();
@@ -121,7 +130,7 @@ export function SessionStartPage({ data }: { data: WBData; reload: () => void })
   // the estimate is withheld rather than rendered as $0.0000 — a fabricated
   // zero is the failure mode #144 removed.
   const modelKey = tool === 'claude' ? 'claude-sonnet-4-6' : 'gpt-5';
-  const inputRate = findModelRate(modelKey, rates)?.inputPerM;
+  const inputRate = rates === null ? undefined : findModelRate(modelKey, rates)?.inputPerM;
   const estTokens = Math.round(composedPrompt.length / 4);
   const estCostUsd = inputRate === undefined
     ? undefined
@@ -339,7 +348,13 @@ export function SessionStartPage({ data }: { data: WBData; reload: () => void })
                 <>
                   estimated input: <span style={{ color: 'var(--text-primary)' }}>
                     ~{estTokens.toLocaleString()} tokens
-                    {estCostUsd === undefined ? ' · no rate' : ` · $${estCostUsd.toFixed(4)}`}
+                    {rateState === 'loading'
+                      ? ' · rate loading'
+                      : rateState === 'failed'
+                        ? ' · rate unavailable'
+                        : estCostUsd === undefined
+                          ? ' · no rate'
+                          : ` · $${estCostUsd.toFixed(4)}`}
                   </span>
                   <span style={{ color: 'var(--text-muted)', marginLeft: 6 }}>({modelKey})</span>
                 </>

@@ -1,8 +1,8 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
-import type { BurnPricingCoverage, BurnSnapshot } from '@stash/shared';
-import { getBurnSnapshot } from '../../api/analytics';
+import type { BudgetSpendSnapshot, BurnPricingCoverage } from '@stash/shared';
+import { getBudgetSpendSnapshot, invalidate_weekly_snapshot_cache } from '../../api/analytics';
 import { deleteModelRate, getModelRates, upsertModelRate } from '../../api/model-rates';
 import { WorkbenchDialogProvider } from '../../components/ui/workbench-dialogs';
 import { ModelRatesPanel } from './settings.model-rates';
@@ -11,6 +11,7 @@ vi.mock('../../api/analytics', () => ({
   getBurnSnapshot: vi.fn(),
   getBudgetSpendSnapshot: vi.fn(),
   getWeeklySnapshot: vi.fn(),
+  invalidate_weekly_snapshot_cache: vi.fn(),
 }));
 
 vi.mock('../../api/model-rates', () => ({
@@ -19,16 +20,12 @@ vi.mock('../../api/model-rates', () => ({
   deleteModelRate: vi.fn(),
 }));
 
-function burn(pricing: BurnPricingCoverage): BurnSnapshot {
+function budgetSpend(pricing: BurnPricingCoverage): BudgetSpendSnapshot {
   return {
-    calendar: { start: '2026-08-01T00:00:00.000Z', end: '2026-08-07T00:00:00.000Z', startDate: '2026-08-01', endDateExclusive: '2026-08-07', timeZone: 'UTC' },
-    totals: { tokens: 2_000_000, cost: 0, sessions: 1 },
-    dailySpend: [],
-    hourlyHeatmap: [],
-    modelMix: [],
-    perProjectLeaderboard: [],
+    calendar: { timeZone: 'UTC', generatedAt: '2026-08-07T00:00:00.000Z' },
+    periods: {},
     pricing,
-  } as unknown as BurnSnapshot;
+  } as unknown as BudgetSpendSnapshot;
 }
 
 function renderPanel() {
@@ -44,13 +41,14 @@ describe('ModelRatesPanel', () => {
     vi.mocked(getModelRates).mockReset();
     vi.mocked(upsertModelRate).mockReset();
     vi.mocked(deleteModelRate).mockReset();
-    vi.mocked(getBurnSnapshot).mockReset();
+    vi.mocked(getBudgetSpendSnapshot).mockReset();
+    vi.mocked(invalidate_weekly_snapshot_cache).mockReset();
   });
 
   test('lists the unpriced models from history with a way to price each one', async () => {
     vi.mocked(getModelRates).mockResolvedValue({ overrides: [], effective: [] });
-    vi.mocked(getBurnSnapshot).mockResolvedValue(
-      burn({ unknownModels: ['k3', 'qwen3.8-max-preview'], unpricedTokens: 2_000_000 }),
+    vi.mocked(getBudgetSpendSnapshot).mockResolvedValue(
+      budgetSpend({ unknownModels: ['k3', 'qwen3.8-max-preview'], unpricedTokens: 2_000_000 }),
     );
 
     renderPanel();
@@ -63,8 +61,8 @@ describe('ModelRatesPanel', () => {
 
   test('offers no suggested price — the rate field starts empty', async () => {
     vi.mocked(getModelRates).mockResolvedValue({ overrides: [], effective: [] });
-    vi.mocked(getBurnSnapshot).mockResolvedValue(
-      burn({ unknownModels: ['k3'], unpricedTokens: 1_000 }),
+    vi.mocked(getBudgetSpendSnapshot).mockResolvedValue(
+      budgetSpend({ unknownModels: ['k3'], unpricedTokens: 1_000 }),
     );
 
     renderPanel();
@@ -80,8 +78,8 @@ describe('ModelRatesPanel', () => {
       overrides: [{ model: 'k3', inputPerM: 1, outputPerM: 2, createdAt: 'x', updatedAt: 'x' }],
       effective: [{ model: 'k3', inputPerM: 1, outputPerM: 2 }],
     });
-    vi.mocked(getBurnSnapshot).mockResolvedValue(
-      burn({ unknownModels: ['k3'], unpricedTokens: 1_000 }),
+    vi.mocked(getBudgetSpendSnapshot).mockResolvedValue(
+      budgetSpend({ unknownModels: [], unpricedTokens: 0 }),
     );
 
     renderPanel();
@@ -95,7 +93,7 @@ describe('ModelRatesPanel', () => {
       overrides: [{ model: 'k3', inputPerM: 1, outputPerM: 2, createdAt: 'x', updatedAt: 'x' }],
       effective: [{ model: 'k3', inputPerM: 1, outputPerM: 2 }],
     });
-    vi.mocked(getBurnSnapshot).mockRejectedValue(new Error('scan failed'));
+    vi.mocked(getBudgetSpendSnapshot).mockRejectedValue(new Error('scan failed'));
 
     renderPanel();
 
@@ -108,7 +106,7 @@ describe('ModelRatesPanel', () => {
       overrides: [{ model: 'k3', inputPerM: 1, outputPerM: 2, createdAt: 'x', updatedAt: 'x' }],
       effective: [{ model: 'k3', inputPerM: 1, outputPerM: 2 }],
     });
-    vi.mocked(getBurnSnapshot).mockResolvedValue(burn({ unknownModels: [], unpricedTokens: 0 }));
+    vi.mocked(getBudgetSpendSnapshot).mockResolvedValue(budgetSpend({ unknownModels: [], unpricedTokens: 0 }));
 
     renderPanel();
     await userEvent.click(await screen.findByRole('button', { name: 'delete' }));
@@ -116,5 +114,73 @@ describe('ModelRatesPanel', () => {
     expect(await screen.findByText(/goes back to unpriced/)).toBeInTheDocument();
     expect(screen.getByText(/not counted as \$0/)).toBeInTheDocument();
     expect(deleteModelRate).not.toHaveBeenCalled();
+  });
+
+  test('rejects an empty required rate instead of coercing it to free', async () => {
+    vi.mocked(getModelRates).mockResolvedValue({ overrides: [], effective: [] });
+    vi.mocked(getBudgetSpendSnapshot).mockResolvedValue(
+      budgetSpend({ unknownModels: ['k3'], unpricedTokens: 1_000 }),
+    );
+
+    renderPanel();
+    await userEvent.click(await screen.findByRole('button', { name: 'add rate' }));
+    await userEvent.click(screen.getByRole('button', { name: 'next' }));
+
+    expect(await screen.findByText(/input rate is required/i)).toBeInTheDocument();
+    expect(upsertModelRate).not.toHaveBeenCalled();
+  });
+
+  test('collects cache prices, normalizes dated ids, and invalidates weekly analytics', async () => {
+    vi.mocked(getModelRates)
+      .mockResolvedValueOnce({ overrides: [], effective: [] })
+      .mockResolvedValueOnce({
+        overrides: [{
+          model: 'deepseek-v4', inputPerM: 1, outputPerM: 2,
+          cacheReadPerM: 0.1, cacheWritePerM: 1.25, createdAt: 'x', updatedAt: 'x',
+        }],
+        effective: [],
+      });
+    vi.mocked(getBudgetSpendSnapshot)
+      .mockResolvedValueOnce(budgetSpend({ unknownModels: ['deepseek-v4-20260401'], unpricedTokens: 1_000 }))
+      .mockResolvedValueOnce(budgetSpend({ unknownModels: [], unpricedTokens: 0 }));
+    vi.mocked(upsertModelRate).mockResolvedValue({
+      model: 'deepseek-v4', inputPerM: 1, outputPerM: 2,
+      cacheReadPerM: 0.1, cacheWritePerM: 1.25, createdAt: 'x', updatedAt: 'x',
+    });
+
+    renderPanel();
+    await userEvent.click(await screen.findByRole('button', { name: 'add rate' }));
+    for (const [label, value, button] of [
+      [/input \$\/M/i, '1', 'next'],
+      [/output \$\/M/i, '2', 'next'],
+      [/cache read \$\/M/i, '0.1', 'next'],
+      [/cache write \$\/M/i, '1.25', 'save rate'],
+    ] as const) {
+      await userEvent.type(await screen.findByLabelText(label), value);
+      await userEvent.click(screen.getByRole('button', { name: button }));
+    }
+
+    await waitFor(() => expect(upsertModelRate).toHaveBeenCalledWith({
+      model: 'deepseek-v4',
+      inputPerM: 1,
+      outputPerM: 2,
+      cacheReadPerM: 0.1,
+      cacheWritePerM: 1.25,
+    }));
+    expect(invalidate_weekly_snapshot_cache).toHaveBeenCalledTimes(1);
+  });
+
+  test('describes deleting a shipped override as restoring the shipped rate', async () => {
+    vi.mocked(getModelRates).mockResolvedValue({
+      overrides: [{ model: 'gpt-5', inputPerM: 1, outputPerM: 2, createdAt: 'x', updatedAt: 'x' }],
+      effective: [],
+    });
+    vi.mocked(getBudgetSpendSnapshot).mockResolvedValue(budgetSpend({ unknownModels: [], unpricedTokens: 0 }));
+
+    renderPanel();
+    await userEvent.click(await screen.findByRole('button', { name: 'delete' }));
+
+    expect(await screen.findByText(/restores the shipped rate/i)).toBeInTheDocument();
+    expect(screen.queryByText(/goes back to unpriced/i)).not.toBeInTheDocument();
   });
 });

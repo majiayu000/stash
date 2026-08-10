@@ -14,6 +14,12 @@ interface WeeklySnapshotCacheEntry {
 }
 
 const weekly_snapshot_cache = new Map<string, WeeklySnapshotCacheEntry>();
+let weekly_snapshot_generation = 0;
+
+export function invalidate_weekly_snapshot_cache(): void {
+  weekly_snapshot_generation += 1;
+  weekly_snapshot_cache.clear();
+}
 
 export async function getBurnSnapshot(days?: number): Promise<BurnSnapshot> {
   const qs = days !== undefined ? `?days=${days}` : '';
@@ -39,19 +45,31 @@ export async function getWeeklySnapshot(week?: string): Promise<WeeklySnapshot> 
   if (current?.inflight) return current.inflight;
 
   const qs = week ? `?week=${week}` : '';
-  const inflight = apiGet<WeeklyResponse>(`/analytics/weekly${qs}`)
+  const request_generation = weekly_snapshot_generation;
+  let inflight!: Promise<WeeklySnapshot>;
+  inflight = apiGet<WeeklyResponse>(`/analytics/weekly${qs}`)
     .then((res) => {
-      weekly_snapshot_cache.set(key, {
-        data: res.data,
-        updated_at: Date.now(),
-      });
+      if (request_generation === weekly_snapshot_generation) {
+        weekly_snapshot_cache.set(key, {
+          data: res.data,
+          updated_at: Date.now(),
+        });
+      }
       return res.data;
     })
     .catch((error: unknown) => {
-      weekly_snapshot_cache.delete(key);
+      const cached = weekly_snapshot_cache.get(key);
+      if (
+        request_generation === weekly_snapshot_generation
+        && cached?.inflight === inflight
+      ) {
+        weekly_snapshot_cache.delete(key);
+      }
       throw error;
     });
-  weekly_snapshot_cache.set(key, { inflight });
+  if (request_generation === weekly_snapshot_generation) {
+    weekly_snapshot_cache.set(key, { inflight });
+  }
   return inflight;
 }
 
