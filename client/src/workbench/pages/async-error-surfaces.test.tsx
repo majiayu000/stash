@@ -293,7 +293,7 @@ describe('high-value optional surface failures', () => {
     renderSurface(<SessionStartPage data={data} reload={vi.fn()} />, '/sessions/new?todoId=todo-1');
 
     expect(await screen.findByText('rates unavailable')).toBeInTheDocument();
-    expect(screen.getByText(/rate unavailable/)).toBeInTheDocument();
+    expect(await screen.findByText(/rate unavailable/)).toBeInTheDocument();
     expect(screen.queryByText(/\$0\.0001/)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'retry load model rates' }));
 
