@@ -67,33 +67,42 @@ export function ProjectDetailPage({ data }: { data: WBData; reload: () => void }
   const [loadError, setLoadError] = useState<Error | null>(null);
   const loadEpoch = useRef(0);
   const mounted = useRef(true);
+  const currentProjectId = useRef(p?.id);
+  currentProjectId.current = p?.id;
   const [retryTick, setRetryTick] = useState(0);
   // SPEC v0.3 §3h — regex'd decision candidates from this project's recent sessions.
   const [candidates, setCandidates] = useState<DecisionCandidateRecord[]>([]);
   // Measured usage from /api/analytics/burn; null while loading or unavailable.
   const [burn, setBurn] = useState<ProjectBurnView | null>(null);
 
-  async function loadKb(blockPage = false) {
-    const epoch = ++loadEpoch.current;
-    if (!p) {
-      if (mounted.current && epoch === loadEpoch.current) setLoading(false);
+  async function loadKb(blockPage = false, requestedProjectId = p?.id) {
+    if (!requestedProjectId) {
+      if (mounted.current) setLoading(false);
       return;
     }
+    // A mutation started on the previous route can finish after navigation.
+    // Reject it before it increments the epoch for the current project's load.
+    if (!mounted.current || requestedProjectId !== currentProjectId.current) return;
+    const epoch = ++loadEpoch.current;
     if (blockPage && mounted.current && epoch === loadEpoch.current) {
       setLoading(true);
       setLoadError(null);
     }
     try {
       const [intent, milestones, decisions, notes, lessons, bindings, allSkills] = await Promise.all([
-        getProjectIntent(p.id),
-        listMilestones(p.id),
-        listDecisions(p.id),
-        getProjectNotes(p.id),
-        listLessons({ projectId: p.id }),
-        listProjectSkills(p.id),
+        getProjectIntent(requestedProjectId),
+        listMilestones(requestedProjectId),
+        listDecisions(requestedProjectId),
+        getProjectNotes(requestedProjectId),
+        listLessons({ projectId: requestedProjectId }),
+        listProjectSkills(requestedProjectId),
         listSkills(),
       ]);
-      if (!mounted.current || epoch !== loadEpoch.current) return;
+      if (
+        !mounted.current
+        || epoch !== loadEpoch.current
+        || requestedProjectId !== currentProjectId.current
+      ) return;
       setKb({
         intent: intent?.text ?? '',
         milestones,
@@ -105,8 +114,15 @@ export function ProjectDetailPage({ data }: { data: WBData; reload: () => void }
       setMySkills(allSkills.filter((s) => enabledIds.has(s.id)));
       setLoading(false);
     } catch (error) {
-      if (!mounted.current || epoch !== loadEpoch.current) return;
-      reportAsyncError('load project knowledge', error);
+      if (
+        !mounted.current
+        || epoch !== loadEpoch.current
+        || requestedProjectId !== currentProjectId.current
+      ) return;
+      const retry = blockPage
+        ? undefined
+        : () => loadKb(false, requestedProjectId);
+      reportAsyncError('load project knowledge', error, retry);
       if (blockPage) setLoadError(toError(error));
       setLoading(false);
     }

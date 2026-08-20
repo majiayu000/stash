@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import type { BurnSnapshot, Milestone, Skill } from '@stash/shared';
 import { getBurnSnapshot } from '../../api/analytics';
@@ -14,7 +14,11 @@ import {
 import { getDecisionCandidates } from '../../api/agent-sessions';
 import { listProjectSkills, listSkills } from '../../api/skills';
 import { WorkbenchDialogProvider } from '../../components/ui/workbench-dialogs';
-import type { WBData } from '../data';
+import type { WBData, WBProject } from '../data';
+import {
+  WORKBENCH_ASYNC_ERROR_EVENT,
+  type WorkbenchAsyncErrorDetail,
+} from '../reportAsyncError';
 import { ProjectDetailPage } from './ProjectDetailPage';
 
 vi.mock('../../api/analytics', () => ({ getBurnSnapshot: vi.fn() }));
@@ -243,6 +247,114 @@ describe('ProjectDetailPage', () => {
     });
 
     expect(consoleError).not.toHaveBeenCalled();
+    consoleError.mockRestore();
+  });
+
+  test('rejects a completed mutation refresh after navigating to another project', async () => {
+    const projectTwoMilestone: Milestone = {
+      ...milestone,
+      id: 'milestone-2',
+      projectId: 'project-2',
+      name: 'project two milestone',
+    };
+    const projectOne = data.projects[0];
+    if (!projectOne) throw new Error('project fixture is missing');
+    const projectTwo: WBProject = {
+      ...projectOne,
+      id: 'project-2',
+      name: 'Second project',
+    };
+    const routeData: WBData = {
+      ...data,
+      projects: [...data.projects, projectTwo],
+      stats: { ...data.stats, projects: 2 },
+    };
+    let resolveMutation: (value: Milestone) => void = () => {};
+    let resolveProjectTwo: (value: Milestone[]) => void = () => {};
+    const mutation = new Promise<Milestone>((resolve) => { resolveMutation = resolve; });
+    const projectTwoLoad = new Promise<Milestone[]>((resolve) => { resolveProjectTwo = resolve; });
+    vi.mocked(updateMilestone).mockReturnValueOnce(mutation);
+    vi.mocked(listMilestones)
+      .mockResolvedValueOnce([milestone])
+      .mockReturnValueOnce(projectTwoLoad);
+
+    function RouteHarness() {
+      const navigate = useNavigate();
+      return (
+        <>
+          <button type="button" onClick={() => navigate('/projects/project-2')}>switch project</button>
+          <Routes>
+            <Route path="/projects/:projectId" element={<ProjectDetailPage data={routeData} reload={vi.fn()} />} />
+          </Routes>
+        </>
+      );
+    }
+
+    render(
+      <MemoryRouter initialEntries={['/projects/project-1']}>
+        <WorkbenchDialogProvider>
+          <RouteHarness />
+        </WorkbenchDialogProvider>
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByTitle('click to cycle status (currently planned)'));
+    fireEvent.click(screen.getByRole('button', { name: 'switch project' }));
+    await waitFor(() => expect(listMilestones).toHaveBeenCalledTimes(2));
+
+    await act(async () => {
+      resolveMutation({ ...milestone, status: 'wip' });
+      await mutation;
+    });
+
+    expect(listMilestones).toHaveBeenCalledTimes(2);
+    expect(listMilestones).toHaveBeenLastCalledWith('project-2');
+
+    await act(async () => {
+      resolveProjectTwo([projectTwoMilestone]);
+      await projectTwoLoad;
+    });
+
+    expect(await screen.findByText('project two milestone')).toBeInTheDocument();
+    expect(screen.queryByText('v1 cut')).not.toBeInTheDocument();
+  });
+
+  test('offers a retry when a background refresh fails', async () => {
+    const refreshed = { ...milestone, name: 'refreshed milestone', status: 'wip' as const };
+    vi.mocked(listMilestones)
+      .mockResolvedValueOnce([milestone])
+      .mockRejectedValueOnce(new Error('refresh unavailable'))
+      .mockResolvedValueOnce([refreshed]);
+    const errors: WorkbenchAsyncErrorDetail[] = [];
+    const onError = (event: Event) => {
+      errors.push((event as CustomEvent<WorkbenchAsyncErrorDetail>).detail);
+    };
+    window.addEventListener(WORKBENCH_ASYNC_ERROR_EVENT, onError);
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    render(
+      <MemoryRouter initialEntries={['/projects/project-1']}>
+        <WorkbenchDialogProvider>
+          <Routes>
+            <Route path="/projects/:projectId" element={<ProjectDetailPage data={data} reload={vi.fn()} />} />
+          </Routes>
+        </WorkbenchDialogProvider>
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByTitle('click to cycle status (currently planned)'));
+    await waitFor(() => expect(errors).toHaveLength(1));
+    const reported = errors[0];
+    if (!reported) throw new Error('background refresh error was not reported');
+
+    expect(screen.getByText('v1 cut')).toBeInTheDocument();
+    expect(reported.scope).toBe('load project knowledge');
+    expect(reported.retry).toEqual(expect.any(Function));
+
+    await act(async () => { await reported.retry?.(); });
+
+    expect(await screen.findByText('refreshed milestone')).toBeInTheDocument();
+    window.removeEventListener(WORKBENCH_ASYNC_ERROR_EVENT, onError);
     consoleError.mockRestore();
   });
 });
