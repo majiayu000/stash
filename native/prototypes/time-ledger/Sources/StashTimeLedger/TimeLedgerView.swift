@@ -121,6 +121,10 @@ struct TimeLedgerView: View {
 
             Spacer()
 
+            SidebarArtwork()
+                .padding(.horizontal, 14)
+                .padding(.bottom, 15)
+
             VStack(alignment: .leading, spacing: 5) {
                 Text("LOCAL WORKSPACE")
                     .font(.system(size: 9, weight: .semibold))

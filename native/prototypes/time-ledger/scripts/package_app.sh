@@ -9,6 +9,7 @@ CONTENTS_DIR="$OUTPUT_APP/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
 ICON_SOURCE="$PACKAGE_DIR/Sources/StashTimeLedger/Resources/AppIcon.png"
+SIDEBAR_ART_SOURCE="$PACKAGE_DIR/Sources/StashTimeLedger/Resources/SidebarArtwork.png"
 ICONSET_DIR="$PACKAGE_DIR/.build/StashTimeLedger.iconset"
 ICON_OUTPUT="$PACKAGE_DIR/.build/StashTimeLedger.icns"
 
@@ -16,6 +17,7 @@ swift build -c release --package-path "$PACKAGE_DIR"
 mkdir -p "$MACOS_DIR" "$RESOURCES_DIR" "$ICONSET_DIR"
 cp "$PACKAGE_DIR/.build/release/StashTimeLedger" "$MACOS_DIR/StashTimeLedger"
 cp "$ICON_SOURCE" "$RESOURCES_DIR/AppIcon.png"
+cp "$SIDEBAR_ART_SOURCE" "$RESOURCES_DIR/SidebarArtwork.png"
 
 sips -z 16 16 "$ICON_SOURCE" --out "$ICONSET_DIR/icon_16x16.png" >/dev/null
 sips -z 32 32 "$ICON_SOURCE" --out "$ICONSET_DIR/icon_16x16@2x.png" >/dev/null
