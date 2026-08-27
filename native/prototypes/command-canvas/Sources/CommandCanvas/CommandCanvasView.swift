@@ -285,7 +285,7 @@ private struct TaskCanvas: View {
                         .foregroundStyle(Palette.tertiaryText)
 
                     if scope == .today {
-                        Text(Date.now, format: .dateTime.weekday(.wide).month(.abbreviated).day())
+                        Text("THURSDAY, AUGUST 27")
                             .font(.system(size: 13, weight: .medium))
                             .foregroundStyle(Palette.secondaryText)
                     }
