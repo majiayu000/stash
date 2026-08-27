@@ -60,6 +60,7 @@ enum LedgerDesign {
     static let selection = Color(red: 0.914, green: 0.918, blue: 0.922)
     static let mintWash = Color(red: 0.894, green: 0.959, blue: 0.925)
     static let hairline = Color(nsColor: .separatorColor)
+    static let feedbackAnimation = Animation.timingCurve(0.22, 1, 0.36, 1, duration: 0.22)
 
     static func projectColor(for projectName: String) -> Color {
         let palette = [accent, mint, creative, apricot]

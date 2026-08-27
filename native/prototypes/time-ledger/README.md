@@ -35,9 +35,10 @@ The packaged app is ad-hoc signed for local use. Its data lives at:
 The workspace is versioned Codable JSON and is replaced atomically on save.
 Back up that file before moving data between machines.
 
-The generated product mark is stored at
-`Sources/StashTimeLedger/Resources/AppIcon.png`. Packaging derives the complete
-macOS `.icns` set from that source and places the same mark in the app sidebar.
+The active product mark is stored at
+`Sources/StashTimeLedger/Resources/AppIcon-v2.png`. Packaging derives the
+complete macOS `.icns` set from that source, installs it as the Dock icon, and
+uses the same mark in the app sidebar.
 
 ## Daily planning
 

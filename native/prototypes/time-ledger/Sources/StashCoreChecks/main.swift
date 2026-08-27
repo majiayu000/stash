@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import StashCore
 
@@ -33,6 +34,7 @@ struct StashCoreChecks {
         try checkPlanner()
         try await checkPersistence()
         try await checkLockedPlan()
+        try await checkStoreInteractionPerformance()
         try checkPlannerPerformance()
         print("StashCoreChecks: all checks passed")
     }
@@ -150,5 +152,36 @@ struct StashCoreChecks {
         }
         try expect(elapsed < .seconds(1), "ten 10,000-task plans exceeded one second: \(elapsed)")
         print("Planner 10 × 10k: \(elapsed)")
+    }
+
+    @MainActor
+    private static func checkStoreInteractionPerformance() async throws {
+        let now = Date(timeIntervalSince1970: 1_777_000_000)
+        let store = LedgerStore(
+            repository: MemoryRepository(),
+            initialWorkspace: .benchmark(taskCount: 10_000, now: now),
+            now: { now }
+        )
+        guard let taskID = store.todayRows.first?.id else {
+            throw CheckFailure.failed("benchmark workspace produced no Today task")
+        }
+
+        var invalidations = 0
+        let observer = store.objectWillChange.sink { invalidations += 1 }
+        let clock = ContinuousClock()
+        let elapsed = clock.measure {
+            store.toggleCompletion(id: taskID)
+        }
+        withExtendedLifetime(observer) {}
+
+        try expect(
+            elapsed < .milliseconds(250),
+            "10,000-task mutation exceeded 250 ms: \(elapsed)"
+        )
+        try expect(
+            invalidations <= 3,
+            "one mutation emitted \(invalidations) store invalidations"
+        )
+        print("Store 10k mutation: \(elapsed), \(invalidations) invalidations")
     }
 }

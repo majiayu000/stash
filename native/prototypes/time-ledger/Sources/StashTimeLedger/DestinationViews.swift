@@ -54,6 +54,12 @@ struct TodayLedgerView: View {
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
+
+                TodayProgressPath(
+                    completed: store.todayCompletedCount,
+                    total: store.todayRows.count
+                )
+                .padding(.top, 3)
             }
             .padding(.horizontal, 28)
             .padding(.top, 23)
@@ -102,6 +108,79 @@ struct TodayLedgerView: View {
             return remainder == 0 ? "\(hours)h" : "\(hours)h \(remainder)m"
         }
         return "\(minutes)m"
+    }
+}
+
+private struct TodayProgressPath: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let completed: Int
+    let total: Int
+
+    private var progress: Double {
+        guard total > 0 else { return 0 }
+        return min(1, Double(completed) / Double(total))
+    }
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(LedgerDesign.accent.opacity(0.045))
+
+            LedgerRouteShape()
+                .stroke(
+                    LedgerDesign.accent.opacity(0.24),
+                    style: StrokeStyle(lineWidth: 1.25, lineCap: .round, lineJoin: .round)
+                )
+
+            if progress > 0 {
+                LedgerRouteShape()
+                    .trim(from: 0, to: progress)
+                    .stroke(
+                        LedgerDesign.accent,
+                        style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round)
+                    )
+            }
+
+            GeometryReader { proxy in
+                Circle()
+                    .fill(LedgerDesign.mint)
+                    .frame(width: 8, height: 8)
+                    .scaleEffect(completed == total && total > 0 ? 1 : 0.82)
+                    .position(x: proxy.size.width, y: proxy.size.height * 0.5)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .frame(height: 34)
+        .animation(reduceMotion ? nil : LedgerDesign.feedbackAnimation, value: completed)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Today progress")
+        .accessibilityValue("\(completed) of \(total) tasks complete")
+    }
+}
+
+private struct LedgerRouteShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        let lower = rect.height * 0.72
+        let upper = rect.height * 0.28
+        let middle = rect.height * 0.50
+
+        path.move(to: CGPoint(x: rect.minX, y: lower))
+        path.addLine(to: CGPoint(x: rect.width * 0.30, y: lower))
+        path.addCurve(
+            to: CGPoint(x: rect.width * 0.43, y: upper),
+            control1: CGPoint(x: rect.width * 0.36, y: lower),
+            control2: CGPoint(x: rect.width * 0.36, y: upper)
+        )
+        path.addLine(to: CGPoint(x: rect.width * 0.72, y: upper))
+        path.addCurve(
+            to: CGPoint(x: rect.width * 0.84, y: middle),
+            control1: CGPoint(x: rect.width * 0.78, y: upper),
+            control2: CGPoint(x: rect.width * 0.78, y: middle)
+        )
+        path.addLine(to: CGPoint(x: rect.maxX, y: middle))
+        return path
     }
 }
 

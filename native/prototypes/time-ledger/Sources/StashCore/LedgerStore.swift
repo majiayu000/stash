@@ -15,15 +15,19 @@ public enum PersistenceState: Equatable, Sendable {
     case failed(String)
 }
 
+private struct LedgerSnapshot {
+    var todayRows: [PlannedTaskRow] = []
+    var inboxTasks: [LedgerTask] = []
+    var upcomingTasks: [LedgerTask] = []
+    var shortTermTasks: [LedgerTask] = []
+    var longTermTasks: [LedgerTask] = []
+    var completedToday: [LedgerTask] = []
+}
+
 @MainActor
 public final class LedgerStore: ObservableObject {
-    @Published public private(set) var workspace: LedgerWorkspace
-    @Published public private(set) var todayRows: [PlannedTaskRow] = []
-    @Published public private(set) var inboxTasks: [LedgerTask] = []
-    @Published public private(set) var upcomingTasks: [LedgerTask] = []
-    @Published public private(set) var shortTermTasks: [LedgerTask] = []
-    @Published public private(set) var longTermTasks: [LedgerTask] = []
-    @Published public private(set) var completedToday: [LedgerTask] = []
+    public private(set) var workspace: LedgerWorkspace
+    @Published private var snapshot = LedgerSnapshot()
     @Published public private(set) var persistenceState: PersistenceState = .idle
     @Published public private(set) var isLoaded = false
 
@@ -54,6 +58,13 @@ public final class LedgerStore: ObservableObject {
     public static func live() -> LedgerStore {
         LedgerStore(repository: JSONWorkspaceRepository())
     }
+
+    public var todayRows: [PlannedTaskRow] { snapshot.todayRows }
+    public var inboxTasks: [LedgerTask] { snapshot.inboxTasks }
+    public var upcomingTasks: [LedgerTask] { snapshot.upcomingTasks }
+    public var shortTermTasks: [LedgerTask] { snapshot.shortTermTasks }
+    public var longTermTasks: [LedgerTask] { snapshot.longTermTasks }
+    public var completedToday: [LedgerTask] { snapshot.completedToday }
 
     public func bootstrap() async {
         do {
@@ -283,7 +294,7 @@ public final class LedgerStore: ObservableObject {
 
     private func rebuildSnapshot() {
         let tasksByID = Dictionary(uniqueKeysWithValues: workspace.tasks.map { ($0.id, $0) })
-        todayRows = (workspace.dailyPlan?.entries ?? []).compactMap { entry in
+        let nextTodayRows: [PlannedTaskRow] = (workspace.dailyPlan?.entries ?? []).compactMap { entry in
             guard let task = tasksByID[entry.taskID] else { return nil }
             return PlannedTaskRow(task: task, reason: entry.reason, score: entry.score)
         }
@@ -291,11 +302,11 @@ public final class LedgerStore: ObservableObject {
         let today = calendar.startOfDay(for: now())
         let weekEnd = calendar.date(byAdding: .day, value: 7, to: today) ?? today
 
-        inboxTasks = workspace.tasks
+        let nextInboxTasks = workspace.tasks
             .filter { $0.status == .inbox && $0.isOpen }
             .sorted { $0.createdAt > $1.createdAt }
 
-        upcomingTasks = workspace.tasks
+        let nextUpcomingTasks = workspace.tasks
             .filter { task in
                 guard task.isOpen else { return false }
                 let nextDate = task.scheduledFor ?? task.dueAt
@@ -303,8 +314,8 @@ public final class LedgerStore: ObservableObject {
             }
             .sorted(by: taskComesFirst)
 
-        let todayIDs = Set(todayRows.map(\.id))
-        shortTermTasks = workspace.tasks
+        let todayIDs = Set(nextTodayRows.map(\.id))
+        let nextShortTermTasks = workspace.tasks
             .filter { task in
                 guard task.isOpen, task.horizon == .shortTerm, !todayIDs.contains(task.id) else { return false }
                 let nextDate = task.dueAt ?? task.scheduledFor
@@ -314,16 +325,25 @@ public final class LedgerStore: ObservableObject {
             }
             .sorted(by: taskComesFirst)
 
-        longTermTasks = workspace.tasks
+        let nextLongTermTasks = workspace.tasks
             .filter { $0.isOpen && $0.horizon == .longTerm }
             .sorted(by: taskComesFirst)
 
-        completedToday = workspace.tasks
+        let nextCompletedToday = workspace.tasks
             .filter { task in
                 guard task.status == .completed, let completedAt = task.completedAt else { return false }
                 return calendar.isDate(completedAt, inSameDayAs: today)
             }
             .sorted { ($0.completedAt ?? .distantPast) > ($1.completedAt ?? .distantPast) }
+
+        snapshot = LedgerSnapshot(
+            todayRows: nextTodayRows,
+            inboxTasks: nextInboxTasks,
+            upcomingTasks: nextUpcomingTasks,
+            shortTermTasks: nextShortTermTasks,
+            longTermTasks: nextLongTermTasks,
+            completedToday: nextCompletedToday
+        )
     }
 
     private func scheduleSave() {

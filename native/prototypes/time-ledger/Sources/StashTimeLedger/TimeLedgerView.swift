@@ -312,6 +312,7 @@ struct TimeLedgerView: View {
 
 struct LedgerTaskRow: View {
     @EnvironmentObject private var store: LedgerStore
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let task: LedgerTask
     let reason: String?
     let dateLabel: String?
@@ -321,7 +322,13 @@ struct LedgerTaskRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: 14) {
             Button {
-                store.toggleCompletion(id: task.id)
+                if reduceMotion {
+                    store.toggleCompletion(id: task.id)
+                } else {
+                    withAnimation(LedgerDesign.feedbackAnimation) {
+                        store.toggleCompletion(id: task.id)
+                    }
+                }
             } label: {
                 Image(systemName: task.status == .completed ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: 17))

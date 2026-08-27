@@ -1,9 +1,16 @@
+import AppKit
 import StashCore
 import SwiftUI
 
 @main
 struct StashTimeLedgerApp: App {
     @StateObject private var store = LedgerStore.live()
+
+    init() {
+        if let appIcon = BrandAssets.appIcon {
+            NSApplication.shared.applicationIconImage = appIcon
+        }
+    }
 
     var body: some Scene {
         WindowGroup("Stash · Time Ledger") {
