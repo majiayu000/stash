@@ -28,6 +28,7 @@ private struct HorizonRail: View {
                 HorizonSection(
                     eyebrow: "NEXT 7 DAYS",
                     title: store.shortTermTasks.isEmpty ? "Nothing pressing" : "Coming into view",
+                    tint: LedgerDesign.accent,
                     tasks: Array(store.shortTermTasks.prefix(4)),
                     selectedTaskID: $selectedTaskID,
                     emptyText: "Your near horizon is clear."
@@ -38,6 +39,7 @@ private struct HorizonRail: View {
                 HorizonSection(
                     eyebrow: "LONG TERM",
                     title: "What compounds",
+                    tint: LedgerDesign.creative,
                     tasks: Array(store.longTermTasks.prefix(4)),
                     selectedTaskID: $selectedTaskID,
                     emptyText: "No long-term work yet."
@@ -55,6 +57,7 @@ private struct HorizonSection: View {
     @EnvironmentObject private var store: LedgerStore
     let eyebrow: String
     let title: String
+    let tint: Color
     let tasks: [LedgerTask]
     @Binding var selectedTaskID: UUID?
     let emptyText: String
@@ -64,7 +67,7 @@ private struct HorizonSection: View {
             Text(eyebrow)
                 .font(.system(size: 10, weight: .semibold))
                 .tracking(1.05)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(tint)
 
             Text(title)
                 .font(.system(size: 17, weight: .semibold))
@@ -84,7 +87,7 @@ private struct HorizonSection: View {
                         HStack(alignment: .top, spacing: 11) {
                             Image(systemName: store.project(for: task)?.symbol ?? "circle")
                                 .font(.system(size: 12))
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(projectTint(for: task))
                                 .frame(width: 18, height: 19)
                                 .accessibilityHidden(true)
 
@@ -120,6 +123,11 @@ private struct HorizonSection: View {
         if let date = task.scheduledFor { return "\(date.ledgerShortDate) · \(task.estimateMinutes)m" }
         if let project = store.project(for: task) { return "\(project.name) · \(task.estimateMinutes)m" }
         return "\(task.priority.label) · \(task.estimateMinutes)m"
+    }
+
+    private func projectTint(for task: LedgerTask) -> Color {
+        guard let project = store.project(for: task) else { return tint }
+        return LedgerDesign.projectColor(for: project.name)
     }
 }
 
@@ -235,11 +243,11 @@ private struct TaskInspector: View {
                     .frame(minHeight: 84)
                     .background {
                         RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .fill(Color.primary.opacity(0.04))
+                            .fill(LedgerDesign.canvas)
                     }
                     .overlay {
                         RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .stroke(Color.primary.opacity(0.075), lineWidth: 1)
+                            .stroke(LedgerDesign.hairline, lineWidth: 1)
                     }
 
                 Button {

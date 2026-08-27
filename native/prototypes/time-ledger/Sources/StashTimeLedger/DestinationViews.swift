@@ -12,7 +12,7 @@ struct TodayLedgerView: View {
                     Text("TODAY")
                         .font(.system(size: 11, weight: .semibold))
                         .tracking(1.1)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(LedgerDesign.accent)
 
                     Spacer()
 
@@ -26,6 +26,7 @@ struct TodayLedgerView: View {
                     }
                     .buttonStyle(.borderless)
                     .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(LedgerDesign.accent)
 
                     Button("Replan") {
                         store.replanToday()
@@ -211,7 +212,7 @@ struct ProjectsView: View {
                             VStack(alignment: .leading, spacing: 0) {
                                 HStack(spacing: 9) {
                                     Image(systemName: project.symbol)
-                                        .foregroundStyle(.secondary)
+                                        .foregroundStyle(LedgerDesign.projectColor(for: project.name))
                                         .frame(width: 18)
                                     Text(project.name)
                                         .font(.system(size: 15, weight: .semibold))
@@ -361,7 +362,7 @@ struct LedgerSectionHeader: View {
             Text(eyebrow)
                 .font(.system(size: 11, weight: .semibold))
                 .tracking(1.1)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(eyebrowTint)
             Text(title)
                 .font(.system(size: 25, weight: .semibold))
             Text(subtitle)
@@ -373,6 +374,15 @@ struct LedgerSectionHeader: View {
         .padding(.horizontal, 28)
         .padding(.top, 23)
         .padding(.bottom, 20)
+    }
+
+    private var eyebrowTint: Color {
+        switch eyebrow {
+        case "INBOX": LedgerDesign.apricot
+        case "PROJECTS": LedgerDesign.creative
+        case "REVIEW": LedgerDesign.mint
+        default: LedgerDesign.accent
+        }
     }
 }
 

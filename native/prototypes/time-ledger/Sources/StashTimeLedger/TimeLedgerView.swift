@@ -38,7 +38,7 @@ struct TimeLedgerView: View {
                 statusBar
             }
         }
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background(LedgerDesign.canvas)
         .tint(LedgerDesign.accent)
         .onReceive(NotificationCenter.default.publisher(for: .stashFocusCapture)) { _ in
             focusedField = .capture
@@ -61,7 +61,7 @@ struct TimeLedgerView: View {
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 9) {
-                BrandMark(size: 23)
+                BrandMark(size: 25)
                 Text("Stash")
                     .font(.system(size: 15, weight: .semibold))
                 Spacer()
@@ -90,7 +90,7 @@ struct TimeLedgerView: View {
                         HStack(spacing: 10) {
                             Image(systemName: item.symbol)
                                 .frame(width: 17)
-                                .foregroundStyle(destination == item ? .primary : .secondary)
+                                .foregroundStyle(destination == item ? item.tint : LedgerDesign.inkBlue)
                                 .accessibilityHidden(true)
 
                             Text(item.rawValue)
@@ -109,7 +109,7 @@ struct TimeLedgerView: View {
                         .frame(height: 34)
                         .background {
                             RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                .fill(destination == item && searchText.isEmpty ? Color.primary.opacity(0.07) : .clear)
+                                .fill(destination == item && searchText.isEmpty ? LedgerDesign.selection : .clear)
                         }
                     }
                     .buttonStyle(.plain)
@@ -171,11 +171,11 @@ struct TimeLedgerView: View {
         .frame(height: 29)
         .background {
             RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(Color.primary.opacity(0.055))
+                .fill(LedgerDesign.field)
         }
         .overlay {
             RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .stroke(Color.primary.opacity(0.07), lineWidth: 1)
+                .stroke(LedgerDesign.hairline, lineWidth: 1)
         }
     }
 
@@ -183,7 +183,9 @@ struct TimeLedgerView: View {
         HStack(spacing: 10) {
             Image(systemName: "plus")
                 .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(LedgerDesign.accent)
+                .frame(width: 23, height: 23)
+                .background(LedgerDesign.selection, in: Circle())
                 .accessibilityHidden(true)
 
             TextField("Capture a task…  #project  ^p1  !tomorrow  *30m", text: $captureText)
@@ -205,7 +207,7 @@ struct TimeLedgerView: View {
         }
         .padding(.horizontal, 28)
         .frame(height: 51)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background(LedgerDesign.canvas)
     }
 
     @ViewBuilder
@@ -260,7 +262,7 @@ struct TimeLedgerView: View {
         }
         .padding(.horizontal, 16)
         .frame(height: 32)
-        .background(Color(nsColor: .controlBackgroundColor).opacity(0.30))
+        .background(LedgerDesign.chrome)
     }
 
     @ViewBuilder
@@ -319,7 +321,7 @@ struct LedgerTaskRow: View {
             } label: {
                 Image(systemName: task.status == .completed ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: 17))
-                    .foregroundStyle(task.status == .completed ? LedgerDesign.accent : .secondary)
+                    .foregroundStyle(task.status == .completed ? LedgerDesign.mint : LedgerDesign.inkBlue)
                     .frame(width: 22, height: 22)
                     .contentShape(Rectangle())
             }
@@ -333,7 +335,10 @@ struct LedgerTaskRow: View {
                             Text("NOW")
                                 .font(.system(size: 9, weight: .bold))
                                 .tracking(0.6)
-                                .foregroundStyle(LedgerDesign.success)
+                                .foregroundStyle(LedgerDesign.mint)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(LedgerDesign.mintWash, in: Capsule())
                         }
 
                         Text(task.title)
@@ -357,9 +362,14 @@ struct LedgerTaskRow: View {
 
                     HStack(spacing: 7) {
                         if let project = store.project(for: task) {
+                            Circle()
+                                .fill(LedgerDesign.projectColor(for: project.name))
+                                .frame(width: 6, height: 6)
+                                .accessibilityHidden(true)
+
                             Text(project.name)
                                 .font(.system(size: 11, weight: .medium))
-                                .foregroundStyle(LedgerDesign.accent)
+                                .foregroundStyle(LedgerDesign.projectColor(for: project.name))
 
                             Text("·")
                                 .foregroundStyle(.quaternary)
