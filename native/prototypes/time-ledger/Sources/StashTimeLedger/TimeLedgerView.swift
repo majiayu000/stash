@@ -90,7 +90,7 @@ struct TimeLedgerView: View {
                         HStack(spacing: 10) {
                             Image(systemName: item.symbol)
                                 .frame(width: 17)
-                                .foregroundStyle(destination == item ? item.tint : LedgerDesign.inkBlue)
+                                .foregroundStyle(destination == item ? item.tint : Color.secondary)
                                 .accessibilityHidden(true)
 
                             Text(item.rawValue)
@@ -185,7 +185,7 @@ struct TimeLedgerView: View {
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(LedgerDesign.accent)
                 .frame(width: 23, height: 23)
-                .background(LedgerDesign.selection, in: Circle())
+                .background(Color(nsColor: .selectedTextBackgroundColor).opacity(0.12), in: Circle())
                 .accessibilityHidden(true)
 
             TextField("Capture a task…  #project  ^p1  !tomorrow  *30m", text: $captureText)
@@ -321,7 +321,7 @@ struct LedgerTaskRow: View {
             } label: {
                 Image(systemName: task.status == .completed ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: 17))
-                    .foregroundStyle(task.status == .completed ? LedgerDesign.mint : LedgerDesign.inkBlue)
+                    .foregroundStyle(task.status == .completed ? LedgerDesign.mint : Color.secondary)
                     .frame(width: 22, height: 22)
                     .contentShape(Rectangle())
             }
@@ -369,7 +369,7 @@ struct LedgerTaskRow: View {
 
                             Text(project.name)
                                 .font(.system(size: 11, weight: .medium))
-                                .foregroundStyle(LedgerDesign.projectColor(for: project.name))
+                                .foregroundStyle(.secondary)
 
                             Text("·")
                                 .foregroundStyle(.quaternary)
