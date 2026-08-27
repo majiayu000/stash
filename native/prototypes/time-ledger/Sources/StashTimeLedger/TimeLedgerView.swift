@@ -61,9 +61,7 @@ struct TimeLedgerView: View {
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 9) {
-                Image(systemName: "square.stack.3d.up.fill")
-                    .font(.system(size: 15, weight: .semibold))
-                    .accessibilityHidden(true)
+                BrandMark(size: 23)
                 Text("Stash")
                     .font(.system(size: 15, weight: .semibold))
                 Spacer()

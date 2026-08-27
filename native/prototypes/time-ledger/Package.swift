@@ -20,7 +20,10 @@ let package = Package(
         .executableTarget(
             name: "StashTimeLedger",
             dependencies: ["StashCore"],
-            path: "Sources/StashTimeLedger"
+            path: "Sources/StashTimeLedger",
+            resources: [
+                .process("Resources")
+            ]
         ),
         .executableTarget(
             name: "StashCoreChecks",
