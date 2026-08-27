@@ -5,13 +5,32 @@ set -euo pipefail
 SCRIPT_DIR=${0:A:h}
 PACKAGE_DIR=${SCRIPT_DIR:h}
 OUTPUT_APP=${1:-"$PACKAGE_DIR/.build/app/Stash Time Ledger.app"}
-CONTENTS_DIR="$OUTPUT_APP/Contents"
+OUTPUT_APP=${OUTPUT_APP:A}
+RUNNING_EXECUTABLE="$OUTPUT_APP/Contents/MacOS/StashTimeLedger"
+
+for pid in $(pgrep -x StashTimeLedger 2>/dev/null); do
+    running_command=$(ps -p "$pid" -o command=)
+    if [[ "$running_command" == "$RUNNING_EXECUTABLE" ]]; then
+        print -u2 -- "Stash Time Ledger is running from the package being replaced. Quit it, then package again."
+        exit 1
+    fi
+done
+
+mkdir -p "$PACKAGE_DIR/.build"
+STAGING_ROOT=$(mktemp -d "$PACKAGE_DIR/.build/stash-package.XXXXXX")
+STAGING_APP="$STAGING_ROOT/Stash Time Ledger.app"
+CONTENTS_DIR="$STAGING_APP/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
 ICON_SOURCE="$PACKAGE_DIR/Sources/StashTimeLedger/Resources/AppIcon-v2.png"
 SIDEBAR_ART_SOURCE="$PACKAGE_DIR/Sources/StashTimeLedger/Resources/SidebarArtwork.png"
-ICONSET_DIR="$PACKAGE_DIR/.build/StashTimeLedger.iconset"
-ICON_OUTPUT="$PACKAGE_DIR/.build/StashTimeLedger.icns"
+ICONSET_DIR="$STAGING_ROOT/StashTimeLedger.iconset"
+ICON_OUTPUT="$STAGING_ROOT/StashTimeLedger.icns"
+
+cleanup() {
+    rm -rf "$STAGING_ROOT"
+}
+trap cleanup EXIT
 
 swift build -c release --package-path "$PACKAGE_DIR"
 mkdir -p "$MACOS_DIR" "$RESOURCES_DIR" "$ICONSET_DIR"
@@ -47,5 +66,20 @@ plutil -insert CFBundleVersion -string 1 "$CONTENTS_DIR/Info.plist"
 plutil -insert LSMinimumSystemVersion -string 14.0 "$CONTENTS_DIR/Info.plist"
 plutil -insert NSHighResolutionCapable -bool true "$CONTENTS_DIR/Info.plist"
 
-codesign --force --sign - "$OUTPUT_APP"
+codesign --force --sign - "$STAGING_APP"
+
+OUTPUT_PARENT=${OUTPUT_APP:h}
+BACKUP_APP="$STAGING_ROOT/previous.app"
+mkdir -p "$OUTPUT_PARENT"
+if [[ -e "$OUTPUT_APP" ]]; then
+    mv "$OUTPUT_APP" "$BACKUP_APP"
+fi
+if ! mv "$STAGING_APP" "$OUTPUT_APP"; then
+    if [[ -e "$BACKUP_APP" ]]; then
+        mv "$BACKUP_APP" "$OUTPUT_APP"
+    fi
+    print -u2 -- "Failed to replace $OUTPUT_APP; the previous package was restored."
+    exit 1
+fi
+
 print -r -- "$OUTPUT_APP"

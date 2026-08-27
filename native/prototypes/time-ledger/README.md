@@ -26,7 +26,9 @@ locked-plan behavior, atomic JSON persistence, and 10,000-task performance.
 open '.build/app/Stash Time Ledger.app'
 ```
 
-The packaged app is ad-hoc signed for local use. Its data lives at:
+Quit a running packaged copy before rebuilding it. The packaging command will
+stop with a clear error instead of replacing an active app bundle. The packaged
+app is ad-hoc signed for local use. Its data lives at:
 
 ```text
 ~/Library/Application Support/Stash Time Ledger/workspace-v1.json
