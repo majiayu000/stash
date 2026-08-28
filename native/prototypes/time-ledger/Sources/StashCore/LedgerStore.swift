@@ -22,6 +22,7 @@ private struct LedgerSnapshot {
     var shortTermTasks: [LedgerTask] = []
     var longTermTasks: [LedgerTask] = []
     var completedToday: [LedgerTask] = []
+    var trashedTasks: [LedgerTask] = []
 }
 
 @MainActor
@@ -30,10 +31,10 @@ public final class LedgerStore: ObservableObject {
     @Published private var snapshot = LedgerSnapshot()
     @Published public private(set) var persistenceState: PersistenceState = .idle
     @Published public private(set) var isLoaded = false
+    @Published public private(set) var reminderRevision = 0
 
     public let repository: any WorkspaceRepository
     public var calendar: Calendar
-    private let planner: DailyPlanner
     private let parser: CaptureParser
     private let now: @Sendable () -> Date
     private var saveTask: Task<Void, Never>?
@@ -48,7 +49,6 @@ public final class LedgerStore: ObservableObject {
         self.repository = repository
         self.workspace = initialWorkspace
         self.calendar = calendar
-        self.planner = DailyPlanner(calendar: calendar)
         self.parser = CaptureParser(calendar: calendar)
         self.now = now
         normalizePlan(allowLockedPlan: true)
@@ -56,7 +56,10 @@ public final class LedgerStore: ObservableObject {
     }
 
     public static func live() -> LedgerStore {
-        LedgerStore(repository: JSONWorkspaceRepository())
+        LedgerStore(
+            repository: JSONWorkspaceRepository(),
+            initialWorkspace: LedgerWorkspace()
+        )
     }
 
     public var todayRows: [PlannedTaskRow] { snapshot.todayRows }
@@ -65,6 +68,10 @@ public final class LedgerStore: ObservableObject {
     public var shortTermTasks: [LedgerTask] { snapshot.shortTermTasks }
     public var longTermTasks: [LedgerTask] { snapshot.longTermTasks }
     public var completedToday: [LedgerTask] { snapshot.completedToday }
+    public var trashedTasks: [LedgerTask] { snapshot.trashedTasks }
+    public var planningPreferences: PlanningPreferences {
+        workspace.planningPreferences ?? .default
+    }
 
     public func bootstrap() async {
         do {
@@ -74,6 +81,7 @@ public final class LedgerStore: ObservableObject {
             normalizePlan(allowLockedPlan: true)
             rebuildSnapshot()
             isLoaded = true
+            reminderRevision += 1
             try await repository.save(workspace)
             persistenceState = .saved(now())
         } catch {
@@ -137,7 +145,7 @@ public final class LedgerStore: ObservableObject {
 
     public func replanToday() {
         guard workspace.dailyPlan?.isLocked != true else { return }
-        workspace.dailyPlan = planner.makePlan(tasks: workspace.tasks, for: now())
+        workspace.dailyPlan = makePlan(for: now())
         commit(replanIfUnlocked: false)
     }
 
@@ -148,15 +156,25 @@ public final class LedgerStore: ObservableObject {
     }
 
     public func toggleCompletion(id: UUID) {
-        mutateTask(id: id) { task in
-            if task.status == .completed {
-                task.status = .planned
-                task.completedAt = nil
-            } else {
-                task.status = .completed
-                task.completedAt = now()
+        guard let index = workspace.tasks.firstIndex(where: { $0.id == id }) else { return }
+        if workspace.tasks[index].status == .completed {
+            workspace.tasks[index].status = .planned
+            workspace.tasks[index].completedAt = nil
+            workspace.tasks[index].updatedAt = now()
+            workspace.tasks.removeAll {
+                $0.recurrenceSourceID == id && $0.isOpen
             }
+        } else {
+            workspace.tasks[index].status = .completed
+            workspace.tasks[index].completedAt = now()
+            let nextTask = nextRecurringTask(after: workspace.tasks[index])
+            workspace.tasks[index].reminderAt = nil
+            if let nextTask {
+                workspace.tasks.append(nextTask)
+            }
+            workspace.tasks[index].updatedAt = now()
         }
+        commit(replanIfUnlocked: false)
     }
 
     public func start(id: UUID) {
@@ -217,7 +235,11 @@ public final class LedgerStore: ObservableObject {
         projectID: UUID?,
         priority: TaskPriority,
         estimateMinutes: Int,
-        horizon: TaskHorizon
+        horizon: TaskHorizon,
+        scheduledFor: Date?,
+        dueAt: Date?,
+        recurrence: TaskRecurrence?,
+        reminderAt: Date?
     ) {
         let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanTitle.isEmpty else { return }
@@ -228,13 +250,96 @@ public final class LedgerStore: ObservableObject {
             task.priority = priority
             task.estimateMinutes = max(5, estimateMinutes)
             task.horizon = horizon
+            task.scheduledFor = scheduledFor.map { calendar.startOfDay(for: $0) }
+            task.dueAt = dueAt.map { calendar.startOfDay(for: $0) }
+            task.recurrence = recurrence
+            task.reminderAt = reminderAt
         }
     }
 
     public func delete(id: UUID) {
-        workspace.tasks.removeAll { $0.id == id }
+        guard let index = workspace.tasks.firstIndex(where: { $0.id == id }) else { return }
+        workspace.tasks[index].statusBeforeTrash = workspace.tasks[index].status
+        workspace.tasks[index].status = .cancelled
+        workspace.tasks[index].updatedAt = now()
         workspace.dailyPlan?.entries.removeAll { $0.taskID == id }
         commit(replanIfUnlocked: true)
+    }
+
+    public func restore(id: UUID) {
+        guard let index = workspace.tasks.firstIndex(where: { $0.id == id && $0.status == .cancelled }) else {
+            return
+        }
+        workspace.tasks[index].status = workspace.tasks[index].statusBeforeTrash ?? .inbox
+        workspace.tasks[index].statusBeforeTrash = nil
+        workspace.tasks[index].updatedAt = now()
+        commit(replanIfUnlocked: true)
+    }
+
+    public func permanentlyDelete(id: UUID) {
+        workspace.tasks.removeAll { $0.id == id && $0.status == .cancelled }
+        workspace.dailyPlan?.entries.removeAll { $0.taskID == id }
+        commit(replanIfUnlocked: true)
+    }
+
+    @discardableResult
+    public func createProject(name: String, symbol: String = "folder") -> LedgerProject? {
+        let cleanName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanName.isEmpty else { return nil }
+        if let existing = workspace.projects.first(where: {
+            $0.name.localizedCaseInsensitiveCompare(cleanName) == .orderedSame
+        }) {
+            return existing
+        }
+        let project = LedgerProject(name: cleanName, symbol: symbol)
+        workspace.projects.append(project)
+        commit(replanIfUnlocked: false)
+        return project
+    }
+
+    public func updateProject(id: UUID, name: String, symbol: String) {
+        let cleanName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanName.isEmpty,
+              let index = workspace.projects.firstIndex(where: { $0.id == id }) else { return }
+        workspace.projects[index].name = cleanName
+        workspace.projects[index].symbol = symbol
+        commit(replanIfUnlocked: false)
+    }
+
+    public func deleteProject(id: UUID) {
+        workspace.projects.removeAll { $0.id == id }
+        for index in workspace.tasks.indices where workspace.tasks[index].projectID == id {
+            workspace.tasks[index].projectID = nil
+            workspace.tasks[index].updatedAt = now()
+        }
+        commit(replanIfUnlocked: true)
+    }
+
+    public func updatePlanningPreferences(_ preferences: PlanningPreferences) {
+        workspace.planningPreferences = preferences
+        if workspace.dailyPlan?.isLocked != true {
+            workspace.dailyPlan = makePlan(for: now())
+        }
+        commit(replanIfUnlocked: false)
+    }
+
+    public func exportData() throws -> Data {
+        try WorkspaceCodec.encode(workspace)
+    }
+
+    public func importData(_ data: Data) throws {
+        let imported = try WorkspaceCodec.decode(data)
+        guard imported.schemaVersion == 1 else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        workspace = imported
+        if workspace.planningPreferences == nil {
+            workspace.planningPreferences = .default
+        }
+        normalizePlan(allowLockedPlan: true)
+        rebuildSnapshot()
+        reminderRevision += 1
+        scheduleSave()
     }
 
     public func flush() async {
@@ -280,13 +385,13 @@ public final class LedgerStore: ObservableObject {
            (allowLockedPlan || !plan.isLocked) {
             return
         }
-        workspace.dailyPlan = planner.makePlan(tasks: workspace.tasks, for: currentDay)
+        workspace.dailyPlan = makePlan(for: currentDay)
     }
 
     private func commit(replanIfUnlocked: Bool) {
         normalizePlan(allowLockedPlan: true)
         if replanIfUnlocked, workspace.dailyPlan?.isLocked != true {
-            workspace.dailyPlan = planner.makePlan(tasks: workspace.tasks, for: now())
+            workspace.dailyPlan = makePlan(for: now())
         }
         rebuildSnapshot()
         scheduleSave()
@@ -336,13 +441,18 @@ public final class LedgerStore: ObservableObject {
             }
             .sorted { ($0.completedAt ?? .distantPast) > ($1.completedAt ?? .distantPast) }
 
+        let nextTrashedTasks = workspace.tasks
+            .filter { $0.status == .cancelled }
+            .sorted { $0.updatedAt > $1.updatedAt }
+
         snapshot = LedgerSnapshot(
             todayRows: nextTodayRows,
             inboxTasks: nextInboxTasks,
             upcomingTasks: nextUpcomingTasks,
             shortTermTasks: nextShortTermTasks,
             longTermTasks: nextLongTermTasks,
-            completedToday: nextCompletedToday
+            completedToday: nextCompletedToday,
+            trashedTasks: nextTrashedTasks
         )
     }
 
@@ -366,6 +476,92 @@ public final class LedgerStore: ObservableObject {
                 guard let self, generation == self.saveGeneration else { return }
                 self.persistenceState = .failed("Could not save: \(error.localizedDescription)")
             }
+        }
+        reminderRevision += 1
+    }
+
+    private func makePlan(for date: Date) -> DailyPlan {
+        let generated = DailyPlanner(preferences: planningPreferences, calendar: calendar)
+            .makePlan(tasks: workspace.tasks, for: date)
+        guard let existing = workspace.dailyPlan,
+              calendar.isDate(existing.day, inSameDayAs: date) else {
+            return generated
+        }
+
+        let tasksByID = Dictionary(uniqueKeysWithValues: workspace.tasks.map { ($0.id, $0) })
+        var generatedByID = Dictionary(uniqueKeysWithValues: generated.entries.map { ($0.taskID, $0) })
+        var merged: [PlanEntry] = []
+
+        for entry in existing.entries {
+            if tasksByID[entry.taskID]?.status == .completed {
+                merged.append(entry)
+            } else if merged.count < planningPreferences.maximumTasks,
+                      let refreshed = generatedByID.removeValue(forKey: entry.taskID) {
+                merged.append(refreshed)
+            }
+        }
+
+        for entry in generated.entries
+        where merged.count < planningPreferences.maximumTasks && generatedByID[entry.taskID] != nil {
+            merged.append(entry)
+            generatedByID.removeValue(forKey: entry.taskID)
+        }
+
+        return DailyPlan(
+            day: generated.day,
+            entries: merged,
+            isLocked: existing.isLocked,
+            generatedAt: generated.generatedAt
+        )
+    }
+
+    private func nextRecurringTask(after task: LedgerTask) -> LedgerTask? {
+        guard let recurrence = task.recurrence else { return nil }
+        let anchor = task.scheduledFor ?? task.dueAt ?? calendar.startOfDay(for: now())
+        guard let nextAnchor = nextDate(after: anchor, recurrence: recurrence) else { return nil }
+
+        func advanced(_ date: Date?) -> Date? {
+            guard let date else { return nil }
+            return nextDate(after: date, recurrence: recurrence)
+        }
+
+        return LedgerTask(
+            title: task.title,
+            notes: task.notes,
+            projectID: task.projectID,
+            status: .planned,
+            priority: task.priority,
+            horizon: task.horizon,
+            estimateMinutes: task.estimateMinutes,
+            scheduledFor: task.scheduledFor == nil && task.dueAt == nil
+                ? nextAnchor
+                : advanced(task.scheduledFor),
+            dueAt: advanced(task.dueAt),
+            deferredUntil: nil,
+            isPinnedToday: false,
+            createdAt: now(),
+            updatedAt: now(),
+            recurrence: recurrence,
+            reminderAt: advanced(task.reminderAt),
+            recurrenceSourceID: task.id
+        )
+    }
+
+    private func nextDate(after date: Date, recurrence: TaskRecurrence) -> Date? {
+        switch recurrence {
+        case .daily:
+            return calendar.date(byAdding: .day, value: 1, to: date)
+        case .weekdays:
+            var candidate = date
+            repeat {
+                guard let next = calendar.date(byAdding: .day, value: 1, to: candidate) else { return nil }
+                candidate = next
+            } while calendar.isDateInWeekend(candidate)
+            return candidate
+        case .weekly:
+            return calendar.date(byAdding: .weekOfYear, value: 1, to: date)
+        case .monthly:
+            return calendar.date(byAdding: .month, value: 1, to: date)
         }
     }
 

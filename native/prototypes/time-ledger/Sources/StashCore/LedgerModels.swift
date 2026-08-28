@@ -34,6 +34,44 @@ public enum TaskHorizon: String, Codable, CaseIterable, Sendable {
     }
 }
 
+public enum TaskRecurrence: String, Codable, CaseIterable, Sendable {
+    case daily
+    case weekdays
+    case weekly
+    case monthly
+
+    public var label: String {
+        switch self {
+        case .daily: "Daily"
+        case .weekdays: "Weekdays"
+        case .weekly: "Weekly"
+        case .monthly: "Monthly"
+        }
+    }
+}
+
+public struct PlanningPreferences: Codable, Equatable, Sendable {
+    public var minimumTasks: Int
+    public var maximumTasks: Int
+    public var minuteBudget: Int
+    public var includeInbox: Bool
+
+    public init(
+        minimumTasks: Int = 5,
+        maximumTasks: Int = 8,
+        minuteBudget: Int = 360,
+        includeInbox: Bool = true
+    ) {
+        let minimum = min(max(1, minimumTasks), 12)
+        self.minimumTasks = minimum
+        self.maximumTasks = min(max(minimum, maximumTasks), 12)
+        self.minuteBudget = min(max(30, minuteBudget), 960)
+        self.includeInbox = includeInbox
+    }
+
+    public static let `default` = PlanningPreferences()
+}
+
 public struct LedgerProject: Identifiable, Codable, Equatable, Sendable {
     public let id: UUID
     public var name: String
@@ -69,6 +107,10 @@ public struct LedgerTask: Identifiable, Codable, Equatable, Sendable {
     public var createdAt: Date
     public var updatedAt: Date
     public var completedAt: Date?
+    public var recurrence: TaskRecurrence?
+    public var reminderAt: Date?
+    public var statusBeforeTrash: TaskStatus?
+    public var recurrenceSourceID: UUID?
 
     public init(
         id: UUID = UUID(),
@@ -85,7 +127,11 @@ public struct LedgerTask: Identifiable, Codable, Equatable, Sendable {
         isPinnedToday: Bool = false,
         createdAt: Date = .now,
         updatedAt: Date = .now,
-        completedAt: Date? = nil
+        completedAt: Date? = nil,
+        recurrence: TaskRecurrence? = nil,
+        reminderAt: Date? = nil,
+        statusBeforeTrash: TaskStatus? = nil,
+        recurrenceSourceID: UUID? = nil
     ) {
         self.id = id
         self.title = title
@@ -102,6 +148,10 @@ public struct LedgerTask: Identifiable, Codable, Equatable, Sendable {
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.completedAt = completedAt
+        self.recurrence = recurrence
+        self.reminderAt = reminderAt
+        self.statusBeforeTrash = statusBeforeTrash
+        self.recurrenceSourceID = recurrenceSourceID
     }
 
     public var isOpen: Bool {
@@ -146,17 +196,20 @@ public struct LedgerWorkspace: Codable, Equatable, Sendable {
     public var projects: [LedgerProject]
     public var tasks: [LedgerTask]
     public var dailyPlan: DailyPlan?
+    public var planningPreferences: PlanningPreferences?
 
     public init(
         schemaVersion: Int = 1,
         projects: [LedgerProject] = [],
         tasks: [LedgerTask] = [],
-        dailyPlan: DailyPlan? = nil
+        dailyPlan: DailyPlan? = nil,
+        planningPreferences: PlanningPreferences? = .default
     ) {
         self.schemaVersion = schemaVersion
         self.projects = projects
         self.tasks = tasks
         self.dailyPlan = dailyPlan
+        self.planningPreferences = planningPreferences
     }
 }
 

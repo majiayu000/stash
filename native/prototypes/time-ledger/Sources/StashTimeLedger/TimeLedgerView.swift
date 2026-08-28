@@ -3,11 +3,14 @@ import SwiftUI
 
 struct TimeLedgerView: View {
     @EnvironmentObject private var store: LedgerStore
+    @Environment(\.scenePhase) private var scenePhase
     @State private var destination: LedgerDestination = .today
     @State private var selectedTaskID: UUID?
     @State private var captureText = ""
+    @State private var captureError: String?
     @State private var searchText = ""
     @State private var searchResults: [LedgerTask] = []
+    @State private var reminderError: String?
     @FocusState private var focusedField: FocusedField?
 
     private enum FocusedField {
@@ -45,6 +48,28 @@ struct TimeLedgerView: View {
             try? await Task.sleep(for: .milliseconds(90))
             guard !Task.isCancelled else { return }
             searchResults = store.search(query)
+        }
+        .task(id: store.reminderRevision) {
+            guard store.isLoaded else { return }
+            do {
+                try await SystemReminderScheduler.shared.sync(tasks: store.workspace.tasks)
+            } catch {
+                reminderError = error.localizedDescription
+            }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            guard phase != .active else { return }
+            Task { await store.flush() }
+        }
+        .alert("Reminder unavailable", isPresented: reminderErrorBinding) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(reminderError ?? "Unknown reminder error")
+        }
+        .alert("Could not add task", isPresented: captureErrorBinding) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(captureError ?? "Enter a task title before its #project or other options.")
         }
     }
 
@@ -140,6 +165,20 @@ struct TimeLedgerView: View {
         Binding(
             get: { destination },
             set: { select($0) }
+        )
+    }
+
+    private var reminderErrorBinding: Binding<Bool> {
+        Binding(
+            get: { reminderError != nil },
+            set: { if !$0 { reminderError = nil } }
+        )
+    }
+
+    private var captureErrorBinding: Binding<Bool> {
+        Binding(
+            get: { captureError != nil },
+            set: { if !$0 { captureError = nil } }
         )
     }
 
@@ -307,7 +346,12 @@ struct TimeLedgerView: View {
     }
 
     private func capture() {
-        guard let task = store.capture(captureText) else { return }
+        guard let task = store.capture(captureText) else {
+            if !captureText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                captureError = "Enter a task title before its #project or other options."
+            }
+            return
+        }
         captureText = ""
         selectedTaskID = task.id
         if task.status == .inbox {
@@ -339,14 +383,15 @@ struct LedgerTaskRow: View {
                     }
                 }
             } label: {
-                Image(systemName: task.status == .completed ? "checkmark.circle.fill" : "circle")
+                Image(systemName: completionSymbol)
                     .font(.system(size: 17))
                     .foregroundStyle(task.status == .completed ? LedgerDesign.mint : Color.secondary)
                     .frame(width: 22, height: 22)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(task.status == .completed ? "Reopen \(task.title)" : "Complete \(task.title)")
+            .disabled(task.status == .cancelled)
+            .accessibilityLabel(completionLabel)
 
             Button(action: onSelect) {
                 VStack(alignment: .leading, spacing: 5) {
@@ -411,6 +456,16 @@ struct LedgerTaskRow: View {
         .background(isSelected ? LedgerDesign.selection : .clear)
         .accessibilityElement(children: .contain)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    private var completionSymbol: String {
+        if task.status == .cancelled { return "trash" }
+        return task.status == .completed ? "checkmark.circle.fill" : "circle"
+    }
+
+    private var completionLabel: String {
+        if task.status == .cancelled { return "Task in Trash" }
+        return task.status == .completed ? "Reopen \(task.title)" : "Complete \(task.title)"
     }
 }
 

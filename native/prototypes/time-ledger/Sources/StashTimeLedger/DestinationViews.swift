@@ -265,6 +265,7 @@ struct UpcomingView: View {
 struct ProjectsView: View {
     @EnvironmentObject private var store: LedgerStore
     @Binding var selectedTaskID: UUID?
+    @State private var projectEditor: ProjectEditorTarget?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -273,6 +274,19 @@ struct ProjectsView: View {
                 title: "Work with a home",
                 subtitle: "Projects group context. Time still decides what reaches Today."
             )
+
+            HStack {
+                Spacer()
+                Button {
+                    projectEditor = ProjectEditorTarget(project: nil)
+                } label: {
+                    Label("New project", systemImage: "plus")
+                }
+                .buttonStyle(.borderless)
+                .font(.system(size: 11, weight: .medium))
+            }
+            .padding(.horizontal, 28)
+            .padding(.bottom, 10)
 
             Divider().padding(.horizontal, 28)
 
@@ -299,6 +313,14 @@ struct ProjectsView: View {
                                         .font(.system(size: 11))
                                         .foregroundStyle(.secondary)
                                     Spacer()
+                                    Button {
+                                        projectEditor = ProjectEditorTarget(project: project)
+                                    } label: {
+                                        Image(systemName: "ellipsis")
+                                            .frame(width: 22, height: 22)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .accessibilityLabel("Edit \(project.name)")
                                 }
                                 .padding(.horizontal, 28)
                                 .padding(.top, 22)
@@ -311,7 +333,7 @@ struct ProjectsView: View {
                                         .padding(.horizontal, 55)
                                         .padding(.bottom, 16)
                                 } else {
-                                    ForEach(tasks.prefix(4)) { task in
+                                    ForEach(tasks) { task in
                                         LedgerTaskRow(
                                             task: task,
                                             reason: task.notes,
@@ -330,6 +352,84 @@ struct ProjectsView: View {
                 }
                 .scrollIndicators(.never)
             }
+        }
+        .sheet(item: $projectEditor) { target in
+            ProjectEditorSheet(project: target.project)
+                .environmentObject(store)
+        }
+    }
+}
+
+private struct ProjectEditorTarget: Identifiable {
+    let id = UUID()
+    let project: LedgerProject?
+}
+
+private struct ProjectEditorSheet: View {
+    @EnvironmentObject private var store: LedgerStore
+    @Environment(\.dismiss) private var dismiss
+    let project: LedgerProject?
+
+    @State private var name: String
+    @State private var symbol: String
+    @State private var confirmDelete = false
+
+    private let symbols = ["folder", "hammer", "shippingbox", "paintpalette", "briefcase", "person"]
+
+    init(project: LedgerProject?) {
+        self.project = project
+        _name = State(initialValue: project?.name ?? "")
+        _symbol = State(initialValue: project?.symbol ?? "folder")
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text(project == nil ? "New project" : "Edit project")
+                .font(.system(size: 19, weight: .semibold))
+
+            TextField("Project name", text: $name)
+                .textFieldStyle(.roundedBorder)
+
+            Picker("Icon", selection: $symbol) {
+                ForEach(symbols, id: \.self) { value in
+                    Label(value.capitalized, systemImage: value).tag(value)
+                }
+            }
+
+            HStack {
+                if project != nil {
+                    Button("Delete", role: .destructive) {
+                        confirmDelete = true
+                    }
+                }
+                Spacer()
+                Button("Cancel", role: .cancel) { dismiss() }
+                Button("Save") {
+                    if let project {
+                        store.updateProject(id: project.id, name: name, symbol: symbol)
+                    } else {
+                        store.createProject(name: name, symbol: symbol)
+                    }
+                    dismiss()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+        .padding(24)
+        .frame(width: 360)
+        .confirmationDialog(
+            "Delete “\(project?.name ?? "project")”?",
+            isPresented: $confirmDelete,
+            titleVisibility: .visible
+        ) {
+            Button("Delete project", role: .destructive) {
+                if let project { store.deleteProject(id: project.id) }
+                dismiss()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Tasks are kept and moved to No project.")
         }
     }
 }
@@ -369,6 +469,15 @@ struct ReviewView: View {
                         title: "DEFERRED",
                         tasks: deferredTasks,
                         emptyText: "Nothing is waiting to return",
+                        selectedTaskID: $selectedTaskID
+                    )
+
+                    Divider().padding(.horizontal, 28).padding(.vertical, 16)
+
+                    ReviewGroup(
+                        title: "TRASH",
+                        tasks: store.trashedTasks,
+                        emptyText: "Trash is empty",
                         selectedTaskID: $selectedTaskID
                     )
                 }

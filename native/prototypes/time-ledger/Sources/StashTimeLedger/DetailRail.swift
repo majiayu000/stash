@@ -142,6 +142,13 @@ private struct TaskInspector: View {
     @State private var priority: TaskPriority = .p2
     @State private var estimateMinutes = 30
     @State private var horizon: TaskHorizon = .shortTerm
+    @State private var hasScheduledDate = false
+    @State private var scheduledFor = Date.now
+    @State private var hasDueDate = false
+    @State private var dueAt = Date.now
+    @State private var recurrence: TaskRecurrence?
+    @State private var hasReminder = false
+    @State private var reminderAt = Date.now
     @State private var confirmDelete = false
     @State private var savedFeedback = false
 
@@ -229,6 +236,61 @@ private struct TaskInspector: View {
                     }
                 }
 
+                inspectorField("SCHEDULE") {
+                    Toggle("Set date", isOn: $hasScheduledDate)
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+                }
+
+                if hasScheduledDate {
+                    DatePicker("Scheduled date", selection: $scheduledFor, displayedComponents: .date)
+                        .labelsHidden()
+                        .padding(.leading, 71)
+                        .padding(.bottom, 5)
+                }
+
+                inspectorField("DEADLINE") {
+                    Toggle("Set deadline", isOn: $hasDueDate)
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+                }
+
+                if hasDueDate {
+                    DatePicker("Deadline", selection: $dueAt, displayedComponents: .date)
+                        .labelsHidden()
+                        .padding(.leading, 71)
+                        .padding(.bottom, 5)
+                }
+
+                inspectorField("REPEAT") {
+                    Picker("Repeat", selection: $recurrence) {
+                        Text("Never").tag(nil as TaskRecurrence?)
+                        ForEach(TaskRecurrence.allCases, id: \.self) { value in
+                            Text(value.label).tag(Optional(value))
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                }
+
+                inspectorField("REMINDER") {
+                    Toggle("Notify me", isOn: $hasReminder)
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+                }
+
+                if hasReminder {
+                    DatePicker(
+                        "Reminder",
+                        selection: $reminderAt,
+                        in: Date.now...,
+                        displayedComponents: [.date, .hourAndMinute]
+                    )
+                    .labelsHidden()
+                    .padding(.leading, 71)
+                    .padding(.bottom, 7)
+                }
+
                 Text("NOTES")
                     .font(.system(size: 9, weight: .semibold))
                     .tracking(0.8)
@@ -266,34 +328,49 @@ private struct TaskInspector: View {
                 Divider().padding(.vertical, 19)
 
                 VStack(alignment: .leading, spacing: 12) {
-                    Button {
-                        store.start(id: task.id)
-                    } label: {
-                        Label("Start now", systemImage: "play.fill")
-                    }
+                    if task.status == .cancelled {
+                        Button {
+                            store.restore(id: task.id)
+                            selectedTaskID = nil
+                        } label: {
+                            Label("Restore task", systemImage: "arrow.uturn.backward")
+                        }
 
-                    Button {
-                        store.moveToToday(id: task.id)
-                    } label: {
-                        Label("Move to today", systemImage: "sun.max")
-                    }
+                        Button(role: .destructive) {
+                            confirmDelete = true
+                        } label: {
+                            Label("Delete permanently", systemImage: "trash.slash")
+                        }
+                    } else {
+                        Button {
+                            store.start(id: task.id)
+                        } label: {
+                            Label("Start now", systemImage: "play.fill")
+                        }
 
-                    Button {
-                        store.moveToTomorrow(id: task.id)
-                    } label: {
-                        Label("Move to tomorrow", systemImage: "arrow.right")
-                    }
+                        Button {
+                            store.moveToToday(id: task.id)
+                        } label: {
+                            Label("Move to today", systemImage: "sun.max")
+                        }
 
-                    Button {
-                        store.deferTask(id: task.id)
-                    } label: {
-                        Label("Defer three days", systemImage: "clock.arrow.2.circlepath")
-                    }
+                        Button {
+                            store.moveToTomorrow(id: task.id)
+                        } label: {
+                            Label("Move to tomorrow", systemImage: "arrow.right")
+                        }
 
-                    Button(role: .destructive) {
-                        confirmDelete = true
-                    } label: {
-                        Label("Delete task", systemImage: "trash")
+                        Button {
+                            store.deferTask(id: task.id)
+                        } label: {
+                            Label("Defer three days", systemImage: "clock.arrow.2.circlepath")
+                        }
+
+                        Button(role: .destructive) {
+                            confirmDelete = true
+                        } label: {
+                            Label("Move to Trash", systemImage: "trash")
+                        }
                     }
                 }
                 .buttonStyle(.plain)
@@ -307,17 +384,25 @@ private struct TaskInspector: View {
         .onAppear(perform: loadDraft)
         .onChange(of: task.id) { _, _ in loadDraft() }
         .confirmationDialog(
-            "Delete “\(task.title)”?",
+            task.status == .cancelled
+                ? "Permanently delete “\(task.title)”?"
+                : "Move “\(task.title)” to Trash?",
             isPresented: $confirmDelete,
             titleVisibility: .visible
         ) {
-            Button("Delete", role: .destructive) {
-                store.delete(id: task.id)
+            Button(task.status == .cancelled ? "Delete permanently" : "Move to Trash", role: .destructive) {
+                if task.status == .cancelled {
+                    store.permanentlyDelete(id: task.id)
+                } else {
+                    store.delete(id: task.id)
+                }
                 selectedTaskID = nil
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This removes the task from the local workspace.")
+            Text(task.status == .cancelled
+                 ? "This cannot be undone."
+                 : "You can restore this task from Review.")
         }
     }
 
@@ -364,6 +449,14 @@ private struct TaskInspector: View {
         priority = task.priority
         estimateMinutes = task.estimateMinutes
         horizon = task.horizon
+        hasScheduledDate = task.scheduledFor != nil
+        scheduledFor = task.scheduledFor ?? .now
+        hasDueDate = task.dueAt != nil
+        dueAt = task.dueAt ?? .now
+        recurrence = task.recurrence
+        hasReminder = task.reminderAt != nil
+        let defaultReminder = Calendar.current.date(byAdding: .hour, value: 1, to: .now) ?? .now
+        reminderAt = max(task.reminderAt ?? defaultReminder, .now)
         savedFeedback = false
     }
 
@@ -375,7 +468,11 @@ private struct TaskInspector: View {
             projectID: projectID,
             priority: priority,
             estimateMinutes: estimateMinutes,
-            horizon: horizon
+            horizon: horizon,
+            scheduledFor: hasScheduledDate ? scheduledFor : nil,
+            dueAt: hasDueDate ? dueAt : nil,
+            recurrence: recurrence,
+            reminderAt: hasReminder ? reminderAt : nil
         )
         savedFeedback = true
         Task {

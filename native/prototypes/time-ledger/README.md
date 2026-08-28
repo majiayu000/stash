@@ -35,7 +35,8 @@ app is ad-hoc signed for local use. Its data lives at:
 ```
 
 The workspace is versioned Codable JSON and is replaced atomically on save.
-Back up that file before moving data between machines.
+Stash keeps the previous version as `workspace-v1.backup.json`. Use the Data
+menu or Settings to export and import portable JSON backups.
 
 The active product mark is stored at
 `Sources/StashTimeLedger/Resources/AppIcon-v3.png`. It uses a centered macOS
@@ -47,8 +48,10 @@ uses the same mark in the app sidebar.
 
 Stash ranks active, overdue, scheduled, pinned, high-priority, due-soon, and
 older unfinished work. It selects five to eight tasks within a six-hour default
-budget and shows the leading reason on every row. `Lock today` freezes that
-order for the current date. Captures cannot silently change a locked plan.
+budget and shows the leading reason on every row. These limits and whether Inbox
+may fill open slots are configurable in Settings. `Lock today` freezes the order
+for the current date. Captures cannot silently change a locked plan, and
+completed entries remain visible when an unlocked plan refreshes.
 
 Capture supports the compact tokens already familiar from Stash:
 
@@ -60,5 +63,11 @@ Finish onboarding #Stash ^p1 !tomorrow *45m
 - `^p0` through `^p3` set priority.
 - `!today` and `!tomorrow` schedule the task.
 - `*30m` and `*2h` set the estimate.
+
+The task inspector supports arbitrary scheduled and due dates, daily, weekday,
+weekly, and monthly recurrence, and local macOS reminders. Project creation,
+renaming, icons, deletion, recoverable Trash, and permanent deletion are built
+in. Reminder permission is requested only after a task receives a future
+reminder.
 
 Agent activity is intentionally outside this MVP.

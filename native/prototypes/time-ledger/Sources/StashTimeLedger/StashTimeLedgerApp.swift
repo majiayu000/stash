@@ -50,6 +50,20 @@ struct StashTimeLedgerApp: App {
                     .keyboardShortcut(destination.shortcut, modifiers: .command)
                 }
             }
+
+            CommandMenu("Data") {
+                Button("Export backup…") {
+                    WorkspaceTransfer.exportWorkspace(store: store)
+                }
+                Button("Import backup…") {
+                    WorkspaceTransfer.importWorkspace(store: store)
+                }
+            }
+        }
+
+        Settings {
+            PlanningSettingsView()
+                .environmentObject(store)
         }
     }
 }

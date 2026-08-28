@@ -5,6 +5,29 @@ public protocol WorkspaceRepository: Sendable {
     func save(_ workspace: LedgerWorkspace) async throws
 }
 
+public enum WorkspaceCodec {
+    public static func encode(_ workspace: LedgerWorkspace) throws -> Data {
+        try encoder.encode(workspace)
+    }
+
+    public static func decode(_ data: Data) throws -> LedgerWorkspace {
+        try decoder.decode(LedgerWorkspace.self, from: data)
+    }
+
+    private static let encoder: JSONEncoder = {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .secondsSince1970
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        return encoder
+    }()
+
+    private static let decoder: JSONDecoder = {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .secondsSince1970
+        return decoder
+    }()
+}
+
 public actor JSONWorkspaceRepository: WorkspaceRepository {
     public let fileURL: URL
 
@@ -15,7 +38,7 @@ public actor JSONWorkspaceRepository: WorkspaceRepository {
     public func load() async throws -> LedgerWorkspace? {
         guard FileManager.default.fileExists(atPath: fileURL.path) else { return nil }
         let data = try Data(contentsOf: fileURL, options: [.mappedIfSafe])
-        return try Self.decoder.decode(LedgerWorkspace.self, from: data)
+        return try WorkspaceCodec.decode(data)
     }
 
     public func save(_ workspace: LedgerWorkspace) async throws {
@@ -24,7 +47,11 @@ public actor JSONWorkspaceRepository: WorkspaceRepository {
             at: directory,
             withIntermediateDirectories: true
         )
-        let data = try Self.encoder.encode(workspace)
+        if FileManager.default.fileExists(atPath: fileURL.path) {
+            let previousData = try Data(contentsOf: fileURL, options: [.mappedIfSafe])
+            try previousData.write(to: backupFileURL, options: [.atomic])
+        }
+        let data = try WorkspaceCodec.encode(workspace)
         try data.write(to: fileURL, options: [.atomic])
     }
 
@@ -36,16 +63,7 @@ public actor JSONWorkspaceRepository: WorkspaceRepository {
             .appendingPathComponent("workspace-v1.json", isDirectory: false)
     }
 
-    private static let encoder: JSONEncoder = {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .secondsSince1970
-        encoder.outputFormatting = [.sortedKeys]
-        return encoder
-    }()
-
-    private static let decoder: JSONDecoder = {
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .secondsSince1970
-        return decoder
-    }()
+    public var backupFileURL: URL {
+        fileURL.deletingPathExtension().appendingPathExtension("backup.json")
+    }
 }

@@ -34,6 +34,8 @@ struct StashCoreChecks {
         try checkPlanner()
         try await checkPersistence()
         try await checkLockedPlan()
+        try await checkCompletionAndRecurrence()
+        try await checkTrashAndProjects()
         try await checkStoreInteractionPerformance()
         try checkPlannerPerformance()
         print("StashCoreChecks: all checks passed")
@@ -82,10 +84,11 @@ struct StashCoreChecks {
         let filteredTasks = [
             LedgerTask(title: "Long", status: .planned, priority: .p0, horizon: .longTerm),
             LedgerTask(title: "Deferred", status: .deferred, priority: .p0, deferredUntil: future),
+            LedgerTask(title: "Undecided", status: .inbox, priority: .p0),
             LedgerTask(title: "Eligible", status: .active, priority: .p1)
         ]
-        let filteredPlan = DailyPlanner().makePlan(tasks: filteredTasks, for: now)
-        try expect(filteredPlan.entries.map(\.taskID) == [filteredTasks[2].id], "planner included unavailable work")
+        let filteredPlan = DailyPlanner(includeInbox: false).makePlan(tasks: filteredTasks, for: now)
+        try expect(filteredPlan.entries.map(\.taskID) == [filteredTasks[3].id], "planner included unavailable work")
     }
 
     private static func checkPersistence() async throws {
@@ -103,9 +106,30 @@ struct StashCoreChecks {
         }
         try expect(restored.projects.count == workspace.projects.count, "project count changed after JSON round-trip")
         try expect(restored.tasks.map(\.id) == workspace.tasks.map(\.id), "task identity changed after JSON round-trip")
+
+        var legacyObject = try JSONSerialization.jsonObject(with: firstEncoding) as? [String: Any] ?? [:]
+        legacyObject.removeValue(forKey: "planningPreferences")
+        if var tasks = legacyObject["tasks"] as? [[String: Any]] {
+            for index in tasks.indices {
+                tasks[index].removeValue(forKey: "recurrence")
+                tasks[index].removeValue(forKey: "reminderAt")
+                tasks[index].removeValue(forKey: "statusBeforeTrash")
+                tasks[index].removeValue(forKey: "recurrenceSourceID")
+            }
+            legacyObject["tasks"] = tasks
+        }
+        let legacyData = try JSONSerialization.data(withJSONObject: legacyObject)
+        let legacyWorkspace = try WorkspaceCodec.decode(legacyData)
+        try expect(legacyWorkspace.tasks.count == workspace.tasks.count, "legacy workspace no longer decodes")
+
         try await repository.save(restored)
         let secondEncoding = try Data(contentsOf: fileURL)
         try expect(firstEncoding == secondEncoding, "JSON representation was not stable after round-trip")
+        let backupURL = fileURL.deletingPathExtension().appendingPathExtension("backup.json")
+        try expect(
+            FileManager.default.fileExists(atPath: backupURL.path),
+            "repository did not preserve the previous workspace backup"
+        )
 
         let large = LedgerWorkspace.benchmark(taskCount: 10_000)
         let clock = ContinuousClock()
@@ -115,6 +139,90 @@ struct StashCoreChecks {
         }
         try expect(elapsed < .seconds(2), "10,000-task JSON round-trip exceeded two seconds: \(elapsed)")
         print("Persistence 10k round-trip: \(elapsed)")
+    }
+
+    @MainActor
+    private static func checkCompletionAndRecurrence() async throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let now = Date(timeIntervalSince1970: 1_777_000_000)
+        let today = calendar.startOfDay(for: now)
+        let task = LedgerTask(
+            title: "Daily review",
+            status: .planned,
+            scheduledFor: today,
+            isPinnedToday: true,
+            recurrence: .daily,
+            reminderAt: now.addingTimeInterval(3_600)
+        )
+        let workspace = LedgerWorkspace(
+            tasks: [task],
+            dailyPlan: DailyPlan(
+                day: today,
+                entries: [PlanEntry(taskID: task.id, reason: "Scheduled for today", score: 720)]
+            )
+        )
+        let store = LedgerStore(
+            repository: MemoryRepository(),
+            initialWorkspace: workspace,
+            calendar: calendar,
+            now: { now }
+        )
+
+        store.toggleCompletion(id: task.id)
+        try expect(store.todayCompletedCount == 1, "completing an unlocked plan lost Today progress")
+        try expect(store.todayRows.first?.task.status == .completed, "completed task left the active daily plan")
+
+        _ = store.capture("Unscheduled thought")
+        try expect(store.todayCompletedCount == 1, "a later capture erased completed Today progress")
+
+        let nextDay = calendar.date(byAdding: .day, value: 1, to: today)
+        let nextTask = store.workspace.tasks.first { $0.id != task.id }
+        try expect(nextTask?.scheduledFor == nextDay, "recurring task did not create the next occurrence")
+        try expect(nextTask?.recurrence == .daily, "next occurrence lost its recurrence rule")
+        try expect(
+            nextTask?.reminderAt == task.reminderAt?.addingTimeInterval(86_400),
+            "next occurrence lost its advanced reminder"
+        )
+
+        store.toggleCompletion(id: task.id)
+        try expect(
+            !store.workspace.tasks.contains { $0.recurrenceSourceID == task.id && $0.isOpen },
+            "reopening a recurring task left a duplicate future occurrence"
+        )
+    }
+
+    @MainActor
+    private static func checkTrashAndProjects() async throws {
+        let now = Date(timeIntervalSince1970: 1_777_000_000)
+        let project = LedgerProject(name: "Original")
+        let task = LedgerTask(title: "Recover me", projectID: project.id, status: .planned)
+        let store = LedgerStore(
+            repository: MemoryRepository(),
+            initialWorkspace: LedgerWorkspace(projects: [project], tasks: [task]),
+            now: { now }
+        )
+
+        store.delete(id: task.id)
+        try expect(store.trashedTasks.map(\.id) == [task.id], "deleted task did not enter Trash")
+        store.restore(id: task.id)
+        try expect(store.task(id: task.id)?.status == .planned, "restored task lost its previous status")
+
+        store.updateProject(id: project.id, name: "Renamed", symbol: "hammer")
+        try expect(store.workspace.projects.first?.name == "Renamed", "project rename did not persist")
+        store.deleteProject(id: project.id)
+        try expect(store.task(id: task.id)?.projectID == nil, "deleting a project also stranded its task")
+
+        store.updatePlanningPreferences(
+            PlanningPreferences(
+                minimumTasks: 2,
+                maximumTasks: 4,
+                minuteBudget: 120,
+                includeInbox: false
+            )
+        )
+        try expect(store.planningPreferences.maximumTasks == 4, "planning preferences did not update")
+        try expect(!store.planningPreferences.includeInbox, "Inbox planning preference did not update")
     }
 
     @MainActor

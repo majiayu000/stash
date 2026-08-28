@@ -4,18 +4,31 @@ public struct DailyPlanner: Sendable {
     public var minimumTasks: Int
     public var maximumTasks: Int
     public var minuteBudget: Int
+    public var includeInbox: Bool
     public var calendar: Calendar
 
     public init(
         minimumTasks: Int = 5,
         maximumTasks: Int = 8,
         minuteBudget: Int = 360,
+        includeInbox: Bool = true,
         calendar: Calendar = .current
     ) {
         self.minimumTasks = minimumTasks
         self.maximumTasks = maximumTasks
         self.minuteBudget = minuteBudget
+        self.includeInbox = includeInbox
         self.calendar = calendar
+    }
+
+    public init(preferences: PlanningPreferences, calendar: Calendar = .current) {
+        self.init(
+            minimumTasks: preferences.minimumTasks,
+            maximumTasks: preferences.maximumTasks,
+            minuteBudget: preferences.minuteBudget,
+            includeInbox: preferences.includeInbox,
+            calendar: calendar
+        )
     }
 
     public func makePlan(tasks: [LedgerTask], for date: Date) -> DailyPlan {
@@ -52,7 +65,7 @@ public struct DailyPlanner: Sendable {
     }
 
     private func candidate(for task: LedgerTask, day: Date) -> Candidate? {
-        guard task.isOpen else { return nil }
+        guard task.isOpen, includeInbox || task.status != .inbox else { return nil }
         if let deferredUntil = task.deferredUntil,
            calendar.startOfDay(for: deferredUntil) > day {
             return nil
