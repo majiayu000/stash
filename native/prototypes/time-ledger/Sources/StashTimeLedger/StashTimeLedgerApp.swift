@@ -25,31 +25,7 @@ struct StashTimeLedgerApp: App {
         .windowResizability(.contentMinSize)
         .windowStyle(.hiddenTitleBar)
         .commands {
-            CommandGroup(replacing: .newItem) {
-                Button("Capture Task") {
-                    NotificationCenter.default.post(name: .stashFocusCapture, object: nil)
-                }
-                .keyboardShortcut("n", modifiers: .command)
-            }
-
-            CommandGroup(after: .textEditing) {
-                Button("Search") {
-                    NotificationCenter.default.post(name: .stashFocusSearch, object: nil)
-                }
-                .keyboardShortcut("k", modifiers: .command)
-            }
-
-            CommandMenu("Navigate") {
-                ForEach(LedgerDestination.allCases) { destination in
-                    Button(destination.rawValue) {
-                        NotificationCenter.default.post(
-                            name: .stashSelectDestination,
-                            object: destination.rawValue
-                        )
-                    }
-                    .keyboardShortcut(destination.shortcut, modifiers: .command)
-                }
-            }
+            CommandGroup(replacing: .appSettings) {}
 
             CommandMenu("Data") {
                 Button("Export backup…") {

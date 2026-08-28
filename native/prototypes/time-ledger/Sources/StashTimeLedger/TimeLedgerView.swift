@@ -11,12 +11,6 @@ struct TimeLedgerView: View {
     @State private var searchText = ""
     @State private var searchResults: [LedgerTask] = []
     @State private var reminderError: String?
-    @FocusState private var focusedField: FocusedField?
-
-    private enum FocusedField {
-        case capture
-        case search
-    }
 
     var body: some View {
         NavigationSplitView {
@@ -28,17 +22,6 @@ struct TimeLedgerView: View {
         .navigationSplitViewStyle(.balanced)
         .background(LedgerDesign.canvas)
         .tint(LedgerDesign.accent)
-        .onReceive(NotificationCenter.default.publisher(for: .stashFocusCapture)) { _ in
-            focusedField = .capture
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .stashFocusSearch)) { _ in
-            focusedField = .search
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .stashSelectDestination)) { notification in
-            guard let rawValue = notification.object as? String,
-                  let destination = LedgerDestination(rawValue: rawValue) else { return }
-            select(destination)
-        }
         .task(id: searchText) {
             let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !query.isEmpty else {
@@ -147,6 +130,13 @@ struct TimeLedgerView: View {
                 .padding(.bottom, 15)
 
             VStack(alignment: .leading, spacing: 5) {
+                SettingsLink {
+                    Label("Settings", systemImage: "gearshape")
+                        .font(.system(size: 12, weight: .medium))
+                }
+                .buttonStyle(.plain)
+                .padding(.bottom, 12)
+
                 Text("LOCAL WORKSPACE")
                     .font(.system(size: 9, weight: .semibold))
                     .tracking(0.8)
@@ -192,14 +182,8 @@ struct TimeLedgerView: View {
             TextField("Search", text: $searchText)
                 .textFieldStyle(.plain)
                 .font(.system(size: 12))
-                .focused($focusedField, equals: .search)
 
-            if searchText.isEmpty {
-                Text("⌘K")
-                    .font(.system(size: 9, design: .rounded))
-                    .foregroundStyle(.quaternary)
-                    .accessibilityHidden(true)
-            } else {
+            if !searchText.isEmpty {
                 Button {
                     searchText = ""
                     searchResults = []
@@ -236,15 +220,9 @@ struct TimeLedgerView: View {
             TextField("Capture a task…  #project  ^p1  !tomorrow  *30m", text: $captureText)
                 .textFieldStyle(.plain)
                 .font(.system(size: 13))
-                .focused($focusedField, equals: .capture)
                 .onSubmit(capture)
 
-            if captureText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                Text("⌘N")
-                    .font(.system(size: 11, design: .rounded))
-                    .foregroundStyle(.tertiary)
-                    .accessibilityHidden(true)
-            } else {
+            if !captureText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 Button("Add", action: capture)
                     .buttonStyle(.borderless)
                     .font(.system(size: 12, weight: .medium))
@@ -300,7 +278,7 @@ struct TimeLedgerView: View {
 
             Spacer()
 
-            Text("⌘N capture   ⌘K search   ⌘1–5 navigate")
+            Text("Settings and backups are available from the sidebar")
                 .font(.system(size: 10))
                 .foregroundStyle(.tertiary)
                 .accessibilityHidden(true)
@@ -359,7 +337,6 @@ struct TimeLedgerView: View {
         } else {
             destination = .today
         }
-        focusedField = .capture
     }
 }
 

@@ -19,16 +19,6 @@ enum LedgerDestination: String, CaseIterable, Identifiable {
         }
     }
 
-    var shortcut: KeyEquivalent {
-        switch self {
-        case .today: "1"
-        case .inbox: "2"
-        case .upcoming: "3"
-        case .projects: "4"
-        case .review: "5"
-        }
-    }
-
     var tint: Color {
         switch self {
         case .today: LedgerDesign.accent
@@ -67,12 +57,6 @@ enum LedgerDesign {
         let value = projectName.unicodeScalars.reduce(0) { $0 + Int($1.value) }
         return palette[value % palette.count]
     }
-}
-
-extension Notification.Name {
-    static let stashFocusCapture = Notification.Name("stash.focus-capture")
-    static let stashFocusSearch = Notification.Name("stash.focus-search")
-    static let stashSelectDestination = Notification.Name("stash.select-destination")
 }
 
 extension Date {
