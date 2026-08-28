@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 enum BrandAssets {
-    static let appIcon = image(named: "AppIcon-v2") ?? image(named: "AppIcon")
+    static let appIcon = image(named: "AppIcon-v3") ?? image(named: "AppIcon-v2") ?? image(named: "AppIcon")
     static let sidebarArtwork = image(named: "SidebarArtwork")
 
     private static func image(named name: String) -> NSImage? {

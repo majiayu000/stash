@@ -38,8 +38,9 @@ The workspace is versioned Codable JSON and is replaced atomically on save.
 Back up that file before moving data between machines.
 
 The active product mark is stored at
-`Sources/StashTimeLedger/Resources/AppIcon-v2.png`. Packaging derives the
-complete macOS `.icns` set from that source, installs it as the Dock icon, and
+`Sources/StashTimeLedger/Resources/AppIcon-v3.png`. It uses a centered macOS
+rounded-square silhouette with transparent outer padding. Packaging derives
+the complete `.icns` set from that source, installs it as the Dock icon, and
 uses the same mark in the app sidebar.
 
 ## Daily planning

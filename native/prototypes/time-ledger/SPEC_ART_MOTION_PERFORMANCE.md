@@ -28,9 +28,10 @@ SwiftUI invalidations from task mutations.
    No idle animation, page-load choreography, blur, particles, or layout loops.
 4. Respect `accessibilityReduceMotion`; state changes remain immediate when it
    is enabled.
-5. Create a square Dock icon with a strong small-size silhouette derived from
-   the paper-slab, blue-route, and mint-endpoint visual language. Keep the old
-   asset and add a versioned replacement.
+5. Create a Dock icon with a strong small-size silhouette derived from the
+   paper-slab, blue-route, and mint-endpoint visual language. Keep the artwork
+   centered inside a macOS rounded-square silhouette with transparent outer
+   padding, and retain older assets as versioned fallbacks.
 
 ## Performance change
 
@@ -52,7 +53,7 @@ must stay below 250 ms and emit no more than three notifications.
 - `Sources/StashTimeLedger/DestinationViews.swift`: functional progress path.
 - `Sources/StashTimeLedger/TimeLedgerView.swift`: completion feedback.
 - `Sources/StashTimeLedger/StashTimeLedgerApp.swift`: explicit runtime Dock icon.
-- `Sources/StashTimeLedger/Resources/AppIcon-v2.png`: generated Dock artwork.
+- `Sources/StashTimeLedger/Resources/AppIcon-v3.png`: generated macOS Dock artwork.
 - `scripts/package_app.sh`: package the new source image and derive `.icns`.
 
 ## Verification

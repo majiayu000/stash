@@ -22,7 +22,7 @@ STAGING_APP="$STAGING_ROOT/Stash Time Ledger.app"
 CONTENTS_DIR="$STAGING_APP/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
-ICON_SOURCE="$PACKAGE_DIR/Sources/StashTimeLedger/Resources/AppIcon-v2.png"
+ICON_SOURCE="$PACKAGE_DIR/Sources/StashTimeLedger/Resources/AppIcon-v3.png"
 SIDEBAR_ART_SOURCE="$PACKAGE_DIR/Sources/StashTimeLedger/Resources/SidebarArtwork.png"
 ICONSET_DIR="$STAGING_ROOT/StashTimeLedger.iconset"
 ICON_OUTPUT="$STAGING_ROOT/StashTimeLedger.icns"
@@ -35,7 +35,7 @@ trap cleanup EXIT
 swift build -c release --package-path "$PACKAGE_DIR"
 mkdir -p "$MACOS_DIR" "$RESOURCES_DIR" "$ICONSET_DIR"
 cp "$PACKAGE_DIR/.build/release/StashTimeLedger" "$MACOS_DIR/StashTimeLedger"
-cp "$ICON_SOURCE" "$RESOURCES_DIR/AppIcon-v2.png"
+cp "$ICON_SOURCE" "$RESOURCES_DIR/AppIcon-v3.png"
 cp "$SIDEBAR_ART_SOURCE" "$RESOURCES_DIR/SidebarArtwork.png"
 
 sips -z 16 16 "$ICON_SOURCE" --out "$ICONSET_DIR/icon_16x16.png" >/dev/null
@@ -62,7 +62,7 @@ plutil -insert CFBundleName -string "Stash Time Ledger" "$CONTENTS_DIR/Info.plis
 plutil -insert CFBundleDisplayName -string "Stash" "$CONTENTS_DIR/Info.plist"
 plutil -insert CFBundlePackageType -string APPL "$CONTENTS_DIR/Info.plist"
 plutil -insert CFBundleShortVersionString -string 0.1.0 "$CONTENTS_DIR/Info.plist"
-plutil -insert CFBundleVersion -string 1 "$CONTENTS_DIR/Info.plist"
+plutil -insert CFBundleVersion -string 2 "$CONTENTS_DIR/Info.plist"
 plutil -insert LSMinimumSystemVersion -string 14.0 "$CONTENTS_DIR/Info.plist"
 plutil -insert NSHighResolutionCapable -bool true "$CONTENTS_DIR/Info.plist"
 
