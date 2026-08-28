@@ -37,6 +37,7 @@ struct StashCoreChecks {
         try await checkLegacyPreviewCleanup()
         try await checkCompletionAndRecurrence()
         try await checkTrashAndProjects()
+        try await checkChecklist()
         try await checkStoreInteractionPerformance()
         try checkPlannerPerformance()
         print("StashCoreChecks: all checks passed")
@@ -143,6 +144,7 @@ struct StashCoreChecks {
                 tasks[index].removeValue(forKey: "reminderAt")
                 tasks[index].removeValue(forKey: "statusBeforeTrash")
                 tasks[index].removeValue(forKey: "recurrenceSourceID")
+                tasks[index].removeValue(forKey: "checklistItems")
             }
             legacyObject["tasks"] = tasks
         }
@@ -181,7 +183,11 @@ struct StashCoreChecks {
             scheduledFor: today,
             isPinnedToday: true,
             recurrence: .daily,
-            reminderAt: now.addingTimeInterval(3_600)
+            reminderAt: now.addingTimeInterval(3_600),
+            checklistItems: [
+                LedgerChecklistItem(title: "Review inbox", isCompleted: true),
+                LedgerChecklistItem(title: "Choose focus")
+            ]
         )
         let workspace = LedgerWorkspace(
             tasks: [task],
@@ -211,6 +217,14 @@ struct StashCoreChecks {
         try expect(
             nextTask?.reminderAt == task.reminderAt?.addingTimeInterval(86_400),
             "next occurrence lost its advanced reminder"
+        )
+        try expect(
+            nextTask?.checklistItems?.map(\.title) == task.checklistItems?.map(\.title),
+            "next occurrence lost its checklist"
+        )
+        try expect(
+            nextTask?.checklistItems?.allSatisfy { !$0.isCompleted } == true,
+            "next occurrence did not reset checklist completion"
         )
 
         store.toggleCompletion(id: task.id)
@@ -251,6 +265,37 @@ struct StashCoreChecks {
         )
         try expect(store.planningPreferences.maximumTasks == 4, "planning preferences did not update")
         try expect(!store.planningPreferences.includeInbox, "Inbox planning preference did not update")
+    }
+
+    @MainActor
+    private static func checkChecklist() async throws {
+        let task = LedgerTask(title: "Ship the release")
+        let store = LedgerStore(
+            repository: MemoryRepository(),
+            initialWorkspace: LedgerWorkspace(tasks: [task])
+        )
+
+        guard let first = store.addChecklistItem(taskID: task.id, title: "  Run checks  ") else {
+            throw CheckFailure.failed("valid checklist item was rejected")
+        }
+        try expect(first.title == "Run checks", "checklist title was not normalized")
+        try expect(store.task(id: task.id)?.checklistItems == [first], "checklist item did not persist")
+        try expect(
+            store.addChecklistItem(taskID: task.id, title: "   ") == nil,
+            "empty checklist item was accepted"
+        )
+
+        store.toggleChecklistItem(taskID: task.id, itemID: first.id)
+        try expect(
+            store.task(id: task.id)?.checklistItems?.first?.isCompleted == true,
+            "checklist completion did not toggle"
+        )
+
+        store.deleteChecklistItem(taskID: task.id, itemID: first.id)
+        try expect(
+            store.task(id: task.id)?.checklistItems == nil,
+            "deleting the final checklist item did not clear the checklist"
+        )
     }
 
     @MainActor

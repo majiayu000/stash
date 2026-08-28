@@ -52,7 +52,7 @@ struct TimeLedgerView: View {
         .alert("Could not add task", isPresented: captureErrorBinding) {
             Button("OK", role: .cancel) {}
         } message: {
-            Text(captureError ?? "Enter a task title before its #project or other options.")
+            Text(captureError ?? "Enter a task title.")
         }
     }
 
@@ -217,7 +217,7 @@ struct TimeLedgerView: View {
                 .background(Color(nsColor: .selectedTextBackgroundColor).opacity(0.12), in: Circle())
                 .accessibilityHidden(true)
 
-            TextField("Capture a task…  #project  ^p1  !tomorrow  *30m", text: $captureText)
+            TextField("Add a task", text: $captureText)
                 .textFieldStyle(.plain)
                 .font(.system(size: 13))
                 .onSubmit(capture)
@@ -326,7 +326,7 @@ struct TimeLedgerView: View {
     private func capture() {
         guard let task = store.capture(captureText) else {
             if !captureText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                captureError = "Enter a task title before its #project or other options."
+                captureError = "Enter a task title."
             }
             return
         }

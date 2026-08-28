@@ -131,6 +131,56 @@ private struct HorizonSection: View {
     }
 }
 
+private struct TaskDraft: Equatable {
+    var title: String
+    var notes: String
+    var projectID: UUID?
+    var priority: TaskPriority
+    var estimateMinutes: Int
+    var horizon: TaskHorizon
+    var scheduledFor: Date?
+    var dueAt: Date?
+    var recurrence: TaskRecurrence?
+    var reminderAt: Date?
+
+    init(
+        title: String,
+        notes: String,
+        projectID: UUID?,
+        priority: TaskPriority,
+        estimateMinutes: Int,
+        horizon: TaskHorizon,
+        scheduledFor: Date?,
+        dueAt: Date?,
+        recurrence: TaskRecurrence?,
+        reminderAt: Date?
+    ) {
+        self.title = title
+        self.notes = notes
+        self.projectID = projectID
+        self.priority = priority
+        self.estimateMinutes = estimateMinutes
+        self.horizon = horizon
+        self.scheduledFor = scheduledFor
+        self.dueAt = dueAt
+        self.recurrence = recurrence
+        self.reminderAt = reminderAt
+    }
+
+    init(task: LedgerTask) {
+        title = task.title
+        notes = task.notes
+        projectID = task.projectID
+        priority = task.priority
+        estimateMinutes = task.estimateMinutes
+        horizon = task.horizon
+        scheduledFor = task.scheduledFor
+        dueAt = task.dueAt
+        recurrence = task.recurrence
+        reminderAt = task.reminderAt
+    }
+}
+
 private struct TaskInspector: View {
     @EnvironmentObject private var store: LedgerStore
     let task: LedgerTask
@@ -151,7 +201,9 @@ private struct TaskInspector: View {
     @State private var reminderAt = Date.now
     @State private var showProjectPicker = false
     @State private var confirmDelete = false
-    @State private var savedFeedback = false
+    @State private var newChecklistTitle = ""
+    @State private var lastSavedDraft: TaskDraft?
+    @State private var hasLoadedDraft = false
 
     var body: some View {
         ScrollView {
@@ -178,6 +230,13 @@ private struct TaskInspector: View {
                     .font(.system(size: 18, weight: .semibold))
                     .lineLimit(1...3)
                     .padding(.top, 11)
+
+                if title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text("A task needs a title before it can be saved.")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.red)
+                        .padding(.top, 5)
+                }
 
                 if let reason = store.todayRows.first(where: { $0.id == task.id })?.reason {
                     Label(reason, systemImage: "arrow.up.forward")
@@ -377,18 +436,17 @@ private struct TaskInspector: View {
                             .stroke(LedgerDesign.hairline, lineWidth: 1)
                     }
 
-                Button {
-                    save()
-                } label: {
-                    HStack {
-                        Text(savedFeedback ? "Saved" : "Save changes")
-                        Spacer()
-                        if savedFeedback { Image(systemName: "checkmark") }
-                    }
+                HStack(spacing: 5) {
+                    Image(systemName: isDraftSaved ? "checkmark" : "ellipsis")
+                    Text(isDraftSaved ? "Saved automatically" : "Saving…")
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-                .padding(.top, 14)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(.secondary)
+                .padding(.top, 8)
+
+                Divider().padding(.vertical, 17)
+
+                checklistSection
 
                 Divider().padding(.vertical, 19)
 
@@ -448,6 +506,17 @@ private struct TaskInspector: View {
         .scrollIndicators(.never)
         .onAppear(perform: loadDraft)
         .onChange(of: task.id) { _, _ in loadDraft() }
+        .task(id: currentDraft) {
+            guard hasLoadedDraft, !isDraftSaved else { return }
+            let draft = currentDraft
+            try? await Task.sleep(for: .milliseconds(350))
+            guard !Task.isCancelled, draft == currentDraft else { return }
+            save(draft)
+        }
+        .onDisappear {
+            guard hasLoadedDraft, !isDraftSaved else { return }
+            save(currentDraft)
+        }
         .confirmationDialog(
             task.status == .cancelled
                 ? "Permanently delete “\(task.title)”?"
@@ -491,6 +560,104 @@ private struct TaskInspector: View {
         return store.workspace.projects.first { $0.id == projectID }
     }
 
+    private var currentDraft: TaskDraft {
+        TaskDraft(
+            title: title,
+            notes: notes,
+            projectID: projectID,
+            priority: priority,
+            estimateMinutes: estimateMinutes,
+            horizon: horizon,
+            scheduledFor: hasScheduledDate ? scheduledFor : nil,
+            dueAt: hasDueDate ? dueAt : nil,
+            recurrence: recurrence,
+            reminderAt: hasReminder ? reminderAt : nil
+        )
+    }
+
+    private var isDraftSaved: Bool {
+        currentDraft == lastSavedDraft
+    }
+
+    private var checklistItems: [LedgerChecklistItem] {
+        task.checklistItems ?? []
+    }
+
+    private var checklistCompletedCount: Int {
+        checklistItems.filter(\.isCompleted).count
+    }
+
+    private var checklistSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("CHECKLIST")
+                    .font(.system(size: 9, weight: .semibold))
+                    .tracking(0.8)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                if !checklistItems.isEmpty {
+                    Text("\(checklistCompletedCount)/\(checklistItems.count)")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            ForEach(checklistItems) { item in
+                HStack(spacing: 9) {
+                    Button {
+                        store.toggleChecklistItem(taskID: task.id, itemID: item.id)
+                    } label: {
+                        Image(systemName: item.isCompleted ? "checkmark.circle.fill" : "circle")
+                            .foregroundStyle(item.isCompleted ? LedgerDesign.accent : Color.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(item.isCompleted ? "Mark step incomplete" : "Complete step")
+
+                    Text(item.title)
+                        .font(.system(size: 12))
+                        .foregroundStyle(item.isCompleted ? Color.secondary : Color.primary)
+                        .strikethrough(item.isCompleted)
+
+                    Spacer(minLength: 8)
+
+                    Button {
+                        store.deleteChecklistItem(taskID: task.id, itemID: item.id)
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(.tertiary)
+                            .frame(width: 20, height: 20)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Delete step")
+                }
+            }
+
+            HStack(spacing: 8) {
+                Image(systemName: "plus")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(LedgerDesign.accent)
+
+                TextField("Add a step", text: $newChecklistTitle)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12))
+                    .onSubmit(addChecklistItem)
+
+                Button("Add", action: addChecklistItem)
+                    .buttonStyle(.borderless)
+                    .font(.system(size: 11, weight: .medium))
+                    .disabled(newChecklistTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+            .padding(.horizontal, 10)
+            .frame(minHeight: 36)
+            .background(LedgerDesign.canvas, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .stroke(LedgerDesign.hairline, lineWidth: 1)
+            }
+        }
+    }
+
     private var estimateLabel: String {
         if estimateMinutes < 60 { return "\(estimateMinutes) minutes" }
         let hours = estimateMinutes / 60
@@ -519,6 +686,7 @@ private struct TaskInspector: View {
     }
 
     private func loadDraft() {
+        hasLoadedDraft = false
         title = task.title
         notes = task.notes
         projectID = task.projectID
@@ -533,27 +701,32 @@ private struct TaskInspector: View {
         hasReminder = task.reminderAt != nil
         let defaultReminder = Calendar.current.date(byAdding: .hour, value: 1, to: .now) ?? .now
         reminderAt = max(task.reminderAt ?? defaultReminder, .now)
-        savedFeedback = false
+        lastSavedDraft = TaskDraft(task: task)
+        newChecklistTitle = ""
+        hasLoadedDraft = true
     }
 
-    private func save() {
+    private func save(_ draft: TaskDraft) {
+        guard !draft.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         store.updateTask(
             id: task.id,
-            title: title,
-            notes: notes,
-            projectID: projectID,
-            priority: priority,
-            estimateMinutes: estimateMinutes,
-            horizon: horizon,
-            scheduledFor: hasScheduledDate ? scheduledFor : nil,
-            dueAt: hasDueDate ? dueAt : nil,
-            recurrence: recurrence,
-            reminderAt: hasReminder ? reminderAt : nil
+            title: draft.title,
+            notes: draft.notes,
+            projectID: draft.projectID,
+            priority: draft.priority,
+            estimateMinutes: draft.estimateMinutes,
+            horizon: draft.horizon,
+            scheduledFor: draft.scheduledFor,
+            dueAt: draft.dueAt,
+            recurrence: draft.recurrence,
+            reminderAt: draft.reminderAt
         )
-        savedFeedback = true
-        Task {
-            try? await Task.sleep(for: .seconds(1))
-            savedFeedback = false
+        lastSavedDraft = draft
+    }
+
+    private func addChecklistItem() {
+        if store.addChecklistItem(taskID: task.id, title: newChecklistTitle) != nil {
+            newChecklistTitle = ""
         }
     }
 }

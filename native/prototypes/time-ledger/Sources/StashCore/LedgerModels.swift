@@ -91,6 +91,22 @@ public struct LedgerProject: Identifiable, Codable, Equatable, Sendable {
     }
 }
 
+public struct LedgerChecklistItem: Identifiable, Codable, Equatable, Sendable {
+    public let id: UUID
+    public var title: String
+    public var isCompleted: Bool
+
+    public init(
+        id: UUID = UUID(),
+        title: String,
+        isCompleted: Bool = false
+    ) {
+        self.id = id
+        self.title = title
+        self.isCompleted = isCompleted
+    }
+}
+
 public struct LedgerTask: Identifiable, Codable, Equatable, Sendable {
     public let id: UUID
     public var title: String
@@ -111,6 +127,7 @@ public struct LedgerTask: Identifiable, Codable, Equatable, Sendable {
     public var reminderAt: Date?
     public var statusBeforeTrash: TaskStatus?
     public var recurrenceSourceID: UUID?
+    public var checklistItems: [LedgerChecklistItem]?
 
     public init(
         id: UUID = UUID(),
@@ -131,7 +148,8 @@ public struct LedgerTask: Identifiable, Codable, Equatable, Sendable {
         recurrence: TaskRecurrence? = nil,
         reminderAt: Date? = nil,
         statusBeforeTrash: TaskStatus? = nil,
-        recurrenceSourceID: UUID? = nil
+        recurrenceSourceID: UUID? = nil,
+        checklistItems: [LedgerChecklistItem]? = nil
     ) {
         self.id = id
         self.title = title
@@ -152,6 +170,7 @@ public struct LedgerTask: Identifiable, Codable, Equatable, Sendable {
         self.reminderAt = reminderAt
         self.statusBeforeTrash = statusBeforeTrash
         self.recurrenceSourceID = recurrenceSourceID
+        self.checklistItems = checklistItems
     }
 
     public var isOpen: Bool {

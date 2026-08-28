@@ -283,6 +283,33 @@ public final class LedgerStore: ObservableObject {
         }
     }
 
+    @discardableResult
+    public func addChecklistItem(taskID: UUID, title: String) -> LedgerChecklistItem? {
+        let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanTitle.isEmpty else { return nil }
+        let item = LedgerChecklistItem(title: cleanTitle)
+        mutateTask(id: taskID) { task in
+            task.checklistItems = (task.checklistItems ?? []) + [item]
+        }
+        return item
+    }
+
+    public func toggleChecklistItem(taskID: UUID, itemID: UUID) {
+        mutateTask(id: taskID) { task in
+            guard let index = task.checklistItems?.firstIndex(where: { $0.id == itemID }) else { return }
+            task.checklistItems?[index].isCompleted.toggle()
+        }
+    }
+
+    public func deleteChecklistItem(taskID: UUID, itemID: UUID) {
+        mutateTask(id: taskID) { task in
+            task.checklistItems?.removeAll { $0.id == itemID }
+            if task.checklistItems?.isEmpty == true {
+                task.checklistItems = nil
+            }
+        }
+    }
+
     public func delete(id: UUID) {
         guard let index = workspace.tasks.firstIndex(where: { $0.id == id }) else { return }
         workspace.tasks[index].statusBeforeTrash = workspace.tasks[index].status
@@ -594,7 +621,10 @@ public final class LedgerStore: ObservableObject {
             updatedAt: now(),
             recurrence: recurrence,
             reminderAt: advanced(task.reminderAt),
-            recurrenceSourceID: task.id
+            recurrenceSourceID: task.id,
+            checklistItems: task.checklistItems?.map {
+                LedgerChecklistItem(title: $0.title)
+            }
         )
     }
 
