@@ -38,6 +38,18 @@ struct StashTimeLedgerApp: App {
                 }
                 .keyboardShortcut("k", modifiers: .command)
             }
+
+            CommandMenu("Navigate") {
+                ForEach(LedgerDestination.allCases) { destination in
+                    Button(destination.rawValue) {
+                        NotificationCenter.default.post(
+                            name: .stashSelectDestination,
+                            object: destination.rawValue
+                        )
+                    }
+                    .keyboardShortcut(destination.shortcut, modifiers: .command)
+                }
+            }
         }
     }
 }

@@ -3,10 +3,7 @@ import SwiftUI
 
 struct TimeLedgerView: View {
     @EnvironmentObject private var store: LedgerStore
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Namespace private var sidebarSelectionNamespace
     @State private var destination: LedgerDestination = .today
-    @State private var navigationDirection: CGFloat = 1
     @State private var selectedTaskID: UUID?
     @State private var captureText = ""
     @State private var searchText = ""
@@ -19,33 +16,13 @@ struct TimeLedgerView: View {
     }
 
     var body: some View {
-        HStack(spacing: 0) {
+        NavigationSplitView {
             sidebar
-            Divider()
-
-            VStack(spacing: 0) {
-                captureBar
-                Divider()
-
-                HStack(spacing: 0) {
-                    ZStack {
-                        primaryContent
-                            .id(primaryContentID)
-                            .transition(primaryContentTransition)
-                    }
-                    .clipped()
-                    .frame(minWidth: 430, maxWidth: .infinity, maxHeight: .infinity)
-
-                    Divider()
-
-                    DetailRail(selectedTaskID: $selectedTaskID)
-                        .frame(width: 302)
-                }
-
-                Divider()
-                statusBar
-            }
+                .navigationSplitViewColumnWidth(min: 188, ideal: 208, max: 230)
+        } detail: {
+            workspace
         }
+        .navigationSplitViewStyle(.balanced)
         .background(LedgerDesign.canvas)
         .tint(LedgerDesign.accent)
         .onReceive(NotificationCenter.default.publisher(for: .stashFocusCapture)) { _ in
@@ -53,6 +30,11 @@ struct TimeLedgerView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .stashFocusSearch)) { _ in
             focusedField = .search
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .stashSelectDestination)) { notification in
+            guard let rawValue = notification.object as? String,
+                  let destination = LedgerDestination(rawValue: rawValue) else { return }
+            select(destination)
         }
         .task(id: searchText) {
             let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -64,6 +46,27 @@ struct TimeLedgerView: View {
             guard !Task.isCancelled else { return }
             searchResults = store.search(query)
         }
+    }
+
+    private var workspace: some View {
+        VStack(spacing: 0) {
+            captureBar
+            Divider()
+
+            HStack(spacing: 0) {
+                primaryContent
+                    .frame(minWidth: 430, maxWidth: .infinity, maxHeight: .infinity)
+
+                Divider()
+
+                DetailRail(selectedTaskID: $selectedTaskID)
+                    .frame(width: 302)
+            }
+
+            Divider()
+            statusBar
+        }
+        .background(LedgerDesign.canvas)
     }
 
     private var sidebar: some View {
@@ -87,52 +90,32 @@ struct TimeLedgerView: View {
                 .padding(.horizontal, 12)
                 .padding(.bottom, 16)
 
-            VStack(spacing: 3) {
+            List(selection: destinationSelection) {
                 ForEach(LedgerDestination.allCases) { item in
-                    Button {
-                        navigate(to: item)
-                    } label: {
-                        HStack(spacing: 10) {
-                            Image(systemName: item.symbol)
-                                .frame(width: 17)
-                                .foregroundStyle(destination == item ? item.tint : Color.secondary)
-                                .accessibilityHidden(true)
+                    HStack(spacing: 10) {
+                        Image(systemName: item.symbol)
+                            .frame(width: 17)
+                            .foregroundStyle(destination == item ? item.tint : Color.secondary)
+                            .accessibilityHidden(true)
 
-                            Text(item.rawValue)
-                                .font(.system(size: 13, weight: .medium))
+                        Text(item.rawValue)
+                            .font(.system(size: 13, weight: .medium))
 
-                            Spacer()
+                        Spacer()
 
-                            if let count = count(for: item) {
-                                Text("\(count)")
-                                    .font(.system(size: 11, design: .rounded))
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                        .padding(.horizontal, 10)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 34)
-                        .contentShape(Rectangle())
-                        .background {
-                            if destination == item && searchText.isEmpty {
-                                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                    .fill(LedgerDesign.selection)
-                                    .matchedGeometryEffect(
-                                        id: "sidebar-selection",
-                                        in: sidebarSelectionNamespace
-                                    )
-                                    .allowsHitTesting(false)
-                            }
+                        if let count = count(for: item) {
+                            Text("\(count)")
+                                .font(.system(size: 11, design: .rounded))
+                                .foregroundStyle(.secondary)
                         }
                     }
-                    .buttonStyle(.plain)
-                    .keyboardShortcut(item.shortcut, modifiers: .command)
-                    .accessibilityAddTraits(destination == item ? .isSelected : [])
+                    .frame(height: 28)
+                    .tag(item)
                 }
             }
-            .padding(.horizontal, 8)
-
-            Spacer()
+            .listStyle(.sidebar)
+            .scrollContentBackground(.hidden)
+            .frame(minHeight: 190)
 
             SidebarArtwork()
                 .padding(.horizontal, 14)
@@ -150,8 +133,14 @@ struct TimeLedgerView: View {
             .padding(.horizontal, 18)
             .padding(.bottom, 17)
         }
-        .frame(width: 188)
         .background(LedgerDesign.sidebar)
+    }
+
+    private var destinationSelection: Binding<LedgerDestination> {
+        Binding(
+            get: { destination },
+            set: { select($0) }
+        )
     }
 
     private var searchField: some View {
@@ -256,20 +245,6 @@ struct TimeLedgerView: View {
         }
     }
 
-    private var primaryContentID: String {
-        searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? destination.rawValue
-            : "Search"
-    }
-
-    private var primaryContentTransition: AnyTransition {
-        guard !reduceMotion else { return .identity }
-        return .asymmetric(
-            insertion: .opacity.combined(with: .offset(x: 6 * navigationDirection)),
-            removal: .opacity.combined(with: .offset(x: -4 * navigationDirection))
-        )
-    }
-
     private var statusBar: some View {
         HStack(spacing: 8) {
             Image(systemName: "internaldrive")
@@ -324,28 +299,11 @@ struct TimeLedgerView: View {
         }
     }
 
-    private func navigate(to item: LedgerDestination) {
-        let isSearching = !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    private func select(_ item: LedgerDestination) {
+        destination = item
         selectedTaskID = nil
+        searchText = ""
         searchResults = []
-
-        guard item != destination || isSearching else { return }
-
-        if let currentIndex = LedgerDestination.allCases.firstIndex(of: destination),
-           let nextIndex = LedgerDestination.allCases.firstIndex(of: item) {
-            navigationDirection = nextIndex >= currentIndex ? 1 : -1
-        }
-
-        let updateDestination = {
-            destination = item
-            searchText = ""
-        }
-
-        if reduceMotion {
-            updateDestination()
-        } else {
-            withAnimation(LedgerDesign.navigationAnimation, updateDestination)
-        }
     }
 
     private func capture() {
