@@ -25,6 +25,31 @@ private struct LedgerSnapshot {
     var trashedTasks: [LedgerTask] = []
 }
 
+private let legacyPreviewTaskTitles: Set<String> = [
+    "Finish the native Stash daily flow",
+    "Review local session handoff",
+    "Send VSR upload notes",
+    "Prepare August infra handoff",
+    "Book dentist follow-up",
+    "Write the first-run empty state",
+    "Read the local-first sync RFC",
+    "Reply to the release thread",
+    "Check the migration rehearsal",
+    "Write v0.4 release notes",
+    "Design a weekly review ritual",
+    "Build one local work history",
+    "Create a personal knowledge index",
+    "Capture keyboard navigation ideas",
+    "Look at notification permission wording"
+]
+
+private let legacyPreviewProjectSignatures: Set<String> = [
+    "Stash|tray.full",
+    "AtlasCloud|cloud",
+    "Work|briefcase",
+    "Personal|person"
+]
+
 @MainActor
 public final class LedgerStore: ObservableObject {
     public private(set) var workspace: LedgerWorkspace
@@ -77,6 +102,7 @@ public final class LedgerStore: ObservableObject {
         do {
             if let loaded = try await repository.load() {
                 workspace = loaded
+                removeLegacyPreviewSeedIfNeeded()
             }
             normalizePlan(allowLockedPlan: true)
             rebuildSnapshot()
@@ -386,6 +412,31 @@ public final class LedgerStore: ObservableObject {
             return
         }
         workspace.dailyPlan = makePlan(for: currentDay)
+    }
+
+    private func removeLegacyPreviewSeedIfNeeded() {
+        let previewProjects = workspace.projects.filter {
+            legacyPreviewProjectSignatures.contains("\($0.name)|\($0.symbol)")
+        }
+        guard previewProjects.count == legacyPreviewProjectSignatures.count else { return }
+
+        let previewProjectIDs = Set(previewProjects.map(\.id))
+        let fixtureTaskIDs = Set(workspace.tasks.compactMap { task -> UUID? in
+            guard legacyPreviewTaskTitles.contains(task.title) else { return nil }
+            if let projectID = task.projectID {
+                return previewProjectIDs.contains(projectID) ? task.id : nil
+            }
+            return task.title == "Look at notification permission wording" ? task.id : nil
+        })
+        guard fixtureTaskIDs.count >= 12 else { return }
+
+        workspace.tasks.removeAll { fixtureTaskIDs.contains($0.id) }
+        workspace.dailyPlan = nil
+
+        let retainedProjectIDs = Set(workspace.tasks.compactMap(\.projectID))
+        workspace.projects.removeAll {
+            previewProjectIDs.contains($0.id) && !retainedProjectIDs.contains($0.id)
+        }
     }
 
     private func commit(replanIfUnlocked: Bool) {

@@ -149,7 +149,7 @@ private struct TaskInspector: View {
     @State private var recurrence: TaskRecurrence?
     @State private var hasReminder = false
     @State private var reminderAt = Date.now
-    @State private var showNewProject = false
+    @State private var showProjectPicker = false
     @State private var confirmDelete = false
     @State private var savedFeedback = false
 
@@ -199,32 +199,8 @@ private struct TaskInspector: View {
                 }
 
                 inspectorField("PROJECT") {
-                    Menu {
-                        Button {
-                            projectID = nil
-                        } label: {
-                            Label("No project", systemImage: "circle.dashed")
-                        }
-
-                        if !store.workspace.projects.isEmpty {
-                            Divider()
-                        }
-
-                        ForEach(store.workspace.projects) { project in
-                            Button {
-                                projectID = project.id
-                            } label: {
-                                Label(project.name, systemImage: project.symbol)
-                            }
-                        }
-
-                        Divider()
-
-                        Button {
-                            showNewProject = true
-                        } label: {
-                            Label("New project…", systemImage: "plus")
-                        }
+                    Button {
+                        showProjectPicker = true
                     } label: {
                         HStack(spacing: 10) {
                             Image(systemName: selectedProject?.symbol ?? "circle.dashed")
@@ -251,7 +227,11 @@ private struct TaskInspector: View {
                                 .stroke(LedgerDesign.hairline, lineWidth: 1)
                         }
                     }
-                    .menuStyle(.borderlessButton)
+                    .buttonStyle(.plain)
+                    .popover(isPresented: $showProjectPicker, arrowEdge: .leading) {
+                        ProjectChooser(selection: $projectID)
+                            .environmentObject(store)
+                    }
                 }
 
                 inspectorField("PRIORITY") {
@@ -468,12 +448,6 @@ private struct TaskInspector: View {
         .scrollIndicators(.never)
         .onAppear(perform: loadDraft)
         .onChange(of: task.id) { _, _ in loadDraft() }
-        .sheet(isPresented: $showNewProject) {
-            QuickProjectSheet { project in
-                projectID = project.id
-            }
-            .environmentObject(store)
-        }
         .confirmationDialog(
             task.status == .cancelled
                 ? "Permanently delete “\(task.title)”?"
@@ -584,34 +558,148 @@ private struct TaskInspector: View {
     }
 }
 
-private struct QuickProjectSheet: View {
+private struct ProjectChooser: View {
     @EnvironmentObject private var store: LedgerStore
     @Environment(\.dismiss) private var dismiss
-    @State private var name = ""
-    let onCreate: (LedgerProject) -> Void
+    @Binding var selection: UUID?
+    @State private var query = ""
+    @FocusState private var searchIsFocused: Bool
+
+    private var cleanQuery: String {
+        query.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var filteredProjects: [LedgerProject] {
+        guard !cleanQuery.isEmpty else { return store.workspace.projects }
+        return store.workspace.projects.filter {
+            $0.name.localizedCaseInsensitiveContains(cleanQuery)
+        }
+    }
+
+    private var exactMatchExists: Bool {
+        store.workspace.projects.contains {
+            $0.name.localizedCaseInsensitiveCompare(cleanQuery) == .orderedSame
+        }
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Text("New project")
-                .font(.system(size: 19, weight: .semibold))
-
-            TextField("Project name", text: $name)
-                .textFieldStyle(.roundedBorder)
-
-            HStack {
-                Spacer()
-                Button("Cancel", role: .cancel) { dismiss() }
-                Button("Create") {
-                    if let project = store.createProject(name: name) {
-                        onCreate(project)
-                    }
-                    dismiss()
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                TextField("Find or create a project", text: $query)
+                    .textFieldStyle(.plain)
+                    .focused($searchIsFocused)
             }
+            .padding(.horizontal, 12)
+            .frame(height: 38)
+
+            Divider()
+
+            ScrollView {
+                LazyVStack(spacing: 2) {
+                    if cleanQuery.isEmpty {
+                        projectOption(
+                            title: "No project",
+                            symbol: "circle.dashed",
+                            detail: "Keep this task unfiled",
+                            isSelected: selection == nil
+                        ) {
+                            selection = nil
+                            dismiss()
+                        }
+                    }
+
+                    ForEach(filteredProjects) { project in
+                        projectOption(
+                            title: project.name,
+                            symbol: project.symbol,
+                            detail: taskCountLabel(for: project),
+                            isSelected: selection == project.id,
+                            tint: LedgerDesign.projectColor(for: project.name)
+                        ) {
+                            selection = project.id
+                            dismiss()
+                        }
+                    }
+
+                    if !cleanQuery.isEmpty && !exactMatchExists {
+                        Divider().padding(.vertical, 4)
+
+                        Button {
+                            if let project = store.createProject(name: cleanQuery) {
+                                selection = project.id
+                            }
+                            dismiss()
+                        } label: {
+                            HStack(spacing: 10) {
+                                Image(systemName: "plus.circle.fill")
+                                    .foregroundStyle(LedgerDesign.accent)
+                                    .frame(width: 20)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Create “\(cleanQuery)”")
+                                        .font(.system(size: 13, weight: .medium))
+                                    Text("Create and assign to this task")
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 8)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(6)
+            }
+            .frame(maxHeight: 270)
         }
-        .padding(24)
-        .frame(width: 360)
+        .frame(width: 300)
+        .onAppear { searchIsFocused = true }
+    }
+
+    private func projectOption(
+        title: String,
+        symbol: String,
+        detail: String,
+        isSelected: Bool,
+        tint: Color = .secondary,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: symbol)
+                    .foregroundStyle(tint)
+                    .frame(width: 20)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.primary)
+                    Text(detail)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                if isSelected {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(LedgerDesign.accent)
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func taskCountLabel(for project: LedgerProject) -> String {
+        let count = store.tasks(in: project).count
+        return count == 1 ? "1 open task" : "\(count) open tasks"
     }
 }

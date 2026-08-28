@@ -34,11 +34,39 @@ struct StashCoreChecks {
         try checkPlanner()
         try await checkPersistence()
         try await checkLockedPlan()
+        try await checkLegacyPreviewCleanup()
         try await checkCompletionAndRecurrence()
         try await checkTrashAndProjects()
         try await checkStoreInteractionPerformance()
         try checkPlannerPerformance()
         print("StashCoreChecks: all checks passed")
+    }
+
+    @MainActor
+    private static func checkLegacyPreviewCleanup() async throws {
+        let now = Date(timeIntervalSince1970: 1_777_000_000)
+        var seeded = LedgerWorkspace.preview(now: now)
+        let personalProject = seeded.projects.first { $0.name == "Personal" }
+        let realTask = LedgerTask(
+            title: "My actual task",
+            projectID: personalProject?.id,
+            status: .inbox,
+            createdAt: now
+        )
+        seeded.tasks.append(realTask)
+
+        let store = LedgerStore(
+            repository: MemoryRepository(workspace: seeded),
+            initialWorkspace: LedgerWorkspace(),
+            now: { now }
+        )
+        await store.bootstrap()
+
+        try expect(store.workspace.tasks.map(\.id) == [realTask.id], "legacy preview tasks were not cleaned up")
+        try expect(
+            store.workspace.projects.map(\.name) == ["Personal"],
+            "cleanup removed a preview project still used by a real task"
+        )
     }
 
     private static func checkCaptureParser() throws {
