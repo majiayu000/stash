@@ -68,7 +68,7 @@ struct TimeLedgerView: View {
                 Divider()
 
                 DetailRail(selectedTaskID: $selectedTaskID)
-                    .frame(width: 302)
+                    .frame(width: 356)
             }
 
             Divider()

@@ -16,7 +16,7 @@ struct StashTimeLedgerApp: App {
         WindowGroup("Stash · Time Ledger") {
             TimeLedgerView()
                 .environmentObject(store)
-                .frame(minWidth: 920, minHeight: 620)
+                .frame(minWidth: 1_040, minHeight: 650)
                 .task {
                     await store.bootstrap()
                 }

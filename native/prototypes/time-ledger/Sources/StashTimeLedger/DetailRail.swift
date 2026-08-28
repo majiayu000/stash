@@ -149,6 +149,7 @@ private struct TaskInspector: View {
     @State private var recurrence: TaskRecurrence?
     @State private var hasReminder = false
     @State private var reminderAt = Date.now
+    @State private var showNewProject = false
     @State private var confirmDelete = false
     @State private var savedFeedback = false
 
@@ -198,15 +199,59 @@ private struct TaskInspector: View {
                 }
 
                 inspectorField("PROJECT") {
-                    Picker("Project", selection: $projectID) {
-                        Text("No project").tag(nil as UUID?)
+                    Menu {
+                        Button {
+                            projectID = nil
+                        } label: {
+                            Label("No project", systemImage: "circle.dashed")
+                        }
+
+                        if !store.workspace.projects.isEmpty {
+                            Divider()
+                        }
+
                         ForEach(store.workspace.projects) { project in
-                            Text(project.name).tag(Optional(project.id))
+                            Button {
+                                projectID = project.id
+                            } label: {
+                                Label(project.name, systemImage: project.symbol)
+                            }
+                        }
+
+                        Divider()
+
+                        Button {
+                            showNewProject = true
+                        } label: {
+                            Label("New project…", systemImage: "plus")
+                        }
+                    } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: selectedProject?.symbol ?? "circle.dashed")
+                                .foregroundStyle(
+                                    selectedProject.map { LedgerDesign.projectColor(for: $0.name) }
+                                        ?? Color.secondary
+                                )
+                                .frame(width: 18)
+
+                            Text(selectedProject?.name ?? "No project")
+                                .foregroundStyle(.primary)
+
+                            Spacer()
+
+                            Image(systemName: "chevron.up.chevron.down")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(.tertiary)
+                        }
+                        .padding(.horizontal, 12)
+                        .frame(maxWidth: .infinity, minHeight: 38)
+                        .background(LedgerDesign.field, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .stroke(LedgerDesign.hairline, lineWidth: 1)
                         }
                     }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .menuStyle(.borderlessButton)
                 }
 
                 inspectorField("PRIORITY") {
@@ -217,6 +262,7 @@ private struct TaskInspector: View {
                     }
                     .labelsHidden()
                     .pickerStyle(.segmented)
+                    .frame(maxWidth: .infinity)
                 }
 
                 inspectorField("HORIZON") {
@@ -227,14 +273,37 @@ private struct TaskInspector: View {
                     }
                     .labelsHidden()
                     .pickerStyle(.segmented)
+                    .frame(maxWidth: .infinity)
                 }
 
                 inspectorField("ESTIMATE") {
-                    Stepper(value: $estimateMinutes, in: 5...480, step: 5) {
-                        Text("\(estimateMinutes) minutes")
-                            .font(.system(size: 12))
+                    HStack(spacing: 10) {
+                        Text(estimateLabel)
+                            .font(.system(size: 13, weight: .medium))
+
+                        Spacer()
+
+                        Button {
+                            estimateMinutes = max(5, estimateMinutes - 5)
+                        } label: {
+                            Image(systemName: "minus")
+                                .frame(width: 16, height: 16)
+                        }
+                        .disabled(estimateMinutes <= 5)
+
+                        Button {
+                            estimateMinutes = min(480, estimateMinutes + 5)
+                        } label: {
+                            Image(systemName: "plus")
+                                .frame(width: 16, height: 16)
+                        }
+                        .disabled(estimateMinutes >= 480)
                     }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
                 }
+
+                Divider().padding(.vertical, 11)
 
                 inspectorField("SCHEDULE") {
                     Toggle("Set date", isOn: $hasScheduledDate)
@@ -245,7 +314,6 @@ private struct TaskInspector: View {
                 if hasScheduledDate {
                     DatePicker("Scheduled date", selection: $scheduledFor, displayedComponents: .date)
                         .labelsHidden()
-                        .padding(.leading, 71)
                         .padding(.bottom, 5)
                 }
 
@@ -258,19 +326,35 @@ private struct TaskInspector: View {
                 if hasDueDate {
                     DatePicker("Deadline", selection: $dueAt, displayedComponents: .date)
                         .labelsHidden()
-                        .padding(.leading, 71)
                         .padding(.bottom, 5)
                 }
 
                 inspectorField("REPEAT") {
-                    Picker("Repeat", selection: $recurrence) {
-                        Text("Never").tag(nil as TaskRecurrence?)
+                    Menu {
+                        Button("Never") { recurrence = nil }
                         ForEach(TaskRecurrence.allCases, id: \.self) { value in
-                            Text(value.label).tag(Optional(value))
+                            Button(value.label) { recurrence = value }
+                        }
+                    } label: {
+                        HStack {
+                            Image(systemName: "repeat")
+                                .foregroundStyle(.secondary)
+                            Text(recurrence?.label ?? "Never")
+                                .foregroundStyle(.primary)
+                            Spacer()
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(.tertiary)
+                        }
+                        .padding(.horizontal, 12)
+                        .frame(maxWidth: .infinity, minHeight: 38)
+                        .background(LedgerDesign.field, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .stroke(LedgerDesign.hairline, lineWidth: 1)
                         }
                     }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
+                    .menuStyle(.borderlessButton)
                 }
 
                 inspectorField("REMINDER") {
@@ -287,9 +371,10 @@ private struct TaskInspector: View {
                         displayedComponents: [.date, .hourAndMinute]
                     )
                     .labelsHidden()
-                    .padding(.leading, 71)
                     .padding(.bottom, 7)
                 }
+
+                Divider().padding(.vertical, 11)
 
                 Text("NOTES")
                     .font(.system(size: 9, weight: .semibold))
@@ -383,6 +468,12 @@ private struct TaskInspector: View {
         .scrollIndicators(.never)
         .onAppear(perform: loadDraft)
         .onChange(of: task.id) { _, _ in loadDraft() }
+        .sheet(isPresented: $showNewProject) {
+            QuickProjectSheet { project in
+                projectID = project.id
+            }
+            .environmentObject(store)
+        }
         .confirmationDialog(
             task.status == .cancelled
                 ? "Permanently delete “\(task.title)”?"
@@ -410,16 +501,27 @@ private struct TaskInspector: View {
         _ label: String,
         @ViewBuilder content: () -> Content
     ) -> some View {
-        HStack(alignment: .center, spacing: 10) {
+        VStack(alignment: .leading, spacing: 7) {
             Text(label)
                 .font(.system(size: 9, weight: .semibold))
                 .tracking(0.7)
                 .foregroundStyle(.secondary)
-                .frame(width: 61, alignment: .leading)
             content()
-            Spacer(minLength: 0)
         }
-        .frame(minHeight: 34)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.bottom, 15)
+    }
+
+    private var selectedProject: LedgerProject? {
+        guard let projectID else { return nil }
+        return store.workspace.projects.first { $0.id == projectID }
+    }
+
+    private var estimateLabel: String {
+        if estimateMinutes < 60 { return "\(estimateMinutes) minutes" }
+        let hours = estimateMinutes / 60
+        let minutes = estimateMinutes % 60
+        return minutes == 0 ? "\(hours) hours" : "\(hours)h \(minutes)m"
     }
 
     private var statusLabel: String {
@@ -479,5 +581,37 @@ private struct TaskInspector: View {
             try? await Task.sleep(for: .seconds(1))
             savedFeedback = false
         }
+    }
+}
+
+private struct QuickProjectSheet: View {
+    @EnvironmentObject private var store: LedgerStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var name = ""
+    let onCreate: (LedgerProject) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text("New project")
+                .font(.system(size: 19, weight: .semibold))
+
+            TextField("Project name", text: $name)
+                .textFieldStyle(.roundedBorder)
+
+            HStack {
+                Spacer()
+                Button("Cancel", role: .cancel) { dismiss() }
+                Button("Create") {
+                    if let project = store.createProject(name: name) {
+                        onCreate(project)
+                    }
+                    dismiss()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+        .padding(24)
+        .frame(width: 360)
     }
 }
