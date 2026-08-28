@@ -3,7 +3,10 @@ import SwiftUI
 
 struct TimeLedgerView: View {
     @EnvironmentObject private var store: LedgerStore
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Namespace private var sidebarSelectionNamespace
     @State private var destination: LedgerDestination = .today
+    @State private var navigationDirection: CGFloat = 1
     @State private var selectedTaskID: UUID?
     @State private var captureText = ""
     @State private var searchText = ""
@@ -25,8 +28,13 @@ struct TimeLedgerView: View {
                 Divider()
 
                 HStack(spacing: 0) {
-                    primaryContent
-                        .frame(minWidth: 430, maxWidth: .infinity, maxHeight: .infinity)
+                    ZStack {
+                        primaryContent
+                            .id(primaryContentID)
+                            .transition(primaryContentTransition)
+                    }
+                    .clipped()
+                    .frame(minWidth: 430, maxWidth: .infinity, maxHeight: .infinity)
 
                     Divider()
 
@@ -82,10 +90,7 @@ struct TimeLedgerView: View {
             VStack(spacing: 3) {
                 ForEach(LedgerDestination.allCases) { item in
                     Button {
-                        destination = item
-                        searchText = ""
-                        searchResults = []
-                        selectedTaskID = nil
+                        navigate(to: item)
                     } label: {
                         HStack(spacing: 10) {
                             Image(systemName: item.symbol)
@@ -94,7 +99,7 @@ struct TimeLedgerView: View {
                                 .accessibilityHidden(true)
 
                             Text(item.rawValue)
-                                .font(.system(size: 13, weight: destination == item ? .medium : .regular))
+                                .font(.system(size: 13, weight: .medium))
 
                             Spacer()
 
@@ -104,12 +109,20 @@ struct TimeLedgerView: View {
                                     .foregroundStyle(.secondary)
                             }
                         }
-                        .contentShape(Rectangle())
                         .padding(.horizontal, 10)
+                        .frame(maxWidth: .infinity)
                         .frame(height: 34)
+                        .contentShape(Rectangle())
                         .background {
-                            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                .fill(destination == item && searchText.isEmpty ? LedgerDesign.selection : .clear)
+                            if destination == item && searchText.isEmpty {
+                                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                    .fill(LedgerDesign.selection)
+                                    .matchedGeometryEffect(
+                                        id: "sidebar-selection",
+                                        in: sidebarSelectionNamespace
+                                    )
+                                    .allowsHitTesting(false)
+                            }
                         }
                     }
                     .buttonStyle(.plain)
@@ -243,6 +256,20 @@ struct TimeLedgerView: View {
         }
     }
 
+    private var primaryContentID: String {
+        searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? destination.rawValue
+            : "Search"
+    }
+
+    private var primaryContentTransition: AnyTransition {
+        guard !reduceMotion else { return .identity }
+        return .asymmetric(
+            insertion: .opacity.combined(with: .offset(x: 6 * navigationDirection)),
+            removal: .opacity.combined(with: .offset(x: -4 * navigationDirection))
+        )
+    }
+
     private var statusBar: some View {
         HStack(spacing: 8) {
             Image(systemName: "internaldrive")
@@ -294,6 +321,30 @@ struct TimeLedgerView: View {
         case .upcoming: store.upcomingTasks.count
         case .projects: nil
         case .review: store.completedToday.count
+        }
+    }
+
+    private func navigate(to item: LedgerDestination) {
+        let isSearching = !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        selectedTaskID = nil
+        searchResults = []
+
+        guard item != destination || isSearching else { return }
+
+        if let currentIndex = LedgerDestination.allCases.firstIndex(of: destination),
+           let nextIndex = LedgerDestination.allCases.firstIndex(of: item) {
+            navigationDirection = nextIndex >= currentIndex ? 1 : -1
+        }
+
+        let updateDestination = {
+            destination = item
+            searchText = ""
+        }
+
+        if reduceMotion {
+            updateDestination()
+        } else {
+            withAnimation(LedgerDesign.navigationAnimation, updateDestination)
         }
     }
 
