@@ -64,6 +64,7 @@ public final class LedgerStore: ObservableObject {
     private let now: @Sendable () -> Date
     private var saveTask: Task<Void, Never>?
     private var saveGeneration = 0
+    private var persistenceEnabled = true
 
     public init(
         repository: any WorkspaceRepository,
@@ -101,18 +102,29 @@ public final class LedgerStore: ObservableObject {
     public func bootstrap() async {
         do {
             if let loaded = try await repository.load() {
+                guard loaded.schemaVersion <= LedgerWorkspace.currentSchemaVersion else {
+                    throw WorkspaceError.unsupportedSchema(loaded.schemaVersion)
+                }
                 workspace = loaded
                 removeLegacyPreviewSeedIfNeeded()
             }
-            normalizePlan(allowLockedPlan: true)
-            rebuildSnapshot()
+        } catch {
+            persistenceEnabled = false
             isLoaded = true
-            reminderRevision += 1
+            persistenceState = .failed("Could not open local data: \(error.localizedDescription)")
+            return
+        }
+
+        migrateWorkspaceIfNeeded()
+        normalizePlan(allowLockedPlan: true)
+        rebuildSnapshot()
+        isLoaded = true
+        reminderRevision += 1
+        do {
             try await repository.save(workspace)
             persistenceState = .saved(now())
         } catch {
-            isLoaded = true
-            persistenceState = .failed("Could not open local data: \(error.localizedDescription)")
+            persistenceState = .failed("Could not save local data: \(error.localizedDescription)")
         }
     }
 
@@ -129,6 +141,52 @@ public final class LedgerStore: ObservableObject {
     public func task(id: UUID?) -> LedgerTask? {
         guard let id else { return nil }
         return workspace.tasks.first { $0.id == id }
+    }
+
+    public func agentLink(for taskID: UUID) -> AgentTaskLink? {
+        workspace.agentTaskLinks
+            .filter { $0.taskID == taskID }
+            .sorted { $0.linkedAt > $1.linkedAt }
+            .first { !$0.isTerminal }
+            ?? workspace.agentTaskLinks
+                .filter { $0.taskID == taskID }
+                .max { $0.linkedAt < $1.linkedAt }
+    }
+
+    @discardableResult
+    public func persistAgentLink(_ link: AgentTaskLink) -> Bool {
+        guard workspace.tasks.contains(where: { $0.id == link.taskID }) else { return false }
+
+        let hasAnotherActiveLink = workspace.agentTaskLinks.contains {
+            $0.id != link.id && $0.taskID == link.taskID && !$0.isTerminal
+        }
+        guard link.isTerminal || !hasAnotherActiveLink else { return false }
+
+        if let index = workspace.agentTaskLinks.firstIndex(where: { $0.id == link.id }) {
+            objectWillChange.send()
+            workspace.agentTaskLinks[index] = link
+        } else {
+            objectWillChange.send()
+            workspace.agentTaskLinks.append(link)
+        }
+
+        scheduleSave(updateReminders: false)
+        return true
+    }
+
+    @discardableResult
+    public func recordAgentCompletionDecision(
+        linkID: UUID,
+        decision: AgentCompletionDecision
+    ) -> Bool {
+        guard decision != .undecided,
+              let index = workspace.agentTaskLinks.firstIndex(where: { $0.id == linkID }) else {
+            return false
+        }
+        objectWillChange.send()
+        workspace.agentTaskLinks[index].completionDecision = decision
+        scheduleSave(updateReminders: false)
+        return true
     }
 
     public func tasks(in project: LedgerProject) -> [LedgerTask] {
@@ -331,6 +389,7 @@ public final class LedgerStore: ObservableObject {
 
     public func permanentlyDelete(id: UUID) {
         workspace.tasks.removeAll { $0.id == id && $0.status == .cancelled }
+        workspace.agentTaskLinks.removeAll { $0.taskID == id }
         workspace.dailyPlan?.entries.removeAll { $0.taskID == id }
         commit(replanIfUnlocked: true)
     }
@@ -381,11 +440,13 @@ public final class LedgerStore: ObservableObject {
     }
 
     public func importData(_ data: Data) throws {
-        let imported = try WorkspaceCodec.decode(data)
-        guard imported.schemaVersion == 1 else {
+        var imported = try WorkspaceCodec.decode(data)
+        guard (1...LedgerWorkspace.currentSchemaVersion).contains(imported.schemaVersion) else {
             throw CocoaError(.fileReadCorruptFile)
         }
+        imported.schemaVersion = LedgerWorkspace.currentSchemaVersion
         workspace = imported
+        persistenceEnabled = true
         if workspace.planningPreferences == nil {
             workspace.planningPreferences = .default
         }
@@ -395,13 +456,17 @@ public final class LedgerStore: ObservableObject {
         scheduleSave()
     }
 
-    public func flush() async {
+    @discardableResult
+    public func flush() async -> Bool {
+        guard persistenceEnabled else { return false }
         saveTask?.cancel()
         do {
             try await repository.save(workspace)
             persistenceState = .saved(now())
+            return true
         } catch {
             persistenceState = .failed("Could not save: \(error.localizedDescription)")
+            return false
         }
     }
 
@@ -429,6 +494,25 @@ public final class LedgerStore: ObservableObject {
         let project = LedgerProject(name: name)
         workspace.projects.append(project)
         return project.id
+    }
+
+    private func migrateWorkspaceIfNeeded() {
+        guard workspace.schemaVersion <= LedgerWorkspace.currentSchemaVersion else { return }
+        workspace.schemaVersion = LedgerWorkspace.currentSchemaVersion
+        let taskIDs = Set(workspace.tasks.map(\.id))
+        workspace.agentTaskLinks.removeAll { !taskIDs.contains($0.taskID) }
+
+        var activeTaskIDs = Set<UUID>()
+        workspace.agentTaskLinks.sort { $0.linkedAt < $1.linkedAt }
+        for index in workspace.agentTaskLinks.indices.reversed()
+        where !workspace.agentTaskLinks[index].isTerminal {
+            let taskID = workspace.agentTaskLinks[index].taskID
+            if activeTaskIDs.contains(taskID) {
+                workspace.agentTaskLinks.remove(at: index)
+            } else {
+                activeTaskIDs.insert(taskID)
+            }
+        }
     }
 
     private func normalizePlan(allowLockedPlan: Bool) {
@@ -534,7 +618,8 @@ public final class LedgerStore: ObservableObject {
         )
     }
 
-    private func scheduleSave() {
+    private func scheduleSave(updateReminders: Bool = true) {
+        guard persistenceEnabled else { return }
         saveTask?.cancel()
         saveGeneration += 1
         let generation = saveGeneration
@@ -555,7 +640,9 @@ public final class LedgerStore: ObservableObject {
                 self.persistenceState = .failed("Could not save: \(error.localizedDescription)")
             }
         }
-        reminderRevision += 1
+        if updateReminders {
+            reminderRevision += 1
+        }
     }
 
     private func makePlan(for date: Date) -> DailyPlan {

@@ -1,8 +1,10 @@
+import AppKit
 import StashCore
 import SwiftUI
 
 struct TimeLedgerView: View {
     @EnvironmentObject private var store: LedgerStore
+    @EnvironmentObject private var keeplineIntegration: KeeplineIntegrationStore
     @Environment(\.scenePhase) private var scenePhase
     @State private var destination: LedgerDestination = .today
     @State private var selectedTaskID: UUID?
@@ -22,6 +24,9 @@ struct TimeLedgerView: View {
         .navigationSplitViewStyle(.balanced)
         .background(LedgerDesign.canvas)
         .tint(LedgerDesign.accent)
+        .onAppear {
+            keeplineIntegration.start(afterFirstFrameWith: store)
+        }
         .task(id: searchText) {
             let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !query.isEmpty else {
@@ -41,8 +46,13 @@ struct TimeLedgerView: View {
             }
         }
         .onChange(of: scenePhase) { _, phase in
-            guard phase != .active else { return }
-            Task { await store.flush() }
+            keeplineIntegration.setSceneActive(phase == .active)
+            if phase != .active {
+                Task { _ = await store.flush() }
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
+            keeplineIntegration.shutdown()
         }
         .alert("Reminder unavailable", isPresented: reminderErrorBinding) {
             Button("OK", role: .cancel) {}
@@ -221,6 +231,7 @@ struct TimeLedgerView: View {
                 .textFieldStyle(.plain)
                 .font(.system(size: 13))
                 .onSubmit(capture)
+                .accessibilityIdentifier("stash.capture")
 
             if !captureText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 Button("Add", action: capture)
@@ -369,6 +380,7 @@ struct LedgerTaskRow: View {
             .buttonStyle(.plain)
             .disabled(task.status == .cancelled)
             .accessibilityLabel(completionLabel)
+            .accessibilityIdentifier("stash.task-completion.\(task.id.uuidString)")
 
             Button(action: onSelect) {
                 VStack(alignment: .leading, spacing: 5) {
@@ -427,6 +439,7 @@ struct LedgerTaskRow: View {
             }
             .buttonStyle(.plain)
         }
+        .accessibilityIdentifier("stash.task.\(task.id.uuidString)")
         .padding(.horizontal, 28)
         .padding(.vertical, 14)
         .frame(maxWidth: .infinity, alignment: .leading)

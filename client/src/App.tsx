@@ -11,6 +11,8 @@ export function App() {
     <WorkbenchDialogProvider>
       <Routes>
         <Route path="/" element={<Page page="work" />} />
+        <Route path="/next/*" element={<Page page="next" />} />
+        <Route path="/ui-demo/dense-work" element={<Page page="work-demo" />} />
         <Route path="/todos/:workItemId" element={<Page page="todo-detail" />} />
 
         <Route path="/projects" element={<Page page="projects" />} />

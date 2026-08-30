@@ -33,20 +33,47 @@ public struct DailyPlanner: Sendable {
 
     public func makePlan(tasks: [LedgerTask], for date: Date) -> DailyPlan {
         let day = calendar.startOfDay(for: date)
-        let candidates = tasks.compactMap { candidate(for: $0, day: day) }
-            .sorted(by: candidateComesFirst)
-
-        var chosen: [Candidate] = []
-        var minutes = 0
-
-        for candidate in candidates {
-            guard chosen.count < maximumTasks else { break }
-            let estimate = max(5, candidate.task.estimateMinutes)
-            let mustFillMinimum = chosen.count < minimumTasks
-            if mustFillMinimum || minutes + estimate <= minuteBudget {
-                chosen.append(candidate)
-                minutes += estimate
+        let nextDay = calendar.date(byAdding: .day, value: 1, to: day) ?? day.addingTimeInterval(86_400)
+        let dueSoonEnd = calendar.date(byAdding: .day, value: 8, to: day)
+            ?? day.addingTimeInterval(8 * 86_400)
+        var candidates: [Candidate] = []
+        candidates.reserveCapacity(tasks.count)
+        for task in tasks {
+            if let candidate = candidate(
+                for: task,
+                day: day,
+                nextDay: nextDay,
+                dueSoonEnd: dueSoonEnd
+            ) {
+                candidates.append(candidate)
             }
+        }
+        var chosen: [Candidate] = []
+        chosen.reserveCapacity(min(maximumTasks, candidates.count))
+        var minutes = 0
+        var selectedPrefixCount = 0
+
+        while chosen.count < maximumTasks, selectedPrefixCount < candidates.count {
+            let mustFillMinimum = chosen.count < minimumTasks
+            var bestIndex: Int?
+            for index in selectedPrefixCount..<candidates.count {
+                let candidate = candidates[index]
+                let estimate = max(5, candidate.task.estimateMinutes)
+                guard mustFillMinimum || minutes + estimate <= minuteBudget else { continue }
+                if let currentBest = bestIndex {
+                    if candidateComesFirst(candidate, candidates[currentBest]) {
+                        bestIndex = index
+                    }
+                } else {
+                    bestIndex = index
+                }
+            }
+            guard let bestIndex else { break }
+            candidates.swapAt(selectedPrefixCount, bestIndex)
+            let candidate = candidates[selectedPrefixCount]
+            chosen.append(candidate)
+            minutes += max(5, candidate.task.estimateMinutes)
+            selectedPrefixCount += 1
         }
 
         return DailyPlan(
@@ -64,20 +91,24 @@ public struct DailyPlanner: Sendable {
         let deadline: Date
     }
 
-    private func candidate(for task: LedgerTask, day: Date) -> Candidate? {
+    private func candidate(
+        for task: LedgerTask,
+        day: Date,
+        nextDay: Date,
+        dueSoonEnd: Date
+    ) -> Candidate? {
         guard task.isOpen, includeInbox || task.status != .inbox else { return nil }
         if let deferredUntil = task.deferredUntil,
-           calendar.startOfDay(for: deferredUntil) > day {
+           deferredUntil >= nextDay {
             return nil
         }
 
-        let scheduled = task.scheduledFor.map { calendar.startOfDay(for: $0) }
-        let due = task.dueAt.map { calendar.startOfDay(for: $0) }
-        let dueSoonCutoff = calendar.date(byAdding: .day, value: 7, to: day) ?? day
-        let isScheduledNow = scheduled.map { $0 <= day } ?? false
-        let isOverdue = due.map { $0 < day } ?? false
-        let isDueToday = due.map { $0 == day } ?? false
-        let isDueSoon = due.map { $0 <= dueSoonCutoff } ?? false
+        let scheduledDay = task.scheduledFor.map { calendar.startOfDay(for: $0) }
+        let dueDay = task.dueAt.map { calendar.startOfDay(for: $0) }
+        let isScheduledNow = scheduledDay.map { $0 <= day } ?? false
+        let isOverdue = dueDay.map { $0 < day } ?? false
+        let isDueToday = dueDay == day
+        let isDueSoon = dueDay.map { $0 < dueSoonEnd } ?? false
 
         if task.horizon == .longTerm,
            task.status != .active,
@@ -123,7 +154,7 @@ public struct DailyPlanner: Sendable {
             task: task,
             score: score,
             reason: leadingReason,
-            deadline: due ?? scheduled ?? .distantFuture
+            deadline: dueDay ?? scheduledDay ?? .distantFuture
         )
     }
 

@@ -53,6 +53,7 @@ export interface WBTodo {
   dueAt?: string;
   todayPinned: boolean;
   sortOrder?: number;
+  estimateMinutes?: number;
   updatedAt: string;
   completedAt?: string;
   /** v0.6 — visual flags for TodoItem chrome. */
@@ -251,6 +252,7 @@ export function adaptToWorkbenchData(input: AdaptInput): WBData {
       dueAt: i.dueAt,
       todayPinned: i.todayPinned,
       sortOrder: i.sortOrder,
+      estimateMinutes: i.estimateMinutes,
       updatedAt: i.updatedAt,
       completedAt: i.completedAt,
       recurring: i.recurrence !== undefined,

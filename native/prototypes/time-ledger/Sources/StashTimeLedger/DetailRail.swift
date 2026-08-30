@@ -25,6 +25,10 @@ private struct HorizonRail: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
+                AgentActivitySection()
+
+                Divider().padding(.vertical, 24)
+
                 HorizonSection(
                     eyebrow: "NEXT 7 DAYS",
                     title: store.shortTermTasks.isEmpty ? "Nothing pressing" : "Coming into view",
@@ -244,6 +248,10 @@ private struct TaskInspector: View {
                         .foregroundStyle(LedgerDesign.accent)
                         .padding(.top, 8)
                 }
+
+                Divider().padding(.vertical, 18)
+
+                TaskAgentSection(task: task)
 
                 Divider().padding(.vertical, 18)
 

@@ -5,6 +5,7 @@ import SwiftUI
 @main
 struct StashTimeLedgerApp: App {
     @StateObject private var store = LedgerStore.live()
+    @StateObject private var keeplineIntegration = KeeplineIntegrationStore.live()
 
     init() {
         if let appIcon = BrandAssets.appIcon {
@@ -16,6 +17,7 @@ struct StashTimeLedgerApp: App {
         WindowGroup("Stash · Time Ledger") {
             TimeLedgerView()
                 .environmentObject(store)
+                .environmentObject(keeplineIntegration)
                 .frame(minWidth: 1_040, minHeight: 650)
                 .task {
                     await store.bootstrap()

@@ -5,6 +5,17 @@ public protocol WorkspaceRepository: Sendable {
     func save(_ workspace: LedgerWorkspace) async throws
 }
 
+public enum WorkspaceError: Error, LocalizedError {
+    case unsupportedSchema(Int)
+
+    public var errorDescription: String? {
+        switch self {
+        case let .unsupportedSchema(version):
+            "This workspace uses unsupported schema version \(version)."
+        }
+    }
+}
+
 public enum WorkspaceCodec {
     public static func encode(_ workspace: LedgerWorkspace) throws -> Data {
         try encoder.encode(workspace)
@@ -56,6 +67,12 @@ public actor JSONWorkspaceRepository: WorkspaceRepository {
     }
 
     public static func defaultFileURL() -> URL {
+        if let override = ProcessInfo.processInfo.environment["STASH_WORKSPACE_PATH"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !override.isEmpty {
+            return URL(fileURLWithPath: override).standardizedFileURL
+        }
+
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support")
         return base

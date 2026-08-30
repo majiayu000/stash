@@ -107,6 +107,88 @@ public struct LedgerChecklistItem: Identifiable, Codable, Equatable, Sendable {
     }
 }
 
+public enum AgentLinkSource: String, Codable, Sendable {
+    case dispatched
+    case manuallyLinked
+}
+
+public enum AgentCompletionDecision: String, Codable, Sendable {
+    case undecided
+    case accepted
+    case rejected
+}
+
+public struct AgentDispatchState: RawRepresentable, Codable, Equatable, Hashable, Sendable {
+    public let rawValue: String
+
+    public init(rawValue: String) {
+        self.rawValue = rawValue
+    }
+
+    public static let pending = AgentDispatchState(rawValue: "pending")
+    public static let queued = AgentDispatchState(rawValue: "queued")
+    public static let launching = AgentDispatchState(rawValue: "launching")
+    public static let awaitingSession = AgentDispatchState(rawValue: "awaiting_session")
+    public static let linked = AgentDispatchState(rawValue: "linked")
+    public static let ambiguous = AgentDispatchState(rawValue: "ambiguous")
+    public static let failed = AgentDispatchState(rawValue: "failed")
+    public static let cancelled = AgentDispatchState(rawValue: "cancelled")
+
+    public var endsAttempt: Bool {
+        self == .failed || self == .cancelled
+    }
+}
+
+public struct AgentTaskLink: Identifiable, Codable, Equatable, Sendable {
+    public let id: UUID
+    public let taskID: UUID
+    public var keeplineWorkItemID: String?
+    public var sessionID: String?
+    public var dispatchID: String?
+    public var dispatchState: AgentDispatchState?
+    public var idempotencyKey: String?
+    public var candidateSessionIDs: [String]?
+    public var projectRoot: String?
+    public var runtimeID: String
+    public var source: AgentLinkSource
+    public var linkedAt: Date
+    public var completionDecision: AgentCompletionDecision
+
+    public init(
+        id: UUID = UUID(),
+        taskID: UUID,
+        keeplineWorkItemID: String? = nil,
+        sessionID: String? = nil,
+        dispatchID: String? = nil,
+        dispatchState: AgentDispatchState? = nil,
+        idempotencyKey: String? = nil,
+        candidateSessionIDs: [String]? = nil,
+        projectRoot: String? = nil,
+        runtimeID: String,
+        source: AgentLinkSource,
+        linkedAt: Date = .now,
+        completionDecision: AgentCompletionDecision = .undecided
+    ) {
+        self.id = id
+        self.taskID = taskID
+        self.keeplineWorkItemID = keeplineWorkItemID
+        self.sessionID = sessionID
+        self.dispatchID = dispatchID
+        self.dispatchState = dispatchState
+        self.idempotencyKey = idempotencyKey
+        self.candidateSessionIDs = candidateSessionIDs
+        self.projectRoot = projectRoot
+        self.runtimeID = runtimeID
+        self.source = source
+        self.linkedAt = linkedAt
+        self.completionDecision = completionDecision
+    }
+
+    public var isTerminal: Bool {
+        completionDecision != .undecided || dispatchState?.endsAttempt == true
+    }
+}
+
 public struct LedgerTask: Identifiable, Codable, Equatable, Sendable {
     public let id: UUID
     public var title: String
@@ -211,24 +293,54 @@ public struct DailyPlan: Codable, Equatable, Sendable {
 }
 
 public struct LedgerWorkspace: Codable, Equatable, Sendable {
+    public static let currentSchemaVersion = 2
+
     public var schemaVersion: Int
     public var projects: [LedgerProject]
     public var tasks: [LedgerTask]
     public var dailyPlan: DailyPlan?
     public var planningPreferences: PlanningPreferences?
+    public var agentTaskLinks: [AgentTaskLink]
 
     public init(
-        schemaVersion: Int = 1,
+        schemaVersion: Int = LedgerWorkspace.currentSchemaVersion,
         projects: [LedgerProject] = [],
         tasks: [LedgerTask] = [],
         dailyPlan: DailyPlan? = nil,
-        planningPreferences: PlanningPreferences? = .default
+        planningPreferences: PlanningPreferences? = .default,
+        agentTaskLinks: [AgentTaskLink] = []
     ) {
         self.schemaVersion = schemaVersion
         self.projects = projects
         self.tasks = tasks
         self.dailyPlan = dailyPlan
         self.planningPreferences = planningPreferences
+        self.agentTaskLinks = agentTaskLinks
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion
+        case projects
+        case tasks
+        case dailyPlan
+        case planningPreferences
+        case agentTaskLinks
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try values.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 1
+        projects = try values.decodeIfPresent([LedgerProject].self, forKey: .projects) ?? []
+        tasks = try values.decodeIfPresent([LedgerTask].self, forKey: .tasks) ?? []
+        dailyPlan = try values.decodeIfPresent(DailyPlan.self, forKey: .dailyPlan)
+        planningPreferences = try values.decodeIfPresent(
+            PlanningPreferences.self,
+            forKey: .planningPreferences
+        )
+        agentTaskLinks = try values.decodeIfPresent(
+            [AgentTaskLink].self,
+            forKey: .agentTaskLinks
+        ) ?? []
     }
 }
 

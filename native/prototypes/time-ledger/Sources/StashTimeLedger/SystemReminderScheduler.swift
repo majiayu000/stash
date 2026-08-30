@@ -1,13 +1,17 @@
+import Foundation
 import StashCore
 import UserNotifications
 
 enum ReminderSchedulerError: LocalizedError {
     case permissionDenied
+    case appBundleRequired
 
     var errorDescription: String? {
         switch self {
         case .permissionDenied:
             "Notifications are disabled for Stash. Enable them in System Settings to receive reminders."
+        case .appBundleRequired:
+            "Reminders require the packaged Stash app. Task data is still available in this development run."
         }
     }
 }
@@ -17,6 +21,9 @@ actor SystemReminderScheduler {
     private let identifierPrefix = "stash.task."
 
     func sync(tasks: [LedgerTask]) async throws {
+        guard Bundle.main.bundleIdentifier != nil else {
+            throw ReminderSchedulerError.appBundleRequired
+        }
         let center = UNUserNotificationCenter.current()
         let scheduledTasks = tasks.filter {
             $0.isOpen && $0.status != .cancelled && ($0.reminderAt ?? .distantPast) > .now
