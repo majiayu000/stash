@@ -424,7 +424,8 @@ Gemini / Grok                 │ approved proposal only
 
 - Remem [PR #1054](https://github.com/majiayu000/remem/pull/1054) 已合并，稳定 host-bound `session_ref`、content hash 和精确 message snapshot contract 已进入 `main`。
 - Refine [PR #206](https://github.com/majiayu000/refine/pull/206) 已合并，coding-agent transcript 已改为 Remem 单一事实源，第二份 raw body 和本地 provider fallback 已移除。
-- 两个 PR 都明确没有完成 installed-binary、真实 live-session 和 issue-close proof；因此当前第一动作是做合并后真实验收，不是重新设计 contract。
+- 2026-08-31 本机验收已安装 source-built Remem `0.6.84`，worker 正常运行；生产查询返回 5 个带稳定 ref/hash 的 `codex-cli` 会话，并保留、显式报告 3,193 行（220 个 session）无法恢复身份的旧数据。修复提交为本地 `43a6c190`，尚未推送或形成 upstream issue-close proof。
+- 同日已从 Refine `origin/main` 的 `5707d20` 完成全量测试、clippy、本机安装、真实 Remem-only dry-run 和缺失 provider 故障注入；没有 local fallback，也没有 dry-run 写入。无人值守非 dry-run 仍因本机没有授权的 LLM provider 凭据而阻塞，#203/#204 尚不能据此关闭。
 
 1. 冻结重复写入
    - Refine 不再新增 transcript/session 存储能力；保留现有读取只用于迁移验收。
