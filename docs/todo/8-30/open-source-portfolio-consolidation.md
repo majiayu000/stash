@@ -2,9 +2,11 @@
 
 Status: decision record and execution backlog  
 Date: 2026-08-30  
+Revalidated: 2026-08-31
 GitHub owner: [`majiayu000`](https://github.com/majiayu000)  
-Scope: 99 个公开、原创、非 fork 仓库  
+Scope: 100 个公开、原创、非 fork 仓库
 Method: 10 个只读调研 lane，加文档落盘时的实时增量复核；基于 GitHub 实时元数据、源码树、README、Release、CI、Issue、部署和重复文件核验
+Evidence: [`portfolio-evidence.md`](./portfolio-evidence.md)
 
 ## 1. 结论
 
@@ -12,17 +14,32 @@ Method: 10 个只读调研 lane，加文档落盘时的实时增量复核；基�
 
 截至审计时：
 
-- 99 个公开原创仓库；
-- 81 个尚未归档，18 个已归档；
-- 56 个仓库为 0 star，76 个仓库为 0 fork；
-- 近 90 天新建了 26 个仓库；
+- 100 个公开原创仓库；
+- 82 个尚未归档，18 个已归档；
+- 57 个仓库为 0 star，77 个仓库为 0 fork；
+- 近 90 天新建了 27 个仓库；
 - 外部关注主要集中在 `claude-skill-registry`、`spellbook`、`litellm-rs`、`harness`、`vibeguard`、`remem` 等少数项目。
 
-说明：10 个调研 lane 完成时共有 98 个仓库。文档写入期间新增了 `awesome-grok-bot`，本文件已追加实时补审，因此最终基线为 99 个。
+说明：10 个调研 lane 完成时共有 98 个仓库。文档写入期间新增了 `awesome-grok-bot` 和 `patch-tournament`；初版只补审了前者。2026-08-31 复核时已补入 `patch-tournament`，当前基线为 100 个。
+
+### 1.1 所有权与分析范围校正
+
+以下校正以 2026-08-30 的本地 remote、GitHub 元数据和用户确认共同为准。目录存在、账号归属和长期产品所有权是三件不同的事，后续不再混用。
+
+| 名称 | 当前事实 | 本计划中的处理 |
+|---|---|---|
+| `remem` | `origin` 为 `majiayu000/remem`，是用户自己的主项目。 | 作为唯一记忆事实源和这一组的 successor。 |
+| `claude-mem`（用户口述的 CloudMEM） | 本地 checkout 的 `origin` 为 `thedotmack/claude-mem`，不是用户项目。 | 只作为外部竞品和兼容性参考，不进入合并、退役或推广清单。 |
+| `claudemem-rs`（用户口述的 CloudMEMRS） | 本地目录和 `majiayu000/claudemem-rs` remote 仍存在，但用户已明确宣布该项目终止。 | 从 active portfolio、重复功能矩阵和路线图移除；不再为它设计迁移或兼容层。 |
+| `remem-web` | `majiayu000/remem-web` 当前是私有仓库。 | 作为 Remem 的私有附属迁移候选，不计入公开组合；继续只调用 Remem REST API。 |
+| `keel` | `majiayu000/keel` 当前是私有仓库。 | 作为 Refine 的私有迁移候选，不计入公开组合；只迁有真实使用证据的派生能力。 |
+| `verdict` | GitHub 当前显示 `majiayu000/verdict` 为非 fork、无 parent/source；仓库只有一个由用户身份提交的初始 commit。 | 归类为用户自己的早期实验仓，不归类为外部项目；功能并入 successor 后退役。 |
+
+本节只校正决策范围，不执行本地目录删除、GitHub 归档或仓库迁移。
 
 六个月组合目标：
 
-- 未归档仓库从 80 个降到不超过 40 个；
+- 未归档仓库从 82 个降到不超过 40 个；
 - 最多 12 个仓库拥有 active roadmap；
 - 最多 6 个仓库同时对外主推；
 - 同时最多保留 1 个 90 天孵化实验；
@@ -79,6 +96,31 @@ Agent 运行
 - Stash 是任务和最终完成决策的事实源，不复制 Remem 的原始会话或 Keepline 的运行时数据库。
 - ccstats 是 usage、pricing、quota 的唯一解析层；QuotaBar、Stash、CCP 不再各写一套 parser。
 - Argus 是安装前扫描；VibeGuard 是运行时约束。只允许 VibeGuard 消费 Argus 报告，不建设共享规则引擎。
+
+### 2.1 记忆、认知与治理的收敛主链
+
+这一组不依赖 Stash 或 Harness 才能成立。先完成三层职责闭环：
+
+```text
+Claude Code / Codex ──► Remem：原始编码会话、来源、稳定引用、检索、备份恢复
+                              │ session_ref / message_ref / content_hash
+                              ▼
+ChatGPT / Claude Web ──► Refine：浏览器来源、认知观察、趋势、画像和治理建议
+Gemini / Grok                 │ approved proposal only
+                              ▼
+                         VibeGuard：运行时规则、Hook、触发证据和执行审计
+                              │ event_ref
+                              └────────► Remem / Refine 只引用证据
+```
+
+边界规则：
+
+- Remem 保存 Claude Code/Codex 的原始会话事实；Refine 和 VibeGuard 不再扫描并持久化第二份 coding-agent transcript。
+- Refine 可以继续拥有它独有的 ChatGPT、Claude Web、Gemini、Grok 浏览器采集；本轮不把 Remem 扩成通用网页内容库。
+- Refine 保存可重算的派生 observation，并记录输入 `session_ref`、分析器版本和输出 hash。
+- VibeGuard 保存规则及实际触发事件；Refine 可以生成修改建议，但不得自动改规则。
+- 三者保持三个仓库，不建设 monorepo，也不增加共享数据库或新的控制平面。
+- Stash 未来只消费稳定引用来关联任务；Harness 未来只产生运行事件。两者都不是本轮收敛的前置条件。
 
 ## 3. 推广组合
 
@@ -177,6 +219,7 @@ Agent 运行
 | `litellm-rs` | KEEP / 旗舰 | 完成 provider 收缩、conformance suite、统一 model/pricing authority 和独立品牌。 |
 | `harness` | KEEP / 旗舰 | 统一工作流、可安装 Release、预算与恢复、Sage adapter，并改名。 |
 | `sage` | 条件 KEEP | 90 天内只修发布和可靠性；完成 fresh install、cloud/Ollama、edit-test-undo-resume E2E。未通过则 maintenance freeze。 |
+| `patch-tournament` | 90 天孵化 | 当前唯一孵化实验；只验证隔离候选、独立检查和最小合格补丁选择。90 天内证明真实采用，否则冻结；不建设第二个 Harness 控制面。 |
 | `agent-harness` | MERGE → Harness | 迁 workpad、feedback sweep、land/validation gate 和薄 plugin；不迁第二套 Agent 和生命周期。 |
 | `auto-contributor` | MERGE → Harness | 迁 issue discovery、DCO、fork/PR handoff；不迁独立 worker pool、SQLite、dashboard 和无限 loop。 |
 | `auto-contributor-dashboard` | MERGE → Harness | 只迁 Issue、PR、Stats、Blacklist 信息架构；使用 Harness 认证、API 和事件流重做。 |
@@ -196,7 +239,7 @@ Agent 运行
 | `claude-skill-manager` | MERGE → Loom | 迁 manifest、shard、gzip、search/info/resolve；生命周期和投影改用 Loom。 |
 | `dsh-plugin-registry` | KEEP | 保持 DSH 专属 schema；补签名、权限、兼容和精确 commit 证明。 |
 | `vibeguard` | KEEP / 旗舰 | 唯一运行时规则、Hook、Guard 和审计平台。 |
-| `verdict` | SPLIT MERGE | scan/pin/watch/attest 进 Loom；trajectory audit 进 VibeGuard；随后归档。 |
+| `verdict` | SPLIT MERGE / 用户实验仓 | 已核实为用户账号下的非 fork 原创实验。`scan/pin/watch/attest` 进 Loom，trajectory audit 进 VibeGuard；不补齐独立产品路线，迁移验收后归档。 |
 | `specrail` | RETIRE / 已归档 | 模板进 Spellbook，验证规则进 flowguard，threads 集成进 threads。 |
 | `anosome-workflow` | MERGE → Spellbook | 唯一 release-readiness workflow 迁入对应 Skill reference，随后归档。 |
 | `agent-patterns` | MERGE → Spellbook | 合并重复 pattern；不保留孵化器品牌。 |
@@ -209,10 +252,10 @@ Agent 运行
 
 | 仓库 | 裁决 | 迁移或下一步 |
 |---|---|---|
-| `remem` | KEEP / 旗舰 | 唯一 raw transcript、source、host、memory、检索和审计事实源。 |
-| `refine` | KEEP / 上层产品 | 完成 issue #203；只保存 Remem ref/hash 和派生 observation，完成前不推广。 |
+| `remem` | KEEP / 旗舰 | 唯一 coding-agent raw transcript、source、host、memory、检索和记忆注入审计事实源。 |
+| `refine` | KEEP / 上层产品 | 保留浏览器来源、认知 observation、趋势、画像、建议和派生知识；所有 coding session 输入改用 Remem 稳定 ref/hash，停止第二份 coding-agent transcript、collector 和原文搜索事实源。 |
 | `stash` | KEEP / 条件旗舰 | 唯一任务、项目、Today 和最终完成决策工作台。 |
-| `keepline` | MERGE → Stash | 迁 live runtime、process attribution、session recovery、terminal launch；不迁 memory、usage parser、work-item 和旧 UI。 |
+| `keepline` | DEFER / 后续拆分 | 本轮不要求 Stash 或 Harness 接管。session identity 和历史搜索改用 Remem；live runtime、process attribution、session recovery、terminal launch 待 Stash 最小状态模型稳定后再决定是否迁入；不迁 memory、usage parser、work-item 和旧 UI。 |
 | `chat-archive-rs` | MERGE → Remem | 迁 lossless backup、压缩、加密、hash-chain、verify、restore；不保留第二个 collector/daemon。 |
 | `ccstats` | KEEP / 基础 SDK | 唯一 provider parser、dedup、token accounting、pricing、quota 和 model switch detector。 |
 | `quotabar` | KEEP / GUI 产品 | 收敛到单一已发布 ccstats 依赖；实现模型切换、额度预测和 native alert。 |
@@ -323,7 +366,9 @@ Agent 运行
 - [ ] revoke/rotate `sse-fast-chat-server` 暴露的 Azure OpenAI 凭据；
 - [ ] rotate `echart-use-flask` 暴露过的 Oracle 凭据；
 - [ ] 检查并轮换 `fastapi-starter` 中的 Redis 凭据；
-- [ ] 删除 `myweather` 仓库 Secrets，确认 SMTP 凭据失效；
+- [x] 删除 `myweather` 仓库中的 `USERNAME`、`PASSWORD` Secrets；
+- [ ] 由 SMTP 凭据所有者确认旧凭据已失效；
+- [x] 为四个凭据相关仓库启用 GitHub 标准 Secret Scanning；当前公开告警为 0；
 - [ ] 对上述仓库执行完整 Git 历史 secret scan；
 - [ ] 确认默认分支不再包含有效凭据；
 - [ ] 对继续公开且含敏感历史的仓库评估转私有或删除，而不是只 Archive。
@@ -332,11 +377,11 @@ Agent 运行
 
 ### P0-2 仍存活的外部面
 
-- [ ] 关闭 `bookmark-1130` GitHub Pages；
-- [ ] 删除其 deployment/environment；
-- [ ] 禁用 `myweather` Actions；
+- [x] 关闭 `bookmark-1130` GitHub Pages，并实测旧 URL 返回 HTTP 404；
+- [x] 保留其历史 deployment/environment 作为审计证据；Pages 配置已删除；
+- [x] 禁用 `myweather` Actions；
 - [ ] 检查所有退役仓的 Webhook、Deploy Key、Secrets、自定义域名和 Pages；
-- [ ] 实测旧部署已经不可访问，而不是只观察 GitHub Archived 标记。
+- [ ] 实测其余旧部署已经不可访问，而不是只观察 GitHub Archived 标记。
 
 ### P0-3 版权、商标和数据授权
 
@@ -371,6 +416,52 @@ Agent 运行
 
 ### Phase 1：建立唯一 successor
 
+#### Phase 1A：先完成 Remem–Refine–VibeGuard 主链
+
+这是当前应优先执行的收敛批次，不等待 Stash/Harness 完成。
+
+截至 2026-08-30 的实时执行状态：
+
+- Remem [PR #1054](https://github.com/majiayu000/remem/pull/1054) 已合并，稳定 host-bound `session_ref`、content hash 和精确 message snapshot contract 已进入 `main`。
+- Refine [PR #206](https://github.com/majiayu000/refine/pull/206) 已合并，coding-agent transcript 已改为 Remem 单一事实源，第二份 raw body 和本地 provider fallback 已移除。
+- 两个 PR 都明确没有完成 installed-binary、真实 live-session 和 issue-close proof；因此当前第一动作是做合并后真实验收，不是重新设计 contract。
+
+1. 冻结重复写入
+   - Refine 不再新增 transcript/session 存储能力；保留现有读取只用于迁移验收。
+   - Keel 不再扩展聊天目录扫描器。
+   - Keepline 不再扩展跨会话 memory 和 usage parser。
+2. 固化 Remem consumer contract
+   - 对外只承诺 `session_ref`、`message_ref`、source/host、content hash、分页读取和明确错误语义。
+   - 提供 Refine 使用的 contract tests；不要为了兼容旧扫描器增加 alias 或 fallback。
+3. 切断 Refine 的重复事实源
+   - `ingest-sessions` 只从 Remem 读取；移除 `--legacy-local-scan`，不保留长期回滚开关。
+   - observation 必须记录 Remem 输入引用、分析器版本和输出 hash。
+   - Refine 对 coding-agent 数据只搜索派生 observation；原始编码会话检索跳转到 Remem。浏览器来源仍按 Refine 自己的边界检索。
+4. 合并 Remem 的直接附属能力
+   - 第一小批迁 `remem-web`，放入 Remem 仓内并沿用现有 REST 边界。
+   - 第二小批迁 `chat-archive-rs` 的 backup/verify/restore；不迁它的第二套 collector/monitor 数据面。
+   - 每小批都必须先通过 fresh install、引用一致性和真实 restore drill，再归档来源仓。
+5. 收拢认知治理
+   - 将 Keel 中仍有真实使用价值的指标、约束生命周期和人工批准提案并入 Refine。
+   - Refine 只产生治理建议；VibeGuard 只接受人工批准后的规则变更。
+6. 结束 Verdict 实验
+   - Loom 接管 capability contract、content hash、pin/watch/attest。
+   - VibeGuard 接管 runtime trajectory audit。
+   - 两边均有 successor commit 和验证后归档 Verdict，不实现它尚未完成的独立 CLI 路线图。
+7. 最后再决定 Keepline
+   - 先让 Keepline 的 session/history 视图消费 Remem，而不是迁库。
+   - Stash 的最小 task/session 状态模型和恢复动作验证通过后，只迁 live runtime 与恢复动作。
+   - 如果该状态模型仍不成立，Keepline 保持 maintenance freeze，不为了“完成合并”把它接到 Harness。
+
+完成门槛：
+
+- 同一条 coding session 只存在一个原始事实源，Refine 和 VibeGuard 均能通过稳定引用回到 Remem；
+- 删除 Refine、Keel、Keepline 的新增重复 collector 路径，没有 silent fallback；
+- Refine 可以从全新 Remem 数据完成一次认知分析，并展示每条 observation 的来源；
+- 一条人工批准的 Refine 治理建议能形成可审阅的 VibeGuard 规则变更，但不会自动生效；
+- `remem-web` 和 backup/restore 在 Remem 内完成真实 E2E 后，才归档来源仓；
+- Stash 和 Harness 即使尚未成熟，也不阻塞以上验收。
+
 第一批：
 
 1. Registry 主仓 + Core + Data；
@@ -385,9 +476,11 @@ Agent 运行
 
 第三批：
 
-1. Remem + chat-archive-rs；
-2. Stash + Keepline；
+1. Remem + remem-web + chat-archive-rs；
+2. Refine + Keel；
 3. ccstats + QuotaBar + cc-model-watch。
+
+Keepline 不再列入这一批。只有 Stash 的最小状态模型和恢复动作先通过独立验证，才另开迁移批次；Harness 不作为该决策的默认 runtime。
 
 第四批：
 
@@ -491,12 +584,19 @@ actively monitored. Previously exposed credentials must be considered revoked.
 
 ## 10. 当前状态
 
-本文件记录的是只读审计和决策建议。审计本身没有执行以下动作：
+本文件起初记录只读审计和决策建议。2026-08-31 已执行第一批 GitHub 侧安全止血：
+
+- 已关闭 `bookmark-1130` Pages，旧 URL 返回 HTTP 404，仓库保持 Archived；
+- 已删除 `myweather` 的两个旧仓库 Secrets，并禁用 Actions；
+- 已为四个凭据相关仓库启用 GitHub 标准 Secret Scanning，当前公开告警为 0；
+- provider 侧 Azure、Oracle、Redis、SMTP 凭据是否已吊销仍未取得证明。
+
+仍未执行以下动作：
 
 - 没有 revoke 或 rotate 任何凭据；
-- 没有关闭 Pages、Actions、Webhook 或部署；
+- 没有关闭其余 Pages、Actions、Webhook 或部署；
 - 没有修改、归档、转私有或删除任何 GitHub 仓库；
 - 没有发布 Release；
 - 没有创建迁移 PR、Issue 或包管理器 deprecation。
 
-下一步必须从 Phase 0 安全止血开始，不能直接进入合并或推广。
+涉及远端归档、发布和公开迁移的动作必须先完成 Phase 0 安全止血。当前可以直接开始 Phase 1A 的 contract、重复写入清理和本地 E2E，不需要等待 Stash 或 Harness。
