@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { isFullyPriced } from '@stash/shared';
 import type { Decision, DecisionCandidateRecord, Lesson, Milestone, Skill } from '@stash/shared';
@@ -65,31 +65,44 @@ export function ProjectDetailPage({ data }: { data: WBData; reload: () => void }
   const [mySkills, setMySkills] = useState<Skill[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<Error | null>(null);
+  const loadEpoch = useRef(0);
+  const mounted = useRef(true);
+  const currentProjectId = useRef(p?.id);
+  currentProjectId.current = p?.id;
   const [retryTick, setRetryTick] = useState(0);
   // SPEC v0.3 §3h — regex'd decision candidates from this project's recent sessions.
   const [candidates, setCandidates] = useState<DecisionCandidateRecord[]>([]);
   // Measured usage from /api/analytics/burn; null while loading or unavailable.
   const [burn, setBurn] = useState<ProjectBurnView | null>(null);
 
-  async function loadKb(blockPage = false) {
-    if (!p) {
-      setLoading(false);
+  async function loadKb(blockPage = false, requestedProjectId = p?.id) {
+    if (!requestedProjectId) {
+      if (mounted.current) setLoading(false);
       return;
     }
-    if (blockPage) {
+    // A mutation started on the previous route can finish after navigation.
+    // Reject it before it increments the epoch for the current project's load.
+    if (!mounted.current || requestedProjectId !== currentProjectId.current) return;
+    const epoch = ++loadEpoch.current;
+    if (blockPage && mounted.current && epoch === loadEpoch.current) {
       setLoading(true);
       setLoadError(null);
     }
     try {
       const [intent, milestones, decisions, notes, lessons, bindings, allSkills] = await Promise.all([
-        getProjectIntent(p.id),
-        listMilestones(p.id),
-        listDecisions(p.id),
-        getProjectNotes(p.id),
-        listLessons({ projectId: p.id }),
-        listProjectSkills(p.id),
+        getProjectIntent(requestedProjectId),
+        listMilestones(requestedProjectId),
+        listDecisions(requestedProjectId),
+        getProjectNotes(requestedProjectId),
+        listLessons({ projectId: requestedProjectId }),
+        listProjectSkills(requestedProjectId),
         listSkills(),
       ]);
+      if (
+        !mounted.current
+        || epoch !== loadEpoch.current
+        || requestedProjectId !== currentProjectId.current
+      ) return;
       setKb({
         intent: intent?.text ?? '',
         milestones,
@@ -101,11 +114,27 @@ export function ProjectDetailPage({ data }: { data: WBData; reload: () => void }
       setMySkills(allSkills.filter((s) => enabledIds.has(s.id)));
       setLoading(false);
     } catch (error) {
-      reportAsyncError('load project knowledge', error);
+      if (
+        !mounted.current
+        || epoch !== loadEpoch.current
+        || requestedProjectId !== currentProjectId.current
+      ) return;
+      const retry = blockPage
+        ? undefined
+        : () => loadKb(false, requestedProjectId);
+      reportAsyncError('load project knowledge', error, retry);
       if (blockPage) setLoadError(toError(error));
       setLoading(false);
     }
   }
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      loadEpoch.current += 1;
+    };
+  }, []);
 
   useEffect(() => { loadKb(true); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [p?.id, retryTick]);
 
