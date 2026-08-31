@@ -242,6 +242,46 @@ final class KeeplineIntegrationStore: ObservableObject {
         }
     }
 
+    func recoveryPreview(
+        sessionID: String,
+        taskID: UUID
+    ) async -> KeeplineRecoveryPreview? {
+        guard let transport else { return nil }
+        return await performTaskResult(taskID) {
+            let preview = try await transport.recoveryPreview(sessionID: sessionID)
+            guard preview.sessionID == sessionID else { throw KeeplineError.invalidResponse }
+            return preview
+        }
+    }
+
+    func executeRecovery(
+        preview: KeeplineRecoveryPreview,
+        taskID: UUID
+    ) async -> Bool {
+        guard let transport else { return false }
+        let execution: KeeplineRecoveryExecution? = await performTaskResult(taskID) {
+            let result = try await transport.executeRecovery(
+                sessionID: preview.sessionID,
+                request: RecoveryExecutionRequest(
+                    confirmationID: preview.confirmationID,
+                    terminalApp: .automatic,
+                    idempotencyKey: UUID().uuidString
+                )
+            )
+            guard result.executed,
+                  result.preview.sessionID == preview.sessionID,
+                  result.preview.confirmationID == preview.confirmationID else {
+                throw KeeplineError.invalidResponse
+            }
+            return result
+        }
+        if execution != nil {
+            await refresh(allowServiceLaunch: false)
+            return true
+        }
+        return false
+    }
+
     private var isLive: Bool {
         if case .ready = state { return true }
         return false
@@ -282,6 +322,8 @@ final class KeeplineIntegrationStore: ObservableObject {
             }
             let required = Set([
                 "sessions.list",
+                "sessions.recovery.preview",
+                "sessions.recovery.execute",
                 "work-items.external-upsert",
                 "work-items.session-link",
                 "work-items.completion-review"
@@ -367,6 +409,22 @@ final class KeeplineIntegrationStore: ObservableObject {
             try await operation()
         } catch {
             publishTaskError(error.localizedDescription, for: taskID)
+        }
+    }
+
+    private func performTaskResult<Value>(
+        _ taskID: UUID,
+        operation: () async throws -> Value
+    ) async -> Value? {
+        guard !busyTaskIDs.contains(taskID) else { return nil }
+        busyTaskIDs.insert(taskID)
+        taskErrors[taskID] = nil
+        defer { busyTaskIDs.remove(taskID) }
+        do {
+            return try await operation()
+        } catch {
+            publishTaskError(error.localizedDescription, for: taskID)
+            return nil
         }
     }
 

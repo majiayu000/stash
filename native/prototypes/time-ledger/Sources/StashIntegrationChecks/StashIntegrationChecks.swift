@@ -35,6 +35,7 @@ private enum RecordedMutation: Hashable {
     case launchDispatch
     case ambiguousResolution
     case completionReview
+    case recoveryExecution
 }
 
 private actor RecordingTransport: KeeplineTransport {
@@ -43,6 +44,7 @@ private actor RecordingTransport: KeeplineTransport {
     private(set) var dispatchKeys: [String] = []
     private(set) var logicalLaunchCount = 0
     private let completionReviewEvidenceID: String?
+    private(set) var recoveredSessionIDs: [String] = []
 
     init(completionReviewEvidenceID: String? = nil) {
         self.completionReviewEvidenceID = completionReviewEvidenceID
@@ -62,6 +64,22 @@ private actor RecordingTransport: KeeplineTransport {
     }
 
     func listSessions() async throws -> [KeeplineSession] { [] }
+
+    func recoveryPreview(sessionID: String) async throws -> KeeplineRecoveryPreview {
+        try recoveryPreviewFixture(sessionID: sessionID)
+    }
+
+    func executeRecovery(
+        sessionID: String,
+        request: RecoveryExecutionRequest
+    ) async throws -> KeeplineRecoveryExecution {
+        mutationCounts[.recoveryExecution, default: 0] += 1
+        recoveredSessionIDs.append(sessionID)
+        return KeeplineRecoveryExecution(
+            preview: try recoveryPreviewFixture(sessionID: sessionID),
+            executed: true
+        )
+    }
 
     func upsertExternalWorkItem(
         source: String,
@@ -151,6 +169,8 @@ private actor RecordingTransport: KeeplineTransport {
 private struct StashIntegrationChecks {
     static func main() async throws {
         try checkOwnedChildTermination()
+        try checkAgentAttentionQueue()
+        try await checkRecoveryConfirmationTransport()
         try await checkLaunchUpsertGate()
         try await checkLaunchDispatchGate()
         try await checkManualLinkGates()
@@ -189,6 +209,97 @@ private struct StashIntegrationChecks {
         try expect(!process.isRunning, "owned child remained alive after bounded shutdown")
     }
 
+    private static func checkAgentAttentionQueue() throws {
+        let ambiguousTask = LedgerTask(title: "Choose the matching session")
+        let completionTask = LedgerTask(title: "Review the completed work")
+        let waitingTask = LedgerTask(title: "Answer the Agent")
+        let lostTask = LedgerTask(title: "Recover interrupted work")
+        let quietTask = LedgerTask(title: "Keep working")
+        let completedTask = LedgerTask(title: "Already closed", status: .completed)
+        let tasks = [ambiguousTask, completionTask, waitingTask, lostTask, quietTask, completedTask]
+        let links = [
+            AgentTaskLink(
+                taskID: ambiguousTask.id,
+                dispatchID: "dispatch-ambiguous",
+                dispatchState: .ambiguous,
+                candidateSessionIDs: ["candidate-a", "candidate-b"],
+                runtimeID: "codex",
+                source: .dispatched
+            ),
+            AgentTaskLink(
+                taskID: completionTask.id,
+                sessionID: "completion-session",
+                dispatchState: .linked,
+                runtimeID: "claude-code",
+                source: .dispatched
+            ),
+            AgentTaskLink(
+                taskID: waitingTask.id,
+                sessionID: "waiting-session",
+                dispatchState: .linked,
+                runtimeID: "codex",
+                source: .dispatched
+            ),
+            AgentTaskLink(
+                taskID: lostTask.id,
+                sessionID: "lost-session",
+                dispatchState: .linked,
+                runtimeID: "codex",
+                source: .dispatched
+            ),
+            AgentTaskLink(
+                taskID: quietTask.id,
+                sessionID: "running-session",
+                dispatchState: .linked,
+                runtimeID: "claude-code",
+                source: .dispatched
+            ),
+            AgentTaskLink(
+                taskID: completedTask.id,
+                sessionID: "closed-lost-session",
+                dispatchState: .linked,
+                runtimeID: "codex",
+                source: .dispatched
+            )
+        ]
+        let sessions = try [
+            attentionSessionFixture(id: "completion-session", status: "completed", evidenceID: "evidence-1"),
+            attentionSessionFixture(id: "waiting-session", status: "waiting"),
+            attentionSessionFixture(id: "lost-session", status: "lost"),
+            attentionSessionFixture(id: "running-session", status: "running"),
+            attentionSessionFixture(id: "closed-lost-session", status: "lost")
+        ]
+
+        let items = AgentAttentionQueue.items(tasks: tasks, links: links, sessions: sessions)
+
+        try expect(items.map(\.kind) == [.ambiguous, .completionReview, .waitingInput, .interrupted],
+                   "attention queue did not preserve action priority")
+        try expect(items.map(\.taskID) == [ambiguousTask.id, completionTask.id, waitingTask.id, lostTask.id],
+                   "attention queue included quiet or closed tasks")
+        try expect(items.last?.sessionID == "lost-session",
+                   "interrupted attention item lost its exact runtime session ID")
+    }
+
+    private static func checkRecoveryConfirmationTransport() async throws {
+        let transport = RecordingTransport()
+        let preview = try await transport.recoveryPreview(sessionID: "runtime-session-1")
+        try expect(preview.sessionID == "runtime-session-1", "recovery preview changed the session ID")
+        try expect(preview.arguments == ["resume", "runtime-session-1"],
+                   "recovery preview did not preserve structured arguments")
+        let execution = try await transport.executeRecovery(
+            sessionID: preview.sessionID,
+            request: RecoveryExecutionRequest(
+                confirmationID: preview.confirmationID,
+                terminalApp: .automatic,
+                idempotencyKey: "recovery-check-1"
+            )
+        )
+        try expect(execution.executed, "confirmed recovery was not executed")
+        let recoveredSessionIDs = await transport.recoveredSessionIDs
+        try expect(recoveredSessionIDs == ["runtime-session-1"],
+                   "recovery executed a different session")
+    }
+
     @MainActor
     private static func checkPackagedCompletionClaimFlow(binary: String) async throws {
         let environment = ProcessInfo.processInfo.environment
@@ -207,7 +318,10 @@ private struct StashIntegrationChecks {
             .appendingPathComponent(".claude", isDirectory: true)
             .appendingPathComponent("projects", isDirectory: true)
         let transcriptDirectory = claudeProjects
-            .appendingPathComponent("-tmp-stash-keepline-e2e", isDirectory: true)
+            .appendingPathComponent(
+                project.path.replacingOccurrences(of: "/", with: "-"),
+                isDirectory: true
+            )
         try fileManager.createDirectory(at: keeplineHome, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: project, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: transcriptDirectory, withIntermediateDirectories: true)
@@ -295,8 +409,12 @@ private struct StashIntegrationChecks {
             claudeRuntime?.capabilities.contains("explicit-completion-hook") != true,
             "packaged service advertised Stop as automatic completion"
         )
+        try expect(
+            metadata.capabilities.contains("sessions.recovery.preview") &&
+            metadata.capabilities.contains("sessions.recovery.execute"),
+            "packaged service did not advertise confirmed recovery"
+        )
         try await waitForServiceScan(baseURL: baseURL)
-
         let task = LedgerTask(title: "Packaged completion E2E", status: .active)
         let workspaceURL = root.appendingPathComponent("workspace.json")
         let store = LedgerStore(
@@ -326,6 +444,18 @@ private struct StashIntegrationChecks {
             recognizedSession.title == "Verify packaged Stash completion flow",
             "scanner returned the wrong task title"
         )
+        let detectedLostSession = try await waitForValue("lost recovery fixture") {
+            try? await client.listSessions().first {
+                $0.sessionID == sessionID && $0.status == .lost
+            }
+        }
+        let recoveryPreview = try await client.recoveryPreview(sessionID: detectedLostSession.sessionID)
+        try expect(recoveryPreview.sessionID == sessionID,
+                   "packaged recovery preview changed the exact session ID")
+        try expect(recoveryPreview.runtimeID == .claudeCode,
+                   "packaged recovery preview selected the wrong runtime")
+        try expect(!recoveryPreview.arguments.contains("--dangerously-skip-permissions"),
+                   "packaged recovery preview enabled a dangerous permission bypass")
 
         try sendStop(
             using: hookCommand,
@@ -774,6 +904,33 @@ private func scannedSessionFixture(sessionID: String, directory: String) throws 
       "title":"Verify packaged Stash completion flow","directory":"\(directory)","status":"lost",
       "lastActiveAt":"2026-08-30T00:00:00Z","evidenceSummary":null,
       "completionEvidenceId":null,"processRunning":false
+    }
+    """)
+}
+
+private func recoveryPreviewFixture(sessionID: String) throws -> KeeplineRecoveryPreview {
+    try fixture("""
+    {
+      "sessionId":"\(sessionID)","runtimeId":"codex","method":"resume",
+      "executable":"codex","arguments":["resume","\(sessionID)"],
+      "directory":"/tmp/project","createsNewSession":false,
+      "confirmationId":"\(String(repeating: "a", count: 64))"
+    }
+    """)
+}
+
+private func attentionSessionFixture(
+    id: String,
+    status: String,
+    evidenceID: String? = nil
+) throws -> KeeplineSession {
+    let evidence = evidenceID.map { "\"\($0)\"" } ?? "null"
+    return try fixture("""
+    {
+      "id":"row-\(id)","sessionId":"\(id)","runtimeId":"codex",
+      "title":"Attention fixture","directory":"/tmp","status":"\(status)",
+      "lastActiveAt":"2026-08-30T00:00:00Z","evidenceSummary":null,
+      "completionEvidenceId":\(evidence),"processRunning":true
     }
     """)
 }
