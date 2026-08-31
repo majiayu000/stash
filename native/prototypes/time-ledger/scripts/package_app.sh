@@ -78,6 +78,7 @@ plutil -insert CFBundleVersion -string 2 "$CONTENTS_DIR/Info.plist"
 plutil -insert LSMinimumSystemVersion -string 14.0 "$CONTENTS_DIR/Info.plist"
 plutil -insert NSHighResolutionCapable -bool true "$CONTENTS_DIR/Info.plist"
 
+codesign --remove-signature "$RESOURCES_DIR/KeeplineService"
 codesign --force --sign - "$RESOURCES_DIR/KeeplineService"
 codesign --force --sign - "$STAGING_APP"
 

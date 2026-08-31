@@ -1,21 +1,8 @@
 import Foundation
+import Darwin
 import KeeplineKit
 import StashCore
 import StashKeeplineIntegration
-
-private enum CheckFailure: Error, CustomStringConvertible {
-    case failed(String)
-
-    var description: String {
-        switch self {
-        case let .failed(message): message
-        }
-    }
-}
-
-private func expect(_ condition: @autoclosure () -> Bool, _ message: String) throws {
-    guard condition() else { throw CheckFailure.failed(message) }
-}
 
 private struct ForcedSaveFailure: LocalizedError {
     var errorDescription: String? { "forced integration save failure" }
@@ -165,7 +152,356 @@ private struct StashIntegrationChecks {
         try await checkCompletionReviewGate()
         try await checkProjectionSyncGate()
         try await checkIdempotentRestartRecovery()
-        print("StashIntegrationChecks: all checks passed")
+        if let binary = ProcessInfo.processInfo.environment["STASH_KEEPLINE_E2E_BINARY"],
+           !binary.isEmpty {
+            try await checkPackagedCompletionClaimFlow(binary: binary)
+            print("StashIntegrationChecks: packaged completion-claim E2E passed")
+        } else {
+            print("StashIntegrationChecks: in-memory checks passed; packaged E2E not requested")
+        }
+    }
+
+    @MainActor
+    private static func checkPackagedCompletionClaimFlow(binary: String) async throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard let apiPort = Int(environment["STASH_KEEPLINE_E2E_API_PORT"] ?? ""),
+              let hookPort = Int(environment["STASH_KEEPLINE_E2E_HOOK_PORT"] ?? "") else {
+            throw CheckFailure.failed("packaged E2E requires API and hook ports")
+        }
+
+        let fileManager = FileManager.default
+        let root = URL(fileURLWithPath: "/private/tmp", isDirectory: true)
+            .appendingPathComponent("stash-keepline-e2e-\(UUID().uuidString)", isDirectory: true)
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let keeplineHome = root.appendingPathComponent("keepline", isDirectory: true)
+        let project = root.appendingPathComponent("project", isDirectory: true)
+        let claudeProjects = home
+            .appendingPathComponent(".claude", isDirectory: true)
+            .appendingPathComponent("projects", isDirectory: true)
+        let transcriptDirectory = claudeProjects
+            .appendingPathComponent("-tmp-stash-keepline-e2e", isDirectory: true)
+        try fileManager.createDirectory(at: keeplineHome, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: project, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: transcriptDirectory, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let config: [String: Any] = [
+            "hookPort": hookPort,
+            "fileLogging": false,
+            "logLevel": "info"
+        ]
+        try JSONSerialization.data(withJSONObject: config, options: [.sortedKeys])
+            .write(to: keeplineHome.appendingPathComponent("config.json"), options: [.atomic])
+
+        let hookCommand = "KEEPLINE_HOOK_MARKER=keepline-hook-v2 "
+            + "curl -fsS -X POST http://127.0.0.1:\(hookPort)/hook "
+            + "-H \"Content-Type: application/json\" --data-binary @- > /dev/null 2>&1 || true"
+        let claudeSettings: [String: Any] = [
+            "hooks": [
+                "Stop": [[
+                    "hooks": [["type": "command", "command": hookCommand]]
+                ]]
+            ]
+        ]
+        let claudeHome = home.appendingPathComponent(".claude", isDirectory: true)
+        try fileManager.createDirectory(at: claudeHome, withIntermediateDirectories: true)
+        try JSONSerialization.data(withJSONObject: claudeSettings, options: [.sortedKeys])
+            .write(to: claudeHome.appendingPathComponent("settings.json"), options: [.atomic])
+
+        let sessionID = "stash-e2e-session"
+        let now = ISO8601DateFormatter().string(from: Date())
+        let transcript: [String: Any] = [
+            "type": "user",
+            "uuid": "stash-e2e-user",
+            "sessionId": sessionID,
+            "cwd": project.path,
+            "timestamp": now,
+            "userType": "external",
+            "message": ["role": "user", "content": "Verify packaged Stash completion flow"]
+        ]
+        var transcriptData = try JSONSerialization.data(withJSONObject: transcript)
+        transcriptData.append(Data("\n".utf8))
+        try transcriptData.write(
+            to: transcriptDirectory.appendingPathComponent("\(sessionID).jsonl"),
+            options: [.atomic]
+        )
+        let agentProcess = try launchSyntheticClaude(at: root, cwd: project)
+        defer { stopProcess(agentProcess) }
+        try expect(agentProcess.isRunning, "synthetic Claude process exited during launch")
+        let agentCwd = try processOutput(
+            "/usr/sbin/lsof",
+            ["-a", "-d", "cwd", "-p", String(agentProcess.processIdentifier)]
+        )
+        try expect(agentCwd.contains(project.path), "synthetic Claude cwd did not match transcript")
+
+        let baseURL = URL(string: "http://127.0.0.1:\(apiPort)")!
+        let processEnvironment = environment.merging([
+            "HOME": home.path,
+            "KEEPLINE_HOME": keeplineHome.path,
+            "KEEPLINE_PROJECT_ROOTS": claudeProjects.path
+        ]) { _, isolated in isolated }
+
+        var service = try launchService(
+            binary: binary,
+            apiPort: apiPort,
+            environment: processEnvironment
+        )
+        defer { stopService(service) }
+
+        var client = KeeplineClient(configuration: try KeeplineClientConfiguration(baseURL: baseURL))
+        let metadata: KeeplineMetadata
+        do {
+            metadata = try await waitForValue("packaged Keepline metadata") {
+                try? await client.metadata()
+            }
+        } catch {
+            if !service.isRunning {
+                throw CheckFailure.failed(
+                    "packaged Keepline exited before metadata (status \(service.terminationStatus))"
+                )
+            }
+            throw error
+        }
+        let claudeRuntime = metadata.runtimes.first { $0.id == .claudeCode }
+        try expect(
+            claudeRuntime?.capabilities.contains("agent-completion-claim-hook") == true,
+            "packaged service did not advertise its completion-claim receiver"
+        )
+        try expect(
+            claudeRuntime?.capabilities.contains("explicit-completion-manual-only") == true,
+            "packaged service overstated automatic completion"
+        )
+        try expect(
+            claudeRuntime?.capabilities.contains("explicit-completion-hook") != true,
+            "packaged service advertised Stop as automatic completion"
+        )
+        try await waitForServiceScan(baseURL: baseURL)
+        let recognizedSession = try await waitForValue("recognized active Claude session") {
+            try? await client.listSessions().first {
+                $0.sessionID == sessionID && $0.status != .completed && $0.status != .lost
+            }
+        }
+        try expect(recognizedSession.directory == project.path, "scanner returned the wrong cwd")
+        try expect(
+            recognizedSession.title == "Verify packaged Stash completion flow",
+            "scanner returned the wrong task title"
+        )
+
+        let task = LedgerTask(title: "Packaged completion E2E", status: .active)
+        let workspaceURL = root.appendingPathComponent("workspace.json")
+        let store = LedgerStore(
+            repository: JSONWorkspaceRepository(fileURL: workspaceURL),
+            initialWorkspace: LedgerWorkspace(tasks: [task])
+        )
+        await store.bootstrap()
+        let coordinator = StashKeeplineCoordinator(
+            store: store,
+            transport: OfficialKeeplineTransport(client: client)
+        )
+        try await coordinator.manualLink(recognizedSession, to: task)
+        guard let link = store.agentLink(for: task.id) else {
+            throw CheckFailure.failed("Stash did not persist the live session link")
+        }
+        guard let workItemID = link.keeplineWorkItemID else {
+            throw CheckFailure.failed("Stash did not persist the Keepline work item ID")
+        }
+
+        try sendStop(
+            using: hookCommand,
+            sessionID: sessionID,
+            cwd: project.path,
+            lastAssistantMessage: "I need more input before this task can be completed."
+        )
+        let ordinaryStopSession = try await client.listSessions().first { $0.sessionID == sessionID }
+        try expect(
+            ordinaryStopSession?.completionEvidenceID == nil,
+            "ordinary Claude Stop was incorrectly treated as task completion"
+        )
+
+        try sendStop(
+            using: hookCommand,
+            sessionID: sessionID,
+            cwd: project.path,
+            lastAssistantMessage:
+                "The requested work is complete and verified.\nKEEPLINE_COMPLETE_WORK_ITEM:\(workItemID)"
+        )
+        _ = try await waitForValue("explicit completion evidence") {
+            try? await client.listSessions().first {
+                $0.sessionID == sessionID &&
+                $0.completionEvidenceID != nil &&
+                $0.completionEvidenceWorkItemID == workItemID &&
+                $0.completionEvidenceSource == "agent_completion_claim"
+            }
+        }
+
+        stopService(service)
+        try expect(service.terminationStatus == 0, "packaged Keepline did not stop cleanly")
+        service = try launchService(
+            binary: binary,
+            apiPort: apiPort,
+            environment: processEnvironment
+        )
+        client = KeeplineClient(configuration: try KeeplineClientConfiguration(baseURL: baseURL))
+        _ = try await waitForValue("restarted packaged Keepline metadata") {
+            try? await client.metadata()
+        }
+        let persistedSession = try await waitForValue("persisted completion evidence") {
+            try? await client.listSessions().first {
+                $0.sessionID == sessionID &&
+                $0.completionEvidenceID != nil &&
+                $0.completionEvidenceWorkItemID == workItemID &&
+                $0.completionEvidenceSource == "agent_completion_claim"
+            }
+        }
+        let restartedCoordinator = StashKeeplineCoordinator(
+            store: store,
+            transport: OfficialKeeplineTransport(client: client)
+        )
+        try await restartedCoordinator.reviewCompletion(
+            link: link,
+            session: persistedSession,
+            task: task,
+            accepted: true
+        )
+        try expect(store.task(id: task.id)?.status == .completed, "Stash did not accept completion")
+        try expect(
+            store.agentLink(for: task.id)?.completionDecision == .accepted,
+            "Stash did not persist the completion decision"
+        )
+    }
+
+    private static func launchService(
+        binary: String,
+        apiPort: Int,
+        environment: [String: String]
+    ) throws -> Process {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: binary)
+        process.arguments = ["--port", String(apiPort), "--scan-interval", "0.2"]
+        process.environment = environment
+        process.standardOutput = FileHandle.standardError
+        process.standardError = FileHandle.standardError
+        try process.run()
+        return process
+    }
+
+    private static func launchSyntheticClaude(at root: URL, cwd: URL) throws -> Process {
+        let executable = root.appendingPathComponent("claude")
+        try FileManager.default.copyItem(
+            at: URL(fileURLWithPath: "/bin/sleep"),
+            to: executable
+        )
+        try runProcess("/usr/bin/codesign", ["--remove-signature", executable.path])
+        try runProcess("/usr/bin/codesign", ["--force", "--sign", "-", executable.path])
+        let process = Process()
+        process.executableURL = executable
+        process.arguments = ["30"]
+        process.currentDirectoryURL = cwd
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.standardError
+        try process.run()
+        return process
+    }
+
+    private static func runProcess(_ executable: String, _ arguments: [String]) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executable)
+        process.arguments = arguments
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.standardError
+        try process.run()
+        process.waitUntilExit()
+        try expect(process.terminationStatus == 0, "failed to prepare synthetic Agent process")
+    }
+
+    private static func processOutput(_ executable: String, _ arguments: [String]) throws -> String {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executable)
+        process.arguments = arguments
+        let output = Pipe()
+        process.standardOutput = output
+        process.standardError = FileHandle.standardError
+        try process.run()
+        process.waitUntilExit()
+        try expect(process.terminationStatus == 0, "failed to inspect synthetic Agent process")
+        return String(data: output.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+    }
+
+    private static func stopService(_ process: Process) {
+        stopProcess(process)
+    }
+
+    private static func stopProcess(_ process: Process) {
+        guard process.isRunning else { return }
+        process.terminate()
+        let deadline = Date().addingTimeInterval(3)
+        while process.isRunning && Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+        if process.isRunning {
+            kill(process.processIdentifier, SIGKILL)
+        }
+        process.waitUntilExit()
+    }
+
+    private static func waitForServiceScan(baseURL: URL) async throws {
+        struct HealthEnvelope: Decodable {
+            struct DataBody: Decodable {
+                struct Scan: Decodable { let completed: Bool }
+                let scan: Scan
+            }
+            let data: DataBody
+        }
+        _ = try await waitForValue("initial packaged session scan") {
+            var request = URLRequest(url: baseURL.appendingPathComponent("api/v1/health"))
+            request.timeoutInterval = 1
+            guard let (data, response) = try? await URLSession.shared.data(for: request),
+                  (response as? HTTPURLResponse)?.statusCode == 200,
+                  let health = try? JSONDecoder().decode(HealthEnvelope.self, from: data),
+                  health.data.scan.completed else { return nil as Bool? }
+            return true
+        }
+    }
+
+    private static func sendStop(
+        using command: String,
+        sessionID: String,
+        cwd: String,
+        lastAssistantMessage: String
+    ) throws {
+        let payload = try JSONSerialization.data(withJSONObject: [
+            "hook_event_name": "Stop",
+            "session_id": sessionID,
+            "cwd": cwd,
+            "timestamp": ISO8601DateFormatter().string(from: Date()),
+            "last_assistant_message": lastAssistantMessage
+        ])
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = ["-c", command]
+        let input = Pipe()
+        process.standardInput = input.fileHandleForReading
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.standardError
+        try process.run()
+        input.fileHandleForReading.closeFile()
+        input.fileHandleForWriting.write(payload)
+        input.fileHandleForWriting.closeFile()
+        process.waitUntilExit()
+        try expect(process.terminationStatus == 0, "installed lifecycle hook command failed")
+    }
+
+    private static func waitForValue<Value>(
+        _ description: String,
+        timeoutSeconds: TimeInterval = 10,
+        operation: () async -> Value?
+    ) async throws -> Value {
+        let deadline = Date().addingTimeInterval(timeoutSeconds)
+        while Date() < deadline {
+            if let value = await operation() { return value }
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+        throw CheckFailure.failed("timed out waiting for \(description)")
     }
 
     @MainActor
@@ -288,6 +624,7 @@ private struct StashIntegrationChecks {
     @MainActor
     private static func checkCompletionReviewGate() async throws {
         let task = LedgerTask(title: "Completion review gate", status: .active)
+        let unrelatedTask = LedgerTask(title: "Unrelated task", status: .active)
         let link = AgentTaskLink(
             taskID: task.id,
             keeplineWorkItemID: "work-1",
@@ -297,13 +634,24 @@ private struct StashIntegrationChecks {
             source: .manuallyLinked
         )
         let repository = FailAtSaveRepository(
-            workspace: LedgerWorkspace(tasks: [task], agentTaskLinks: [link]),
+            workspace: LedgerWorkspace(tasks: [task, unrelatedTask], agentTaskLinks: [link]),
             failingSaveAttempt: 2
         )
         let store = LedgerStore(repository: repository, initialWorkspace: LedgerWorkspace())
         await store.bootstrap()
         let transport = RecordingTransport()
         let coordinator = StashKeeplineCoordinator(store: store, transport: transport)
+        do {
+            try await coordinator.reviewCompletion(
+                link: link,
+                session: try sessionFixture(),
+                task: unrelatedTask,
+                accepted: true
+            )
+            throw CheckFailure.failed("mismatched completion context reached Keepline")
+        } catch StashKeeplineCoordinatorError.invalidCompletionContext {
+            // Expected: public mutation boundary rejects mismatched task/link/session input.
+        }
         try await expectPersistenceFailure {
             try await coordinator.reviewCompletion(
                 link: link,
@@ -396,7 +744,8 @@ private func sessionFixture() throws -> KeeplineSession {
       "id":"session-row-1","sessionId":"runtime-session-1","runtimeId":"codex",
       "title":"Fixture session","directory":"/tmp","status":"running",
       "lastActiveAt":"2026-08-30T00:00:00Z","evidenceSummary":"Completed fixture",
-      "completionEvidenceId":"evidence-1","processRunning":true
+      "completionEvidenceId":"evidence-1","completionEvidenceWorkItemId":"work-1",
+      "completionEvidenceSource":"agent_completion_claim","processRunning":true
     }
     """)
 }

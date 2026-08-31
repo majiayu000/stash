@@ -112,9 +112,10 @@ struct TaskAgentSection: View {
             }
 
             if session.completionEvidenceID != nil,
+               session.completionEvidenceWorkItemID == link.keeplineWorkItemID,
                link.completionDecision == .undecided {
                 VStack(alignment: .leading, spacing: 9) {
-                    Text("Keepline found explicit completion evidence. The task remains open until you decide.")
+                    Text(completionPrompt(for: session))
                         .font(.system(size: 10))
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -164,6 +165,13 @@ struct TaskAgentSection: View {
         if integration.busyTaskIDs.contains(task.id) {
             ProgressView().controlSize(.small)
         }
+    }
+
+    private func completionPrompt(for session: KeeplineSession) -> String {
+        if session.completionEvidenceSource == "agent_completion_claim" {
+            return "The Agent claimed this work is complete. The task remains open until you decide."
+        }
+        return "This Agent session was explicitly marked complete. The task remains open until you decide."
     }
 
     private var agentActions: some View {

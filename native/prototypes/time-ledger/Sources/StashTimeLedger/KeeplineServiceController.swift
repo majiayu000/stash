@@ -61,6 +61,7 @@ final class KeeplineServiceController {
     private let port: Int?
     private var ownedChild: Process?
     private var errorCapture: BoundedProcessErrorCapture?
+    private var lifetimePipe: Pipe?
 
     init(executableURL: URL?, port: Int?) {
         self.executableURL = executableURL
@@ -86,6 +87,8 @@ final class KeeplineServiceController {
 
         errorCapture?.stop()
         errorCapture = nil
+        lifetimePipe?.fileHandleForWriting.closeFile()
+        lifetimePipe = nil
 
         let path = executableURL.path
         guard FileManager.default.fileExists(atPath: path) else {
@@ -97,8 +100,10 @@ final class KeeplineServiceController {
 
         let child = Process()
         child.executableURL = executableURL
-        child.arguments = ["service"] + (port.map { ["--port", String($0)] } ?? [])
-        child.standardInput = FileHandle.nullDevice
+        child.arguments = ["service", "--exit-on-stdin-close"]
+            + (port.map { ["--port", String($0)] } ?? [])
+        let childLifetimePipe = Pipe()
+        child.standardInput = childLifetimePipe.fileHandleForReading
         child.standardOutput = FileHandle.nullDevice
         let capture = BoundedProcessErrorCapture()
         child.standardError = capture.pipe
@@ -106,16 +111,22 @@ final class KeeplineServiceController {
         do {
             try child.run()
         } catch {
+            childLifetimePipe.fileHandleForReading.closeFile()
+            childLifetimePipe.fileHandleForWriting.closeFile()
             capture.stop()
             throw KeeplineServiceLaunchError.launchFailed(error.localizedDescription)
         }
+        childLifetimePipe.fileHandleForReading.closeFile()
         errorCapture = capture
+        lifetimePipe = childLifetimePipe
         ownedChild = child
         return true
     }
 
     func stopOwnedChild() {
         guard let child = ownedChild else { return }
+        lifetimePipe?.fileHandleForWriting.closeFile()
+        lifetimePipe = nil
         if child.isRunning {
             child.terminate()
         }

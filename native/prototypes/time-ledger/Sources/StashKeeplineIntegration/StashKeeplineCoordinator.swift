@@ -145,6 +145,11 @@ public final class StashKeeplineCoordinator {
         task: LedgerTask,
         accepted: Bool
     ) async throws {
+        guard link.taskID == task.id,
+              link.sessionID == session.sessionID,
+              link.keeplineWorkItemID == session.completionEvidenceWorkItemID else {
+            throw StashKeeplineCoordinatorError.invalidCompletionContext
+        }
         guard let workItemID = link.keeplineWorkItemID else {
             throw StashKeeplineCoordinatorError.missingWorkItemIdentity
         }
@@ -319,6 +324,7 @@ public enum StashKeeplineCoordinatorError: LocalizedError, Equatable, Sendable {
     case missingWorkItemIdentity
     case incompleteDispatchAttempt
     case invalidDispatchCandidate
+    case invalidCompletionContext
     case workItemIdentityChanged
 
     public var errorDescription: String? {
@@ -330,6 +336,7 @@ public enum StashKeeplineCoordinatorError: LocalizedError, Equatable, Sendable {
         case .missingWorkItemIdentity: "Keepline work item identity is missing."
         case .incompleteDispatchAttempt: "The saved Agent launch attempt is incomplete."
         case .invalidDispatchCandidate: "Choose one of Keepline's matched Agent sessions."
+        case .invalidCompletionContext: "The completion evidence does not belong to this task and Agent session."
         case .workItemIdentityChanged: "Keepline returned a different work item for this task."
         }
     }
