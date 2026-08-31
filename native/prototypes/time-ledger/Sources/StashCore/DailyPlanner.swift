@@ -36,6 +36,9 @@ public struct DailyPlanner: Sendable {
         let nextDay = calendar.date(byAdding: .day, value: 1, to: day) ?? day.addingTimeInterval(86_400)
         let dueSoonEnd = calendar.date(byAdding: .day, value: 8, to: day)
             ?? day.addingTimeInterval(8 * 86_400)
+        let ageCutoffs = (1...90).compactMap {
+            calendar.date(byAdding: .day, value: -$0, to: day)
+        }
         var candidates: [Candidate] = []
         candidates.reserveCapacity(tasks.count)
         for task in tasks {
@@ -43,7 +46,8 @@ public struct DailyPlanner: Sendable {
                 for: task,
                 day: day,
                 nextDay: nextDay,
-                dueSoonEnd: dueSoonEnd
+                dueSoonEnd: dueSoonEnd,
+                ageCutoffs: ageCutoffs
             ) {
                 candidates.append(candidate)
             }
@@ -95,7 +99,8 @@ public struct DailyPlanner: Sendable {
         for task: LedgerTask,
         day: Date,
         nextDay: Date,
-        dueSoonEnd: Date
+        dueSoonEnd: Date,
+        ageCutoffs: [Date]
     ) -> Candidate? {
         guard task.isOpen, includeInbox || task.status != .inbox else { return nil }
         if let deferredUntil = task.deferredUntil,
@@ -147,8 +152,7 @@ public struct DailyPlanner: Sendable {
             add(170, reason: "Due within seven days")
         }
 
-        let ageDays = max(0, calendar.dateComponents([.day], from: task.createdAt, to: day).day ?? 0)
-        score += min(ageDays, 90)
+        score += ageInDays(task.createdAt, cutoffs: ageCutoffs)
 
         return Candidate(
             task: task,
@@ -156,6 +160,20 @@ public struct DailyPlanner: Sendable {
             reason: leadingReason,
             deadline: dueDay ?? scheduledDay ?? .distantFuture
         )
+    }
+
+    private func ageInDays(_ createdAt: Date, cutoffs: [Date]) -> Int {
+        var lowerBound = 0
+        var upperBound = cutoffs.count
+        while lowerBound < upperBound {
+            let midpoint = (lowerBound + upperBound) / 2
+            if createdAt <= cutoffs[midpoint] {
+                lowerBound = midpoint + 1
+            } else {
+                upperBound = midpoint
+            }
+        }
+        return lowerBound
     }
 
     private func candidateComesFirst(_ lhs: Candidate, _ rhs: Candidate) -> Bool {
