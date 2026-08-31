@@ -256,11 +256,8 @@ private struct StashIntegrationChecks {
         let agentProcess = try launchSyntheticClaude(at: root, cwd: project)
         defer { stopProcess(agentProcess) }
         try expect(agentProcess.isRunning, "synthetic Claude process exited during launch")
-        let agentCwd = try processOutput(
-            "/usr/sbin/lsof",
-            ["-a", "-d", "cwd", "-p", String(agentProcess.processIdentifier)]
-        )
-        try expect(agentCwd.contains(project.path), "synthetic Claude cwd did not match transcript")
+        try expect(agentProcess.currentDirectoryURL?.standardizedFileURL == project.standardizedFileURL,
+                   "synthetic Claude was not configured with the transcript cwd")
 
         let baseURL = URL(string: "http://127.0.0.1:\(apiPort)")!
         let processEnvironment = environment.merging([
@@ -440,19 +437,6 @@ private struct StashIntegrationChecks {
         try process.run()
         process.waitUntilExit()
         try expect(process.terminationStatus == 0, "failed to prepare synthetic Agent process")
-    }
-
-    private static func processOutput(_ executable: String, _ arguments: [String]) throws -> String {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = arguments
-        let output = Pipe()
-        process.standardOutput = output
-        process.standardError = FileHandle.standardError
-        try process.run()
-        process.waitUntilExit()
-        try expect(process.terminationStatus == 0, "failed to inspect synthetic Agent process")
-        return String(data: output.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
     }
 
     private static func stopService(_ process: Process) {
