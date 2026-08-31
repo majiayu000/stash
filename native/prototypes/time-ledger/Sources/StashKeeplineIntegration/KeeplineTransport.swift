@@ -4,6 +4,11 @@ import KeeplineKit
 public protocol KeeplineTransport: Sendable {
     func metadata() async throws -> KeeplineMetadata
     func listSessions() async throws -> [KeeplineSession]
+    func recoveryPreview(sessionID: String) async throws -> KeeplineRecoveryPreview
+    func executeRecovery(
+        sessionID: String,
+        request: RecoveryExecutionRequest
+    ) async throws -> KeeplineRecoveryExecution
     func upsertExternalWorkItem(
         source: String,
         externalID: String,
@@ -28,6 +33,17 @@ public struct OfficialKeeplineTransport: KeeplineTransport, Sendable {
 
     public func metadata() async throws -> KeeplineMetadata { try await client.metadata() }
     public func listSessions() async throws -> [KeeplineSession] { try await client.listSessions() }
+
+    public func recoveryPreview(sessionID: String) async throws -> KeeplineRecoveryPreview {
+        try await client.recoveryPreview(sessionID: sessionID)
+    }
+
+    public func executeRecovery(
+        sessionID: String,
+        request: RecoveryExecutionRequest
+    ) async throws -> KeeplineRecoveryExecution {
+        try await client.executeRecovery(sessionID: sessionID, request: request)
+    }
 
     public func upsertExternalWorkItem(
         source: String,

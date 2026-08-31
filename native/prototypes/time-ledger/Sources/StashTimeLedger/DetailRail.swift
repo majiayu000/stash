@@ -25,7 +25,7 @@ private struct HorizonRail: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                AgentActivitySection()
+                AgentActivitySection(selectedTaskID: $selectedTaskID)
 
                 Divider().padding(.vertical, 24)
 
