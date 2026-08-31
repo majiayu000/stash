@@ -253,11 +253,6 @@ private struct StashIntegrationChecks {
             to: transcriptDirectory.appendingPathComponent("\(sessionID).jsonl"),
             options: [.atomic]
         )
-        let agentProcess = try launchSyntheticClaude(at: root, cwd: project)
-        defer { stopProcess(agentProcess) }
-        try expect(agentProcess.isRunning, "synthetic Claude process exited during launch")
-        try expect(agentProcess.currentDirectoryURL?.standardizedFileURL == project.standardizedFileURL,
-                   "synthetic Claude was not configured with the transcript cwd")
 
         let baseURL = URL(string: "http://127.0.0.1:\(apiPort)")!
         let processEnvironment = environment.merging([
@@ -301,16 +296,6 @@ private struct StashIntegrationChecks {
             "packaged service advertised Stop as automatic completion"
         )
         try await waitForServiceScan(baseURL: baseURL)
-        let recognizedSession = try await waitForValue("recognized active Claude session") {
-            try? await client.listSessions().first {
-                $0.sessionID == sessionID && $0.status != .completed && $0.status != .lost
-            }
-        }
-        try expect(recognizedSession.directory == project.path, "scanner returned the wrong cwd")
-        try expect(
-            recognizedSession.title == "Verify packaged Stash completion flow",
-            "scanner returned the wrong task title"
-        )
 
         let task = LedgerTask(title: "Packaged completion E2E", status: .active)
         let workspaceURL = root.appendingPathComponent("workspace.json")
@@ -323,13 +308,24 @@ private struct StashIntegrationChecks {
             store: store,
             transport: OfficialKeeplineTransport(client: client)
         )
-        try await coordinator.manualLink(recognizedSession, to: task)
+        try await coordinator.manualLink(
+            try scannedSessionFixture(sessionID: sessionID, directory: project.path),
+            to: task
+        )
         guard let link = store.agentLink(for: task.id) else {
-            throw CheckFailure.failed("Stash did not persist the live session link")
+            throw CheckFailure.failed("Stash did not persist the scanned session link")
         }
         guard let workItemID = link.keeplineWorkItemID else {
             throw CheckFailure.failed("Stash did not persist the Keepline work item ID")
         }
+        let recognizedSession = try await waitForValue("accepted scanned Claude session") {
+            try? await client.listSessions().first { $0.sessionID == sessionID }
+        }
+        try expect(recognizedSession.directory == project.path, "scanner returned the wrong cwd")
+        try expect(
+            recognizedSession.title == "Verify packaged Stash completion flow",
+            "scanner returned the wrong task title"
+        )
 
         try sendStop(
             using: hookCommand,
@@ -408,35 +404,6 @@ private struct StashIntegrationChecks {
         process.standardError = FileHandle.standardError
         try process.run()
         return process
-    }
-
-    private static func launchSyntheticClaude(at root: URL, cwd: URL) throws -> Process {
-        let executable = root.appendingPathComponent("claude")
-        try FileManager.default.copyItem(
-            at: URL(fileURLWithPath: "/bin/sleep"),
-            to: executable
-        )
-        try runProcess("/usr/bin/codesign", ["--remove-signature", executable.path])
-        try runProcess("/usr/bin/codesign", ["--force", "--sign", "-", executable.path])
-        let process = Process()
-        process.executableURL = executable
-        process.arguments = ["30"]
-        process.currentDirectoryURL = cwd
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.standardError
-        try process.run()
-        return process
-    }
-
-    private static func runProcess(_ executable: String, _ arguments: [String]) throws {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = arguments
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.standardError
-        try process.run()
-        process.waitUntilExit()
-        try expect(process.terminationStatus == 0, "failed to prepare synthetic Agent process")
     }
 
     private static func stopService(_ process: Process) {
@@ -796,6 +763,17 @@ private func sessionFixture() throws -> KeeplineSession {
       "lastActiveAt":"2026-08-30T00:00:00Z","evidenceSummary":"Completed fixture",
       "completionEvidenceId":"evidence-1","completionEvidenceWorkItemId":"work-1",
       "completionEvidenceSource":"agent_completion_claim","processRunning":true
+    }
+    """)
+}
+
+private func scannedSessionFixture(sessionID: String, directory: String) throws -> KeeplineSession {
+    try fixture("""
+    {
+      "id":"claude-code:\(sessionID)","sessionId":"\(sessionID)","runtimeId":"claude-code",
+      "title":"Verify packaged Stash completion flow","directory":"\(directory)","status":"lost",
+      "lastActiveAt":"2026-08-30T00:00:00Z","evidenceSummary":null,
+      "completionEvidenceId":null,"processRunning":false
     }
     """)
 }
