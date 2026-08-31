@@ -1,9 +1,9 @@
 # 开源仓库组合收敛与退役计划
 
-Status: decision record and execution backlog  
-Date: 2026-08-30  
+Status: decision record and execution backlog
+Date: 2026-08-30
 Revalidated: 2026-08-31
-GitHub owner: [`majiayu000`](https://github.com/majiayu000)  
+GitHub owner: [`majiayu000`](https://github.com/majiayu000)
 Scope: 100 个公开、原创、非 fork 仓库
 Method: 10 个只读调研 lane，加文档落盘时的实时增量复核；基于 GitHub 实时元数据、源码树、README、Release、CI、Issue、部署和重复文件核验
 Evidence: [`portfolio-evidence.md`](./portfolio-evidence.md)

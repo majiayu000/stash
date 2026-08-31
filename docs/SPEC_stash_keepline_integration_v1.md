@@ -1,7 +1,7 @@
 # Stash × Keepline Integration v1
 
-Status: frozen implementation contract  
-Date: 2026-08-30  
+Status: frozen implementation contract
+Date: 2026-08-30
 Products: Stash Time Ledger (macOS) and Keepline (local service + web dashboard)
 
 ## 1. Product boundary

@@ -105,4 +105,3 @@ For every package:
 3. The primary state is visually inspected at its default size.
 4. Text is readable, no region clips, and the primary hierarchy matches the
    corresponding direction.
-
