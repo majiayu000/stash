@@ -420,12 +420,12 @@ Gemini / Grok                 │ approved proposal only
 
 这是当前应优先执行的收敛批次，不等待 Stash/Harness 完成。
 
-截至 2026-08-30 的实时执行状态：
+截至 2026-08-31 的实时执行状态：
 
 - Remem [PR #1054](https://github.com/majiayu000/remem/pull/1054) 已合并，稳定 host-bound `session_ref`、content hash 和精确 message snapshot contract 已进入 `main`。
 - Refine [PR #206](https://github.com/majiayu000/refine/pull/206) 已合并，coding-agent transcript 已改为 Remem 单一事实源，第二份 raw body 和本地 provider fallback 已移除。
-- 2026-08-31 本机验收已安装 source-built Remem `0.6.84`，worker 正常运行；生产查询返回 5 个带稳定 ref/hash 的 `codex-cli` 会话，并保留、显式报告 3,193 行（220 个 session）无法恢复身份的旧数据。修复提交为本地 `43a6c190`，尚未推送或形成 upstream issue-close proof。
-- 同日已从 Refine `origin/main` 的 `5707d20` 完成全量测试、clippy、本机安装、真实 Remem-only dry-run 和缺失 provider 故障注入；没有 local fallback，也没有 dry-run 写入。无人值守非 dry-run 仍因本机没有授权的 LLM provider 凭据而阻塞，#203/#204 尚不能据此关闭。
+- 2026-08-31 本机验收已安装 source-built Remem `0.6.84`，worker 正常运行；生产查询返回 5 个带稳定 ref/hash 的 `codex-cli` 会话，并保留、显式报告 3,193 行（220 个 session）无法恢复身份的旧数据。修复已通过 [PR #1055](https://github.com/majiayu000/remem/pull/1055) squash 合并为 `e3c5ffcd`，完整 CI 通过，#1053 已自动关闭。
+- 同日已从 Refine `origin/main` 的 `5707d20` 完成全量测试、clippy、本机安装、真实 Remem-only dry-run 和缺失 provider 故障注入；没有 local fallback，也没有 dry-run 写入。授权的 provider 配置已迁移到权限收紧的专用文件，正式 `--latest 1` 运行处理 1 个会话并生成 11 条 observation，0 失败、0 隔离；生产库只保存 1 个 `remem://raw-session/v2` 引用，原文落库数为 0。#203/#204 仍保持打开，等待按各自剩余验收项审阅。
 
 1. 冻结重复写入
    - Refine 不再新增 transcript/session 存储能力；保留现有读取只用于迁移验收。
@@ -590,11 +590,11 @@ actively monitored. Previously exposed credentials must be considered revoked.
 - 已关闭 `bookmark-1130` Pages，旧 URL 返回 HTTP 404，仓库保持 Archived；
 - 已删除 `myweather` 的两个旧仓库 Secrets，并禁用 Actions；
 - 已为四个凭据相关仓库启用 GitHub 标准 Secret Scanning，当前公开告警为 0；
-- provider 侧 Azure、Oracle、Redis、SMTP 凭据是否已吊销仍未取得证明。
+- provider 侧 Azure、Oracle、Redis、SMTP 凭据是否已吊销仍未取得证明；本机没有已认证的对应 CLI/config，且 SMTP provider/账户未识别，不能从当前 CLI 路径执行或伪造轮换证明。
 
 仍未执行以下动作：
 
-- 没有 revoke 或 rotate 任何凭据；
+- 没有在 provider 账户侧 revoke 或 rotate 任何凭据；需要对应账户所有者完成并提供不含密钥值的证明；
 - 没有关闭其余 Pages、Actions、Webhook 或部署；
 - 没有修改、归档、转私有或删除任何 GitHub 仓库；
 - 没有发布 Release；
