@@ -1,4 +1,5 @@
 import Foundation
+import StashKeeplineIntegration
 
 private final class BoundedProcessErrorCapture: @unchecked Sendable {
     let pipe = Pipe()
@@ -125,11 +126,8 @@ final class KeeplineServiceController {
 
     func stopOwnedChild() {
         guard let child = ownedChild else { return }
-        lifetimePipe?.fileHandleForWriting.closeFile()
+        stopOwnedProcess(child, lifetimeHandle: lifetimePipe?.fileHandleForWriting)
         lifetimePipe = nil
-        if child.isRunning {
-            child.terminate()
-        }
         errorCapture?.stop()
         errorCapture = nil
         ownedChild = nil

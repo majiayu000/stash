@@ -42,6 +42,11 @@ private actor RecordingTransport: KeeplineTransport {
     private var dispatchIDsByKey: [String: String] = [:]
     private(set) var dispatchKeys: [String] = []
     private(set) var logicalLaunchCount = 0
+    private let completionReviewEvidenceID: String?
+
+    init(completionReviewEvidenceID: String? = nil) {
+        self.completionReviewEvidenceID = completionReviewEvidenceID
+    }
 
     func count(_ mutation: RecordedMutation) -> Int {
         mutationCounts[mutation, default: 0]
@@ -128,7 +133,7 @@ private actor RecordingTransport: KeeplineTransport {
         return try fixture("""
         {
           "review":{
-            "id":"review-1","workItemId":"\(workItemID)","evidenceId":"evidence-1",
+            "id":"review-1","workItemId":"\(workItemID)","evidenceId":"\(completionReviewEvidenceID ?? request.evidenceID)",
             "decision":"\(request.decision.rawValue)","createdAt":"2026-08-30T00:00:00Z",
             "updatedAt":"2026-08-30T00:00:00Z"
           },
@@ -145,20 +150,43 @@ private actor RecordingTransport: KeeplineTransport {
 @main
 private struct StashIntegrationChecks {
     static func main() async throws {
+        try checkOwnedChildTermination()
         try await checkLaunchUpsertGate()
         try await checkLaunchDispatchGate()
         try await checkManualLinkGates()
         try await checkAmbiguousResolutionGate()
         try await checkCompletionReviewGate()
+        try await checkCompletionReviewResponseIdentity()
         try await checkProjectionSyncGate()
         try await checkIdempotentRestartRecovery()
         if let binary = ProcessInfo.processInfo.environment["STASH_KEEPLINE_E2E_BINARY"],
            !binary.isEmpty {
             try await checkPackagedCompletionClaimFlow(binary: binary)
-            print("StashIntegrationChecks: packaged completion-claim E2E passed")
+            print("StashIntegrationChecks: bundled service completion-claim check passed")
         } else {
-            print("StashIntegrationChecks: in-memory checks passed; packaged E2E not requested")
+            print("StashIntegrationChecks: in-memory checks passed; bundled service check not requested")
         }
+    }
+
+    private static func checkOwnedChildTermination() throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = ["-c", "trap '' TERM; while true; do sleep 1; done"]
+        let lifetimePipe = Pipe()
+        process.standardInput = lifetimePipe.fileHandleForReading
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        lifetimePipe.fileHandleForReading.closeFile()
+
+        stopOwnedProcess(
+            process,
+            lifetimeHandle: lifetimePipe.fileHandleForWriting,
+            gracefulTimeout: 0.1,
+            terminationTimeout: 0.1
+        )
+
+        try expect(!process.isRunning, "owned child remained alive after bounded shutdown")
     }
 
     @MainActor
@@ -663,6 +691,44 @@ private struct StashIntegrationChecks {
         let reviews = await transport.count(.completionReview)
         try expect(reviews == 0, "completion review escaped its production gate")
         try expect(store.task(id: task.id)?.status == .active, "failed review changed the Stash task")
+    }
+
+    @MainActor
+    private static func checkCompletionReviewResponseIdentity() async throws {
+        let task = LedgerTask(title: "Completion response identity", status: .active)
+        let link = AgentTaskLink(
+            taskID: task.id,
+            keeplineWorkItemID: "work-1",
+            sessionID: "runtime-session-1",
+            projectRoot: "/tmp",
+            runtimeID: "codex",
+            source: .manuallyLinked
+        )
+        let repository = FailAtSaveRepository(
+            workspace: LedgerWorkspace(tasks: [task], agentTaskLinks: [link]),
+            failingSaveAttempt: 999
+        )
+        let store = LedgerStore(repository: repository, initialWorkspace: LedgerWorkspace())
+        await store.bootstrap()
+        let transport = RecordingTransport(completionReviewEvidenceID: "wrong-evidence")
+        let coordinator = StashKeeplineCoordinator(store: store, transport: transport)
+
+        do {
+            try await coordinator.reviewCompletion(
+                link: link,
+                session: try sessionFixture(),
+                task: task,
+                accepted: true
+            )
+            throw CheckFailure.failed("mismatched completion review response was accepted")
+        } catch StashKeeplineCoordinatorError.invalidCompletionResponse {
+            // Expected: a remote response cannot mutate local truth unless all identities match.
+        }
+
+        try expect(store.task(id: task.id)?.status == .active,
+                   "mismatched completion response completed the Stash task")
+        try expect(store.agentLink(for: task.id)?.completionDecision == .undecided,
+                   "mismatched completion response persisted a local decision")
     }
 
     @MainActor

@@ -157,11 +157,17 @@ public final class StashKeeplineCoordinator {
             throw StashKeeplineCoordinatorError.missingCompletionEvidence
         }
         let decision: CompletionReviewDecision = accepted ? .accepted : .rejected
-        _ = try await WorkspacePersistenceGate.perform(.completionReview, store: store) {
+        let result = try await WorkspacePersistenceGate.perform(.completionReview, store: store) {
             try await transport.reviewCompletion(
                 workItemID: workItemID,
                 request: CompletionReviewRequest(evidenceID: evidenceID, decision: decision)
             )
+        }
+        guard result.review.workItemID == workItemID,
+              result.review.evidenceID == evidenceID,
+              result.review.decision == decision,
+              result.item.id == workItemID else {
+            throw StashKeeplineCoordinatorError.invalidCompletionResponse
         }
         let localDecision: AgentCompletionDecision = accepted ? .accepted : .rejected
         guard store.recordAgentCompletionDecision(linkID: link.id, decision: localDecision) else {
@@ -325,6 +331,7 @@ public enum StashKeeplineCoordinatorError: LocalizedError, Equatable, Sendable {
     case incompleteDispatchAttempt
     case invalidDispatchCandidate
     case invalidCompletionContext
+    case invalidCompletionResponse
     case workItemIdentityChanged
 
     public var errorDescription: String? {
@@ -337,6 +344,7 @@ public enum StashKeeplineCoordinatorError: LocalizedError, Equatable, Sendable {
         case .incompleteDispatchAttempt: "The saved Agent launch attempt is incomplete."
         case .invalidDispatchCandidate: "Choose one of Keepline's matched Agent sessions."
         case .invalidCompletionContext: "The completion evidence does not belong to this task and Agent session."
+        case .invalidCompletionResponse: "Keepline returned a completion review for different evidence."
         case .workItemIdentityChanged: "Keepline returned a different work item for this task."
         }
     }
