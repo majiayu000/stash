@@ -56,7 +56,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: majiayu000/keepline
-          ref: 9683e6b5d5dd992b38f2f4d2a22c1a1d576b6c3e
+          ref: 569d501786fc9fe4935af8fd8550de3a6ceab332
           path: keepline
 
       - name: Set up Bun
