@@ -9,6 +9,8 @@ import { AsyncErrorHost } from './AsyncErrorHost';
 import { AppNavigation } from './AppNavigation';
 import { invalidateWorkbenchData, useWorkbenchData } from './useWorkbenchData';
 import { WorkPage } from './pages/WorkPage';
+import { DenseWorkDemoPage } from './pages/DenseWorkDemoPage';
+import { StashNextApp } from '../next/StashNextApp';
 import { ProjectFormPage } from './pages/ProjectFormPage';
 import { SessionDetailPage } from './pages/SessionDetailPage';
 import { UsageReviewPage } from './pages/UsageReviewPage';
@@ -33,6 +35,8 @@ import type { WBData } from './data';
 
 export type WorkbenchPage =
   | 'work'
+  | 'next'
+  | 'work-demo'
   | 'todo-detail'
   | 'projects'
   | 'project-form'
@@ -58,6 +62,8 @@ function renderPage(
   }
   switch (page) {
     case 'work': return <WorkPage {...props} />;
+    case 'next': return <StashNextApp {...props} />;
+    case 'work-demo': return <DenseWorkDemoPage {...props} />;
     case 'todo-detail': return <TodoDetailPage {...props} />;
     case 'projects': return <ProjectsPage {...props} />;
     case 'project-form': return <ProjectFormPage {...props} />;
@@ -73,7 +79,7 @@ function renderPage(
 }
 
 export function Workbench({ page }: { page: WorkbenchPage }) {
-  const dataMode = page === 'review' ? 'review_core' : 'full';
+  const dataMode = page === 'review' || page === 'next' ? 'review_core' : 'full';
   const { data, loading, error, calendarBlocked, reload, revalidate } = useWorkbenchData(dataMode);
   const location = useLocation();
   const requestedWeek = new URLSearchParams(location.search).get('week');
@@ -136,6 +142,15 @@ export function Workbench({ page }: { page: WorkbenchPage }) {
     );
   }
   if (!data) return null;
+
+  // UI studies intentionally render outside the production navigation and
+  // theme chrome so they can explore a genuinely different product direction.
+  if (page === 'work-demo') {
+    return <DenseWorkDemoPage data={data} reload={reload} />;
+  }
+  if (page === 'next') {
+    return <StashNextApp data={data} reload={reload} />;
+  }
 
   return (
     <div className="workbench-shell">

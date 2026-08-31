@@ -28,12 +28,12 @@ export function useWeeklyReviewSessions(data: WBData): WeeklyReviewSessionState 
     if (data.sessionDataState !== 'loading') {
       set_sessions(data.sessions);
       set_status(data.sessionDataState ?? 'ready');
+      set_error(null);
       return;
     }
 
     let cancelled = false;
     set_status('loading');
-    set_error(null);
     listAgentSessions('all')
       .then((scan) => {
         if (cancelled) return;
@@ -50,6 +50,7 @@ export function useWeeklyReviewSessions(data: WBData): WeeklyReviewSessionState 
           );
           set_status('error');
         } else {
+          set_error(null);
           set_status('ready');
         }
       })

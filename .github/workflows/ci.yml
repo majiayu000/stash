@@ -41,3 +41,47 @@ jobs:
             client/test-results/
             client/playwright-report/
           if-no-files-found: ignore
+
+  native-integration:
+    runs-on: macos-15
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out Stash
+        uses: actions/checkout@v5
+        with:
+          path: stash
+
+      - name: Check out the reviewed Keepline SDK and service
+        uses: actions/checkout@v5
+        with:
+          repository: majiayu000/keepline
+          ref: 9683e6b5d5dd992b38f2f4d2a22c1a1d576b6c3e
+          path: keepline
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install Keepline dependencies
+        working-directory: keepline
+        run: bun install --frozen-lockfile
+
+      - name: Run native integration checks
+        working-directory: stash/native/prototypes/time-ledger
+        run: swift run StashIntegrationChecks
+
+      - name: Package and verify the app
+        working-directory: stash/native/prototypes/time-ledger
+        run: |
+          ./scripts/package_app.sh '.build/ci/Stash Time Ledger.app'
+          codesign --verify --deep --strict --verbose=2 '.build/ci/Stash Time Ledger.app'
+
+      - name: Run bundled service completion-claim check
+        working-directory: stash/native/prototypes/time-ledger
+        env:
+          STASH_KEEPLINE_E2E_BINARY: .build/ci/Stash Time Ledger.app/Contents/Resources/KeeplineService
+          STASH_KEEPLINE_E2E_API_PORT: 48777
+          STASH_KEEPLINE_E2E_HOOK_PORT: 48778
+        run: swift run StashIntegrationChecks
