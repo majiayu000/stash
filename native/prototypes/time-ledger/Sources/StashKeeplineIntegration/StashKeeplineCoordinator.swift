@@ -4,10 +4,14 @@ import StashCore
 
 public struct StashIntegrationNotice: Equatable, Sendable {
     public let taskID: UUID
+    /// Originating `AgentTaskLink.id` so callers can revalidate before publish.
+    /// A concurrent `manualLink` may attach a session after the notice was buffered.
+    public let linkID: UUID
     public let message: String
 
-    public init(taskID: UUID, message: String) {
+    public init(taskID: UUID, linkID: UUID, message: String) {
         self.taskID = taskID
+        self.linkID = linkID
         self.message = message
     }
 }
@@ -29,6 +33,31 @@ public struct StashPendingResumeResult: Equatable, Sendable {
 
     public var isEmpty: Bool {
         notices.isEmpty && recoveredTaskIDs.isEmpty
+    }
+
+    /// Drops buffered notices whose originating link is gone or already session-linked.
+    /// Terminal failed/cancelled links stay session-less and still publish.
+    /// Session-linked origins are treated as recovered so prior resume errors clear.
+    public func revalidated(against links: [AgentTaskLink]) -> StashPendingResumeResult {
+        let byID = Dictionary(uniqueKeysWithValues: links.map { ($0.id, $0) })
+        var filtered: [StashIntegrationNotice] = []
+        var recovered = recoveredTaskIDs
+        for notice in notices {
+            guard let link = byID[notice.linkID], link.taskID == notice.taskID else {
+                continue
+            }
+            if link.sessionID != nil {
+                if !recovered.contains(notice.taskID) {
+                    recovered.append(notice.taskID)
+                }
+                continue
+            }
+            filtered.append(notice)
+        }
+        return StashPendingResumeResult(
+            notices: filtered,
+            recoveredTaskIDs: recovered
+        )
     }
 }
 
@@ -224,7 +253,8 @@ public final class StashKeeplineCoordinator {
             } catch {
                 throw Self.cancellationError(
                     notices: notices,
-                    recoveredTaskIDs: recoveredTaskIDs
+                    recoveredTaskIDs: recoveredTaskIDs,
+                    links: store.workspace.agentTaskLinks
                 )
             }
             if link.dispatchState == .ambiguous { continue }
@@ -252,7 +282,7 @@ public final class StashKeeplineCoordinator {
                     // Idempotent retries can return terminal failed/cancelled without
                     // throwing — classify like the existing-dispatch poll path.
                     appendResumeOutcome(
-                        for: link.taskID,
+                        for: link,
                         dispatch: dispatch,
                         notices: &notices,
                         recoveredTaskIDs: &recoveredTaskIDs
@@ -279,7 +309,7 @@ public final class StashKeeplineCoordinator {
                     try await persistLinkRequiringSave(updated, restoringOnFailure: current)
                 }
                 appendResumeOutcome(
-                    for: link.taskID,
+                    for: link,
                     dispatch: dispatch,
                     notices: &notices,
                     recoveredTaskIDs: &recoveredTaskIDs
@@ -287,7 +317,8 @@ public final class StashKeeplineCoordinator {
             } catch is CancellationError {
                 throw Self.cancellationError(
                     notices: notices,
-                    recoveredTaskIDs: recoveredTaskIDs
+                    recoveredTaskIDs: recoveredTaskIDs,
+                    links: store.workspace.agentTaskLinks
                 )
             } catch let cancelled as StashPendingResumeCancellation {
                 throw cancelled
@@ -312,11 +343,15 @@ public final class StashKeeplineCoordinator {
                 }
                 notices.append(StashIntegrationNotice(
                     taskID: current.taskID,
+                    linkID: current.id,
                     message: error.localizedDescription
                 ))
             }
         }
+        // Revalidate after the full batch: an earlier catch may have buffered a
+        // notice, then manualLink attached a session while a later poll awaited.
         return StashPendingResumeResult(notices: notices, recoveredTaskIDs: recoveredTaskIDs)
+            .revalidated(against: store.workspace.agentTaskLinks)
     }
 
     public func syncTaskProjections() async throws {
@@ -432,12 +467,13 @@ public final class StashKeeplineCoordinator {
 
     private static func cancellationError(
         notices: [StashIntegrationNotice],
-        recoveredTaskIDs: [UUID]
+        recoveredTaskIDs: [UUID],
+        links: [AgentTaskLink]
     ) -> Error {
         let partial = StashPendingResumeResult(
             notices: notices,
             recoveredTaskIDs: recoveredTaskIDs
-        )
+        ).revalidated(against: links)
         if partial.isEmpty {
             return CancellationError()
         }
@@ -445,24 +481,28 @@ public final class StashKeeplineCoordinator {
     }
 
     private func appendResumeOutcome(
-        for taskID: UUID,
+        for link: AgentTaskLink,
         dispatch: KeeplineDispatch,
         notices: inout [StashIntegrationNotice],
         recoveredTaskIDs: inout [UUID]
     ) {
+        // Prefer the post-persist link id/state when available.
+        let current = store.workspace.agentTaskLinks.first(where: { $0.id == link.id }) ?? link
         let state = AgentDispatchState(rawValue: dispatch.state)
         if state == .ambiguous {
             notices.append(StashIntegrationNotice(
-                taskID: taskID,
+                taskID: current.taskID,
+                linkID: current.id,
                 message: "More than one Agent session matched. Choose the correct session."
             ))
         } else if state == .failed || state == .cancelled {
             notices.append(StashIntegrationNotice(
-                taskID: taskID,
+                taskID: current.taskID,
+                linkID: current.id,
                 message: dispatch.error ?? "Keepline could not launch this Agent."
             ))
         } else {
-            recoveredTaskIDs.append(taskID)
+            recoveredTaskIDs.append(current.taskID)
         }
     }
 

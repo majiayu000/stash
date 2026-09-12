@@ -281,6 +281,7 @@ private struct StashIntegrationChecks {
         try await checkResumeClearsRecoveredTaskIDs()
         try await checkResumeDoesNotOverwriteManualLinkDuringPoll()
         try await checkResumeSuppressesLookupFailureAfterManualLink()
+        try await checkResumeDropsBufferedNoticeAfterLaterManualLink()
         try await checkLaunchRetryTerminalFailurePublishesNotice()
         try await checkResumePropagatesSaveFailureAfterLinkedPoll()
         try await checkResumeDoesNotRollbackConcurrentManualLinkOnSaveFailure()
@@ -1015,6 +1016,7 @@ private struct StashIntegrationChecks {
 
         try expect(outcome.notices.count == 1, "resume failure did not surface exactly one task notice")
         try expect(outcome.notices[0].taskID == pendingTask.id, "resume failure notice targeted the wrong task")
+        try expect(outcome.notices[0].linkID == pendingLink.id, "resume failure notice lost the originating link id")
         try expect(
             outcome.notices[0].message == "forced dispatch lookup failure",
             "resume failure notice lost the dispatch error"
@@ -1395,6 +1397,95 @@ private struct StashIntegrationChecks {
     }
 
     @MainActor
+    private static func checkResumeDropsBufferedNoticeAfterLaterManualLink() async throws {
+        // Catch-path validates link A while still pending and buffers a notice, then a
+        // later slow poll awaits. Concurrent manualLink attaches a session to A before
+        // publication — the buffered notice must be dropped on revalidation.
+        let failedTask = LedgerTask(title: "Buffered resume notice")
+        let slowTask = LedgerTask(title: "Later slow poll")
+        let failedLink = AgentTaskLink(
+            taskID: failedTask.id,
+            keeplineWorkItemID: "work-buffered-fail",
+            dispatchID: "dispatch-buffered-fail",
+            dispatchState: .awaitingSession,
+            projectRoot: "/tmp",
+            runtimeID: "codex",
+            source: .dispatched
+        )
+        let slowLink = AgentTaskLink(
+            taskID: slowTask.id,
+            keeplineWorkItemID: "work-buffered-slow",
+            dispatchID: "dispatch-buffered-slow",
+            dispatchState: .awaitingSession,
+            projectRoot: "/tmp",
+            runtimeID: "codex",
+            source: .dispatched
+        )
+        let repository = FailAtSaveRepository(
+            workspace: LedgerWorkspace(
+                tasks: [failedTask, slowTask],
+                agentTaskLinks: [failedLink, slowLink]
+            ),
+            failingSaveAttempt: 99
+        )
+        let store = LedgerStore(repository: repository, initialWorkspace: LedgerWorkspace())
+        await store.bootstrap()
+        final class LookupCounter: @unchecked Sendable {
+            var count = 0
+        }
+        let lookups = LookupCounter()
+        let transport = RecordingTransport(
+            dispatchLookupErrorsByID: [
+                "dispatch-buffered-fail": ForcedDispatchLookupFailure()
+            ],
+            onDispatchLookup: {
+                lookups.count += 1
+                // Second lookup is the slow sibling; attach a session to the
+                // already-buffered failure link before the batch returns.
+                guard lookups.count >= 2 else { return }
+                await MainActor.run {
+                    guard var current = store.agentLink(for: failedTask.id),
+                          current.id == failedLink.id,
+                          current.sessionID == nil else { return }
+                    current.sessionID = "runtime-session-after-buffer"
+                    _ = store.persistAgentLink(current)
+                }
+            }
+        )
+        let coordinator = StashKeeplineCoordinator(store: store, transport: transport)
+
+        let outcome = try await coordinator.resumePendingAttempts()
+
+        try expect(
+            outcome.notices.isEmpty,
+            "buffered resume notice published after concurrent manual link"
+        )
+        try expect(
+            outcome.recoveredTaskIDs.contains(failedTask.id),
+            "session-linked buffered failure was not classified as recovered"
+        )
+        try expect(
+            store.agentLink(for: failedTask.id)?.sessionID == "runtime-session-after-buffer",
+            "later poll path mutated the concurrent manual session on the buffered link"
+        )
+
+        let stale = StashPendingResumeResult(
+            notices: [
+                StashIntegrationNotice(
+                    taskID: failedTask.id,
+                    linkID: failedLink.id,
+                    message: "stale buffered failure"
+                )
+            ]
+        )
+        let revalidated = stale.revalidated(against: store.workspace.agentTaskLinks)
+        try expect(
+            revalidated.notices.isEmpty,
+            "revalidated(against:) kept a notice for a session-linked link"
+        )
+    }
+
+    @MainActor
     private static func checkLaunchRetryTerminalFailurePublishesNotice() async throws {
         let pendingTask = LedgerTask(title: "Launch retry returns failed")
         let pendingLink = AgentTaskLink(
@@ -1425,6 +1516,7 @@ private struct StashIntegrationChecks {
 
         try expect(outcome.notices.count == 1, "terminal launch retry did not surface a notice")
         try expect(outcome.notices[0].taskID == pendingTask.id, "terminal launch notice targeted the wrong task")
+        try expect(outcome.notices[0].linkID == pendingLink.id, "terminal launch notice lost the originating link id")
         try expect(
             outcome.notices[0].message == "authentication required for launch retry",
             "terminal launch retry dropped the dispatch.error guidance"

@@ -543,10 +543,14 @@ final class KeeplineIntegrationStore: ObservableObject {
     }
 
     private func applyPendingResumeOutcome(_ outcome: StashPendingResumeResult) {
-        for taskID in outcome.recoveredTaskIDs {
+        // Revalidate at publication time: notices may have been buffered earlier
+        // in the batch, then a concurrent manualLink attached a session.
+        let links = ledgerStore?.workspace.agentTaskLinks ?? []
+        let validated = outcome.revalidated(against: links)
+        for taskID in validated.recoveredTaskIDs {
             clearResumeError(for: taskID)
         }
-        for notice in outcome.notices {
+        for notice in validated.notices {
             publishResumeTaskError(notice.message, for: notice.taskID)
         }
     }
