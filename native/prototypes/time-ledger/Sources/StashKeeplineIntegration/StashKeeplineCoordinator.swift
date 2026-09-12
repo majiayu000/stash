@@ -212,8 +212,21 @@ public final class StashKeeplineCoordinator {
                     // polling for existing dispatch IDs must continue without them.
                     guard allowLaunchRetries else { continue }
                     guard let task = store.task(id: link.taskID) else { continue }
-                    try await resumeDispatchAttempt(link: link, task: task)
-                    recoveredTaskIDs.append(link.taskID)
+                    let dispatch = try await resumeDispatchAttempt(link: link, task: task)
+                    if let current = store.workspace.agentTaskLinks.first(where: { $0.id == link.id }),
+                       current.sessionID != nil {
+                        recoveredTaskIDs.append(link.taskID)
+                        continue
+                    }
+                    guard let dispatch else { continue }
+                    // Idempotent retries can return terminal failed/cancelled without
+                    // throwing — classify like the existing-dispatch poll path.
+                    appendResumeOutcome(
+                        for: link.taskID,
+                        dispatch: dispatch,
+                        notices: &notices,
+                        recoveredTaskIDs: &recoveredTaskIDs
+                    )
                     continue
                 }
                 guard let dispatchID = link.dispatchID else { continue }
@@ -237,19 +250,12 @@ public final class StashKeeplineCoordinator {
                     }
                     try await WorkspacePersistenceGate.require(store)
                 }
-                if updated.dispatchState == .ambiguous {
-                    notices.append(StashIntegrationNotice(
-                        taskID: link.taskID,
-                        message: "More than one Agent session matched. Choose the correct session."
-                    ))
-                } else if updated.dispatchState == .failed || updated.dispatchState == .cancelled {
-                    notices.append(StashIntegrationNotice(
-                        taskID: link.taskID,
-                        message: dispatch.error ?? "Keepline could not launch this Agent."
-                    ))
-                } else {
-                    recoveredTaskIDs.append(link.taskID)
-                }
+                appendResumeOutcome(
+                    for: link.taskID,
+                    dispatch: dispatch,
+                    notices: &notices,
+                    recoveredTaskIDs: &recoveredTaskIDs
+                )
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
@@ -297,7 +303,10 @@ public final class StashKeeplineCoordinator {
         }
     }
 
-    private func resumeDispatchAttempt(link: AgentTaskLink, task: LedgerTask) async throws {
+    /// Returns the remote dispatch when it was applied to the pending link.
+    /// Returns `nil` when the link disappeared, became terminal, or already has
+    /// a session (caller should treat a session as recovered).
+    private func resumeDispatchAttempt(link: AgentTaskLink, task: LedgerTask) async throws -> KeeplineDispatch? {
         guard let key = link.idempotencyKey, let projectRoot = link.projectRoot else {
             throw StashKeeplineCoordinatorError.incompleteDispatchAttempt
         }
@@ -335,16 +344,39 @@ public final class StashKeeplineCoordinator {
         guard let current = store.workspace.agentTaskLinks.first(where: { $0.id == pending.id }),
               !current.isTerminal,
               current.source == .dispatched else {
-            return
+            return nil
         }
         if current.sessionID != nil {
-            return
+            return nil
         }
         let updated = Self.applying(dispatch, to: current)
         guard store.persistAgentLink(updated) else {
             throw StashKeeplineCoordinatorError.activeLinkConflict
         }
         try await WorkspacePersistenceGate.require(store)
+        return dispatch
+    }
+
+    private func appendResumeOutcome(
+        for taskID: UUID,
+        dispatch: KeeplineDispatch,
+        notices: inout [StashIntegrationNotice],
+        recoveredTaskIDs: inout [UUID]
+    ) {
+        let state = AgentDispatchState(rawValue: dispatch.state)
+        if state == .ambiguous {
+            notices.append(StashIntegrationNotice(
+                taskID: taskID,
+                message: "More than one Agent session matched. Choose the correct session."
+            ))
+        } else if state == .failed || state == .cancelled {
+            notices.append(StashIntegrationNotice(
+                taskID: taskID,
+                message: dispatch.error ?? "Keepline could not launch this Agent."
+            ))
+        } else {
+            recoveredTaskIDs.append(taskID)
+        }
     }
 
     private static func workItemInput(task: LedgerTask, projectRoot: String?) -> ExternalWorkItemInput {

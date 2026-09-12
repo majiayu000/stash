@@ -51,16 +51,22 @@ private actor RecordingTransport: KeeplineTransport {
     private let completionReviewEvidenceID: String?
     private let dispatchLookupError: Error?
     private let onDispatchLookup: (@Sendable () async -> Void)?
+    private let launchDispatchState: String
+    private let launchDispatchError: String?
     private(set) var recoveredSessionIDs: [String] = []
 
     init(
         completionReviewEvidenceID: String? = nil,
         dispatchLookupError: Error? = nil,
-        onDispatchLookup: (@Sendable () async -> Void)? = nil
+        onDispatchLookup: (@Sendable () async -> Void)? = nil,
+        launchDispatchState: String = "awaiting_session",
+        launchDispatchError: String? = nil
     ) {
         self.completionReviewEvidenceID = completionReviewEvidenceID
         self.dispatchLookupError = dispatchLookupError
         self.onDispatchLookup = onDispatchLookup
+        self.launchDispatchState = launchDispatchState
+        self.launchDispatchError = launchDispatchError
     }
 
     func count(_ mutation: RecordedMutation) -> Int {
@@ -130,7 +136,8 @@ private actor RecordingTransport: KeeplineTransport {
             workItemID: workItemID,
             runtimeID: request.runtimeID.rawValue,
             cwd: request.cwd,
-            state: "awaiting_session"
+            state: launchDispatchState,
+            error: launchDispatchError
         )
     }
 
@@ -204,6 +211,7 @@ private struct StashIntegrationChecks {
         try await checkResumePropagatesCancellation()
         try await checkResumeClearsRecoveredTaskIDs()
         try await checkResumeDoesNotOverwriteManualLinkDuringPoll()
+        try await checkLaunchRetryTerminalFailurePublishesNotice()
         if let binary = ProcessInfo.processInfo.environment["STASH_KEEPLINE_E2E_BINARY"],
            !binary.isEmpty {
             try await checkPackagedCompletionClaimFlow(binary: binary)
@@ -1132,6 +1140,51 @@ private struct StashIntegrationChecks {
     }
 
     @MainActor
+    private static func checkLaunchRetryTerminalFailurePublishesNotice() async throws {
+        let pendingTask = LedgerTask(title: "Launch retry returns failed")
+        let pendingLink = AgentTaskLink(
+            taskID: pendingTask.id,
+            keeplineWorkItemID: "work-terminal-retry",
+            dispatchState: .pending,
+            idempotencyKey: "stash:\(pendingTask.id.uuidString):retry",
+            projectRoot: "/tmp",
+            runtimeID: "codex",
+            source: .dispatched
+        )
+        let repository = FailAtSaveRepository(
+            workspace: LedgerWorkspace(
+                tasks: [pendingTask],
+                agentTaskLinks: [pendingLink]
+            ),
+            failingSaveAttempt: 99
+        )
+        let store = LedgerStore(repository: repository, initialWorkspace: LedgerWorkspace())
+        await store.bootstrap()
+        let transport = RecordingTransport(
+            launchDispatchState: "failed",
+            launchDispatchError: "authentication required for launch retry"
+        )
+        let coordinator = StashKeeplineCoordinator(store: store, transport: transport)
+
+        let outcome = try await coordinator.resumePendingAttempts()
+
+        try expect(outcome.notices.count == 1, "terminal launch retry did not surface a notice")
+        try expect(outcome.notices[0].taskID == pendingTask.id, "terminal launch notice targeted the wrong task")
+        try expect(
+            outcome.notices[0].message == "authentication required for launch retry",
+            "terminal launch retry dropped the dispatch.error guidance"
+        )
+        try expect(
+            outcome.recoveredTaskIDs.isEmpty,
+            "terminal launch retry must not be classified as recovered"
+        )
+        try expect(
+            store.agentLink(for: pendingTask.id)?.dispatchState == .failed,
+            "terminal launch retry did not persist the failed dispatch state"
+        )
+    }
+
+    @MainActor
     private static func expectPersistenceFailure(
         _ operation: () async throws -> Void
     ) async throws {
@@ -1210,14 +1263,16 @@ private func dispatchFixture(
     runtimeID: String,
     cwd: String,
     state: String,
-    linkedSessionID: String? = nil
+    linkedSessionID: String? = nil,
+    error: String? = nil
 ) throws -> KeeplineDispatch {
     let linkedSession = linkedSessionID.map { "\"\($0)\"" } ?? "null"
+    let errorJSON = error.map { "\"\($0.replacingOccurrences(of: "\"", with: "\\\""))\"" } ?? "null"
     return try fixture("""
     {
       "id":"\(id)","workItemId":"\(workItemID)","runtimeId":"\(runtimeID)",
       "cwd":"\(cwd)","state":"\(state)","candidateSessionIds":[],
-      "linkedAgentSessionId":null,"linkedSessionId":\(linkedSession),"error":null,
+      "linkedAgentSessionId":null,"linkedSessionId":\(linkedSession),"error":\(errorJSON),
       "launchedAt":"2026-08-30T00:00:00Z","correlationDeadlineAt":"2026-08-30T00:01:00Z",
       "createdAt":"2026-08-30T00:00:00Z","updatedAt":"2026-08-30T00:00:00Z"
     }
