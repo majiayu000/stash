@@ -42,6 +42,38 @@ private struct ForcedDispatchLookupFailure: LocalizedError {
     var errorDescription: String? { "forced dispatch lookup failure" }
 }
 
+/// Coordinates mid-upsert cancellation: upsert waits until the test cancels the
+/// resume task, then continues so cooperative checks run before launch dispatch.
+private actor UpsertCancellationGate {
+    private var upsertStarted: CheckedContinuation<Void, Never>?
+    private var allowContinue: CheckedContinuation<Void, Never>?
+    private var didStart = false
+    private var shouldRelease = false
+
+    func waitUntilUpsertStarted() async {
+        if didStart { return }
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            upsertStarted = continuation
+        }
+    }
+
+    func waitUntilCancelled() async {
+        didStart = true
+        upsertStarted?.resume()
+        upsertStarted = nil
+        if shouldRelease { return }
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            allowContinue = continuation
+        }
+    }
+
+    func releaseUpsert() {
+        shouldRelease = true
+        allowContinue?.resume()
+        allowContinue = nil
+    }
+}
+
 private actor RecordingTransport: KeeplineTransport {
     private var mutationCounts: [RecordedMutation: Int] = [:]
     private var dispatchIDsByKey: [String: String] = [:]
@@ -51,6 +83,7 @@ private actor RecordingTransport: KeeplineTransport {
     private let completionReviewEvidenceID: String?
     private let dispatchLookupError: Error?
     private let onDispatchLookup: (@Sendable () async -> Void)?
+    private let onUpsert: (@Sendable () async -> Void)?
     private let launchDispatchState: String
     private let launchDispatchError: String?
     private(set) var recoveredSessionIDs: [String] = []
@@ -59,12 +92,14 @@ private actor RecordingTransport: KeeplineTransport {
         completionReviewEvidenceID: String? = nil,
         dispatchLookupError: Error? = nil,
         onDispatchLookup: (@Sendable () async -> Void)? = nil,
+        onUpsert: (@Sendable () async -> Void)? = nil,
         launchDispatchState: String = "awaiting_session",
         launchDispatchError: String? = nil
     ) {
         self.completionReviewEvidenceID = completionReviewEvidenceID
         self.dispatchLookupError = dispatchLookupError
         self.onDispatchLookup = onDispatchLookup
+        self.onUpsert = onUpsert
         self.launchDispatchState = launchDispatchState
         self.launchDispatchError = launchDispatchError
     }
@@ -105,6 +140,9 @@ private actor RecordingTransport: KeeplineTransport {
         externalID: String,
         input: ExternalWorkItemInput
     ) async throws -> KeeplineWorkItem {
+        if let onUpsert {
+            await onUpsert()
+        }
         mutationCounts[.upsert, default: 0] += 1
         return try workItemFixture(id: "work-1", title: input.title, status: input.status)
     }
@@ -212,7 +250,9 @@ private struct StashIntegrationChecks {
         try await checkResumePropagatesCancellation()
         try await checkResumeClearsRecoveredTaskIDs()
         try await checkResumeDoesNotOverwriteManualLinkDuringPoll()
+        try await checkResumeSuppressesLookupFailureAfterManualLink()
         try await checkLaunchRetryTerminalFailurePublishesNotice()
+        try await checkResumeCancelsBeforeLaunchMutation()
         if let binary = ProcessInfo.processInfo.environment["STASH_KEEPLINE_E2E_BINARY"],
            !binary.isEmpty {
             try await checkPackagedCompletionClaimFlow(binary: binary)
@@ -1221,6 +1261,55 @@ private struct StashIntegrationChecks {
     }
 
     @MainActor
+    private static func checkResumeSuppressesLookupFailureAfterManualLink() async throws {
+        let pendingTask = LedgerTask(title: "Manual link during failing poll")
+        let pendingLink = AgentTaskLink(
+            taskID: pendingTask.id,
+            keeplineWorkItemID: "work-race-fail",
+            dispatchID: "dispatch-race-fail",
+            dispatchState: .awaitingSession,
+            projectRoot: "/tmp",
+            runtimeID: "codex",
+            source: .dispatched
+        )
+        let repository = FailAtSaveRepository(
+            workspace: LedgerWorkspace(
+                tasks: [pendingTask],
+                agentTaskLinks: [pendingLink]
+            ),
+            failingSaveAttempt: 99
+        )
+        let store = LedgerStore(repository: repository, initialWorkspace: LedgerWorkspace())
+        await store.bootstrap()
+        let transport = RecordingTransport(
+            dispatchLookupError: ForcedDispatchLookupFailure(),
+            onDispatchLookup: {
+                await MainActor.run {
+                    guard var current = store.agentLink(for: pendingTask.id) else { return }
+                    current.sessionID = "runtime-session-manual-during-fail"
+                    _ = store.persistAgentLink(current)
+                }
+            }
+        )
+        let coordinator = StashKeeplineCoordinator(store: store, transport: transport)
+
+        let outcome = try await coordinator.resumePendingAttempts()
+
+        try expect(
+            outcome.notices.isEmpty,
+            "lookup failure after concurrent manual link published a stale notice"
+        )
+        try expect(
+            outcome.recoveredTaskIDs == [pendingTask.id],
+            "manual link during failing poll should count as recovered"
+        )
+        try expect(
+            store.agentLink(for: pendingTask.id)?.sessionID == "runtime-session-manual-during-fail",
+            "failing poll path mutated the concurrent manual session link"
+        )
+    }
+
+    @MainActor
     private static func checkLaunchRetryTerminalFailurePublishesNotice() async throws {
         let pendingTask = LedgerTask(title: "Launch retry returns failed")
         let pendingLink = AgentTaskLink(
@@ -1263,6 +1352,51 @@ private struct StashIntegrationChecks {
             store.agentLink(for: pendingTask.id)?.dispatchState == .failed,
             "terminal launch retry did not persist the failed dispatch state"
         )
+    }
+
+    @MainActor
+    private static func checkResumeCancelsBeforeLaunchMutation() async throws {
+        let pendingTask = LedgerTask(title: "Cancel mid launch retry")
+        let pendingLink = AgentTaskLink(
+            taskID: pendingTask.id,
+            dispatchState: .pending,
+            idempotencyKey: "stash:\(pendingTask.id.uuidString):cancel-mid",
+            projectRoot: "/tmp",
+            runtimeID: "codex",
+            source: .dispatched
+        )
+        let repository = FailAtSaveRepository(
+            workspace: LedgerWorkspace(
+                tasks: [pendingTask],
+                agentTaskLinks: [pendingLink]
+            ),
+            failingSaveAttempt: 99
+        )
+        let store = LedgerStore(repository: repository, initialWorkspace: LedgerWorkspace())
+        await store.bootstrap()
+
+        let gate = UpsertCancellationGate()
+        let transport = RecordingTransport(onUpsert: {
+            await gate.waitUntilCancelled()
+        })
+        let coordinator = StashKeeplineCoordinator(store: store, transport: transport)
+
+        let resumeTask = Task { @MainActor in
+            try await coordinator.resumePendingAttempts()
+        }
+        await gate.waitUntilUpsertStarted()
+        resumeTask.cancel()
+        await gate.releaseUpsert()
+
+        do {
+            _ = try await resumeTask.value
+            throw CheckFailure.failed("resumePendingAttempts ignored mid-attempt cancellation")
+        } catch is CancellationError {
+            // expected
+        }
+
+        let launches = await transport.count(.launchDispatch)
+        try expect(launches == 0, "cancelled resume still performed launch-dispatch mutation")
     }
 
     @MainActor

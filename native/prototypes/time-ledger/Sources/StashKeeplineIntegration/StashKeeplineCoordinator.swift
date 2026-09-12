@@ -264,8 +264,23 @@ public final class StashKeeplineCoordinator {
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
+                // Reload after a failed await: manualLink may have attached a
+                // session while the lookup/retry was in flight. Publishing a
+                // stale notice for an already-linked task would stick forever
+                // because recovered-task clearing only runs for pending resumes.
+                if let current = store.workspace.agentTaskLinks.first(where: { $0.id == link.id }),
+                   current.sessionID != nil {
+                    recoveredTaskIDs.append(link.taskID)
+                    continue
+                }
+                guard let current = store.workspace.agentTaskLinks.first(where: { $0.id == link.id }),
+                      !current.isTerminal,
+                      current.source == .dispatched,
+                      current.sessionID == nil else {
+                    continue
+                }
                 notices.append(StashIntegrationNotice(
-                    taskID: link.taskID,
+                    taskID: current.taskID,
                     message: error.localizedDescription
                 ))
             }
@@ -330,6 +345,9 @@ public final class StashKeeplineCoordinator {
             }
             try await WorkspacePersistenceGate.require(store)
         }
+        // Cooperative cancellation can arrive while the upsert/persist awaits
+        // above return normally. Recheck before the launch-dispatch mutation.
+        try Task.checkCancellation()
         guard let workItemID = pending.keeplineWorkItemID else {
             throw StashKeeplineCoordinatorError.missingWorkItemIdentity
         }
