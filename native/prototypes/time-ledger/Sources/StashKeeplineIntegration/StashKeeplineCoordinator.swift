@@ -12,6 +12,21 @@ public struct StashIntegrationNotice: Equatable, Sendable {
     }
 }
 
+public struct StashPendingResumeResult: Equatable, Sendable {
+    public var notices: [StashIntegrationNotice]
+    /// Task IDs whose pending dispatch was processed without a failure notice.
+    /// Callers should clear any prior transient resume error for these IDs.
+    public var recoveredTaskIDs: [UUID]
+
+    public init(
+        notices: [StashIntegrationNotice] = [],
+        recoveredTaskIDs: [UUID] = []
+    ) {
+        self.notices = notices
+        self.recoveredTaskIDs = recoveredTaskIDs
+    }
+}
+
 private struct TaskProjection: Equatable {
     let title: String
     let body: String?
@@ -179,17 +194,25 @@ public final class StashKeeplineCoordinator {
         try await WorkspacePersistenceGate.require(store)
     }
 
-    public func resumePendingAttempts() async throws -> [StashIntegrationNotice] {
+    public func resumePendingAttempts(
+        allowLaunchRetries: Bool = true
+    ) async throws -> StashPendingResumeResult {
         let pending = store.workspace.agentTaskLinks.filter {
             !$0.isTerminal && $0.source == .dispatched && $0.sessionID == nil
         }
         var notices: [StashIntegrationNotice] = []
+        var recoveredTaskIDs: [UUID] = []
         for link in pending {
+            try Task.checkCancellation()
             if link.dispatchState == .ambiguous { continue }
             do {
                 if link.dispatchID == nil {
+                    // Launch retries need dispatch.<runtime> capabilities; status
+                    // polling for existing dispatch IDs must continue without them.
+                    guard allowLaunchRetries else { continue }
                     guard let task = store.task(id: link.taskID) else { continue }
                     try await resumeDispatchAttempt(link: link, task: task)
+                    recoveredTaskIDs.append(link.taskID)
                     continue
                 }
                 guard let dispatchID = link.dispatchID else { continue }
@@ -211,7 +234,11 @@ public final class StashKeeplineCoordinator {
                         taskID: link.taskID,
                         message: dispatch.error ?? "Keepline could not launch this Agent."
                     ))
+                } else {
+                    recoveredTaskIDs.append(link.taskID)
                 }
+            } catch is CancellationError {
+                throw CancellationError()
             } catch {
                 notices.append(StashIntegrationNotice(
                     taskID: link.taskID,
@@ -219,7 +246,7 @@ public final class StashKeeplineCoordinator {
                 ))
             }
         }
-        return notices
+        return StashPendingResumeResult(notices: notices, recoveredTaskIDs: recoveredTaskIDs)
     }
 
     public func syncTaskProjections() async throws {

@@ -350,19 +350,26 @@ final class KeeplineIntegrationStore: ObservableObject {
 
             // Pending-dispatch resume is best-effort: never poison a recovery-capable
             // .ready connection when transport.dispatch fails or dispatch.* is absent.
-            let hasDispatchCapability = nextMetadata.capabilities.contains {
+            // Gate launch retries on dispatch.* capabilities, but always reconcile
+            // links that already have a dispatch ID via transport.dispatch(id:).
+            let allowLaunchRetries = nextMetadata.capabilities.contains {
                 $0.hasPrefix("dispatch.")
             }
-            if hasDispatchCapability {
-                do {
-                    let notices = try await coordinator.resumePendingAttempts()
-                    for notice in notices {
-                        publishTaskError(notice.message, for: notice.taskID)
-                    }
-                } catch {
-                    // Per-task isolation lives in the coordinator; this catch is a
-                    // backstop so a bulk resume throw cannot mark the connection stale.
+            do {
+                let outcome = try await coordinator.resumePendingAttempts(
+                    allowLaunchRetries: allowLaunchRetries
+                )
+                for taskID in outcome.recoveredTaskIDs {
+                    clearError(for: taskID)
                 }
+                for notice in outcome.notices {
+                    publishTaskError(notice.message, for: notice.taskID)
+                }
+            } catch is CancellationError {
+                return
+            } catch {
+                // Per-task isolation lives in the coordinator; this catch is a
+                // backstop so a bulk resume throw cannot mark the connection stale.
             }
         } catch {
             if didAttemptServiceLaunch, serviceController?.ownsRunningChild != true {
