@@ -355,12 +355,12 @@ final class KeeplineIntegrationStore: ObservableObject {
                 let outcome = try await coordinator.resumePendingAttempts(
                     capabilities: capabilities
                 )
-                for taskID in outcome.recoveredTaskIDs {
-                    clearResumeError(for: taskID)
-                }
-                for notice in outcome.notices {
-                    publishResumeTaskError(notice.message, for: notice.taskID)
-                }
+                applyPendingResumeOutcome(outcome)
+            } catch let cancelled as StashPendingResumeCancellation {
+                // Publish outcomes already classified before cancellation stopped
+                // the batch; otherwise terminal/ambiguous notices are lost.
+                applyPendingResumeOutcome(cancelled.partial)
+                return
             } catch is CancellationError {
                 return
             } catch {
@@ -513,6 +513,15 @@ final class KeeplineIntegrationStore: ObservableObject {
         guard resumeErrorTaskIDs.contains(taskID) else { return }
         taskErrors[taskID] = nil
         resumeErrorTaskIDs.remove(taskID)
+    }
+
+    private func applyPendingResumeOutcome(_ outcome: StashPendingResumeResult) {
+        for taskID in outcome.recoveredTaskIDs {
+            clearResumeError(for: taskID)
+        }
+        for notice in outcome.notices {
+            publishResumeTaskError(notice.message, for: notice.taskID)
+        }
     }
 }
 

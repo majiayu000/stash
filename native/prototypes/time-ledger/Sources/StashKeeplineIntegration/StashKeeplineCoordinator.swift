@@ -26,6 +26,21 @@ public struct StashPendingResumeResult: Equatable, Sendable {
         self.notices = notices
         self.recoveredTaskIDs = recoveredTaskIDs
     }
+
+    public var isEmpty: Bool {
+        notices.isEmpty && recoveredTaskIDs.isEmpty
+    }
+}
+
+/// Cancellation mid-batch that still carries outcomes already persisted or
+/// classified for earlier pending links. Callers must publish `partial` before
+/// treating the resume as cancelled.
+public struct StashPendingResumeCancellation: Error, Equatable, Sendable {
+    public let partial: StashPendingResumeResult
+
+    public init(partial: StashPendingResumeResult) {
+        self.partial = partial
+    }
 }
 
 private struct TaskProjection: Equatable {
@@ -204,8 +219,18 @@ public final class StashKeeplineCoordinator {
         var notices: [StashIntegrationNotice] = []
         var recoveredTaskIDs: [UUID] = []
         for link in pending {
-            try Task.checkCancellation()
+            do {
+                try Task.checkCancellation()
+            } catch {
+                throw Self.cancellationError(
+                    notices: notices,
+                    recoveredTaskIDs: recoveredTaskIDs
+                )
+            }
             if link.dispatchState == .ambiguous { continue }
+            // Tracks an in-memory poll/retry apply performed in this iteration so
+            // a later persistence failure is not mistaken for a concurrent manual link.
+            var appliedPollSnapshot: AgentTaskLink?
             do {
                 if link.dispatchID == nil {
                     // Launch retries need the exact dispatch.<runtimeID> capability
@@ -250,10 +275,8 @@ public final class StashKeeplineCoordinator {
                 }
                 let updated = Self.applying(dispatch, to: current)
                 if updated != current {
-                    guard store.persistAgentLink(updated) else {
-                        throw StashKeeplineCoordinatorError.activeLinkConflict
-                    }
-                    try await WorkspacePersistenceGate.require(store)
+                    appliedPollSnapshot = current
+                    try await persistLinkRequiringSave(updated, restoringOnFailure: current)
                 }
                 appendResumeOutcome(
                     for: link.taskID,
@@ -262,13 +285,21 @@ public final class StashKeeplineCoordinator {
                     recoveredTaskIDs: &recoveredTaskIDs
                 )
             } catch is CancellationError {
-                throw CancellationError()
+                throw Self.cancellationError(
+                    notices: notices,
+                    recoveredTaskIDs: recoveredTaskIDs
+                )
+            } catch let cancelled as StashPendingResumeCancellation {
+                throw cancelled
             } catch {
                 // Reload after a failed await: manualLink may have attached a
                 // session while the lookup/retry was in flight. Publishing a
                 // stale notice for an already-linked task would stick forever
                 // because recovered-task clearing only runs for pending resumes.
-                if let current = store.workspace.agentTaskLinks.first(where: { $0.id == link.id }),
+                // Do not treat our own unsaved poll apply as recovery — that
+                // path restores `appliedPollSnapshot` before rethrowing.
+                if appliedPollSnapshot == nil,
+                   let current = store.workspace.agentTaskLinks.first(where: { $0.id == link.id }),
                    current.sessionID != nil {
                     recoveredTaskIDs.append(link.taskID)
                     continue
@@ -340,10 +371,8 @@ public final class StashKeeplineCoordinator {
                 )
             }
             pending.keeplineWorkItemID = workItem.id
-            guard store.persistAgentLink(pending) else {
-                throw StashKeeplineCoordinatorError.activeLinkConflict
-            }
-            try await WorkspacePersistenceGate.require(store)
+            try await persistLinkRequiringSave(pending, restoringOnFailure: link)
+            pending = store.workspace.agentTaskLinks.first(where: { $0.id == link.id }) ?? pending
         }
         // Cooperative cancellation can arrive while the upsert/persist awaits
         // above return normally. Recheck before the launch-dispatch mutation.
@@ -373,11 +402,41 @@ public final class StashKeeplineCoordinator {
             return nil
         }
         let updated = Self.applying(dispatch, to: current)
+        try await persistLinkRequiringSave(updated, restoringOnFailure: current)
+        return dispatch
+    }
+
+    /// Persists `updated`, then flushes. On flush failure, restores `previous` in
+    /// memory so an unsaved linked session cannot look like a recovered link.
+    private func persistLinkRequiringSave(
+        _ updated: AgentTaskLink,
+        restoringOnFailure previous: AgentTaskLink
+    ) async throws {
         guard store.persistAgentLink(updated) else {
             throw StashKeeplineCoordinatorError.activeLinkConflict
         }
-        try await WorkspacePersistenceGate.require(store)
-        return dispatch
+        do {
+            try await WorkspacePersistenceGate.require(store)
+        } catch {
+            if updated != previous {
+                _ = store.persistAgentLink(previous)
+            }
+            throw error
+        }
+    }
+
+    private static func cancellationError(
+        notices: [StashIntegrationNotice],
+        recoveredTaskIDs: [UUID]
+    ) -> Error {
+        let partial = StashPendingResumeResult(
+            notices: notices,
+            recoveredTaskIDs: recoveredTaskIDs
+        )
+        if partial.isEmpty {
+            return CancellationError()
+        }
+        return StashPendingResumeCancellation(partial: partial)
     }
 
     private func appendResumeOutcome(

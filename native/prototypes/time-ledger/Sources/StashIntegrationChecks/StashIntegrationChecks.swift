@@ -12,16 +12,25 @@ private actor FailAtSaveRepository: WorkspaceRepository {
     private(set) var workspace: LedgerWorkspace?
     private(set) var saveAttempt = 0
     private let failingSaveAttempt: Int
+    private var failNextSave = false
 
     init(workspace: LedgerWorkspace, failingSaveAttempt: Int) {
         self.workspace = workspace
         self.failingSaveAttempt = failingSaveAttempt
     }
 
+    func armNextSaveFailure() {
+        failNextSave = true
+    }
+
     func load() async throws -> LedgerWorkspace? { workspace }
 
     func save(_ workspace: LedgerWorkspace) async throws {
         saveAttempt += 1
+        if failNextSave {
+            failNextSave = false
+            throw ForcedSaveFailure()
+        }
         if saveAttempt == failingSaveAttempt {
             throw ForcedSaveFailure()
         }
@@ -86,22 +95,31 @@ private actor RecordingTransport: KeeplineTransport {
     private let onUpsert: (@Sendable () async -> Void)?
     private let launchDispatchState: String
     private let launchDispatchError: String?
+    private let dispatchLookupState: String
+    private let dispatchLookupLinkedSessionID: String?
+    private let dispatchLookupErrorsByID: [String: Error]
     private(set) var recoveredSessionIDs: [String] = []
 
     init(
         completionReviewEvidenceID: String? = nil,
         dispatchLookupError: Error? = nil,
+        dispatchLookupErrorsByID: [String: Error] = [:],
         onDispatchLookup: (@Sendable () async -> Void)? = nil,
         onUpsert: (@Sendable () async -> Void)? = nil,
         launchDispatchState: String = "awaiting_session",
-        launchDispatchError: String? = nil
+        launchDispatchError: String? = nil,
+        dispatchLookupState: String = "awaiting_session",
+        dispatchLookupLinkedSessionID: String? = nil
     ) {
         self.completionReviewEvidenceID = completionReviewEvidenceID
         self.dispatchLookupError = dispatchLookupError
+        self.dispatchLookupErrorsByID = dispatchLookupErrorsByID
         self.onDispatchLookup = onDispatchLookup
         self.onUpsert = onUpsert
         self.launchDispatchState = launchDispatchState
         self.launchDispatchError = launchDispatchError
+        self.dispatchLookupState = dispatchLookupState
+        self.dispatchLookupLinkedSessionID = dispatchLookupLinkedSessionID
     }
 
     func count(_ mutation: RecordedMutation) -> Int {
@@ -187,12 +205,16 @@ private actor RecordingTransport: KeeplineTransport {
         if let dispatchLookupError {
             throw dispatchLookupError
         }
+        if let perIDError = dispatchLookupErrorsByID[id] {
+            throw perIDError
+        }
         return try dispatchFixture(
             id: id,
             workItemID: "work-1",
             runtimeID: "codex",
             cwd: "/tmp",
-            state: "awaiting_session"
+            state: dispatchLookupState,
+            linkedSessionID: dispatchLookupLinkedSessionID
         )
     }
 
@@ -248,10 +270,12 @@ private struct StashIntegrationChecks {
         try await checkResumeSkipsLaunchWithoutCapabilityButPollsExisting()
         try await checkResumeGatesLaunchRetriesPerRuntimeCapability()
         try await checkResumePropagatesCancellation()
+        try await checkResumePreservesPartialOutcomesOnCancellation()
         try await checkResumeClearsRecoveredTaskIDs()
         try await checkResumeDoesNotOverwriteManualLinkDuringPoll()
         try await checkResumeSuppressesLookupFailureAfterManualLink()
         try await checkLaunchRetryTerminalFailurePublishesNotice()
+        try await checkResumePropagatesSaveFailureAfterLinkedPoll()
         try await checkResumeCancelsBeforeLaunchMutation()
         if let binary = ProcessInfo.processInfo.environment["STASH_KEEPLINE_E2E_BINARY"],
            !binary.isEmpty {
@@ -1181,6 +1205,59 @@ private struct StashIntegrationChecks {
     }
 
     @MainActor
+    private static func checkResumePreservesPartialOutcomesOnCancellation() async throws {
+        let recoveredTask = LedgerTask(title: "Already classified before cancel")
+        let cancelledTask = LedgerTask(title: "Cancelled on second poll")
+        let recoveredLink = AgentTaskLink(
+            taskID: recoveredTask.id,
+            keeplineWorkItemID: "work-partial-1",
+            dispatchID: "dispatch-partial-ok",
+            dispatchState: .awaitingSession,
+            projectRoot: "/tmp",
+            runtimeID: "codex",
+            source: .dispatched
+        )
+        let cancelledLink = AgentTaskLink(
+            taskID: cancelledTask.id,
+            keeplineWorkItemID: "work-partial-2",
+            dispatchID: "dispatch-partial-cancel",
+            dispatchState: .awaitingSession,
+            projectRoot: "/tmp",
+            runtimeID: "codex",
+            source: .dispatched
+        )
+        let repository = FailAtSaveRepository(
+            workspace: LedgerWorkspace(
+                tasks: [recoveredTask, cancelledTask],
+                agentTaskLinks: [recoveredLink, cancelledLink]
+            ),
+            failingSaveAttempt: 99
+        )
+        let store = LedgerStore(repository: repository, initialWorkspace: LedgerWorkspace())
+        await store.bootstrap()
+        let transport = RecordingTransport(
+            dispatchLookupErrorsByID: ["dispatch-partial-cancel": CancellationError()]
+        )
+        let coordinator = StashKeeplineCoordinator(store: store, transport: transport)
+
+        do {
+            _ = try await coordinator.resumePendingAttempts()
+            throw CheckFailure.failed("resumePendingAttempts swallowed CancellationError with partial outcomes")
+        } catch let cancelled as StashPendingResumeCancellation {
+            try expect(
+                cancelled.partial.recoveredTaskIDs == [recoveredTask.id],
+                "cancellation discarded the already-recovered task outcome"
+            )
+            try expect(
+                cancelled.partial.notices.isEmpty,
+                "partial cancellation unexpectedly included notices"
+            )
+        } catch is CancellationError {
+            throw CheckFailure.failed("cancellation with partial outcomes did not preserve the resume result")
+        }
+    }
+
+    @MainActor
     private static func checkResumeClearsRecoveredTaskIDs() async throws {
         let pendingTask = LedgerTask(title: "Recovered after transient failure")
         let pendingLink = AgentTaskLink(
@@ -1351,6 +1428,52 @@ private struct StashIntegrationChecks {
         try expect(
             store.agentLink(for: pendingTask.id)?.dispatchState == .failed,
             "terminal launch retry did not persist the failed dispatch state"
+        )
+    }
+
+    @MainActor
+    private static func checkResumePropagatesSaveFailureAfterLinkedPoll() async throws {
+        let pendingTask = LedgerTask(title: "Linked poll save failure")
+        let pendingLink = AgentTaskLink(
+            taskID: pendingTask.id,
+            keeplineWorkItemID: "work-linked-save",
+            dispatchID: "dispatch-linked-save",
+            dispatchState: .awaitingSession,
+            projectRoot: "/tmp",
+            runtimeID: "codex",
+            source: .dispatched
+        )
+        let repository = FailAtSaveRepository(
+            workspace: LedgerWorkspace(
+                tasks: [pendingTask],
+                agentTaskLinks: [pendingLink]
+            ),
+            failingSaveAttempt: 99
+        )
+        let store = LedgerStore(repository: repository, initialWorkspace: LedgerWorkspace())
+        await store.bootstrap()
+        await repository.armNextSaveFailure()
+        let transport = RecordingTransport(
+            dispatchLookupState: "linked",
+            dispatchLookupLinkedSessionID: "runtime-session-linked"
+        )
+        let coordinator = StashKeeplineCoordinator(store: store, transport: transport)
+
+        let outcome = try await coordinator.resumePendingAttempts()
+
+        try expect(
+            outcome.recoveredTaskIDs.isEmpty,
+            "save failure after linked poll was misclassified as recovered"
+        )
+        try expect(outcome.notices.count == 1, "save failure after linked poll did not surface a notice")
+        try expect(outcome.notices[0].taskID == pendingTask.id, "save-failure notice targeted the wrong task")
+        try expect(
+            store.agentLink(for: pendingTask.id)?.sessionID == nil,
+            "unsaved linked poll left an in-memory session that blocks future resume"
+        )
+        try expect(
+            store.agentLink(for: pendingTask.id)?.dispatchState == .awaitingSession,
+            "unsaved linked poll did not restore the prior pending dispatch snapshot"
         )
     }
 
