@@ -282,6 +282,7 @@ private struct StashIntegrationChecks {
         try await checkResumeDoesNotOverwriteManualLinkDuringPoll()
         try await checkResumeSuppressesLookupFailureAfterManualLink()
         try await checkResumeDropsBufferedNoticeAfterLaterManualLink()
+        try await checkRevalidatedDropsNoticeSupersededByNewerTaskLink()
         try await checkLaunchRetryTerminalFailurePublishesNotice()
         try await checkResumePropagatesSaveFailureAfterLinkedPoll()
         try await checkResumeDoesNotRollbackConcurrentManualLinkOnSaveFailure()
@@ -1482,6 +1483,66 @@ private struct StashIntegrationChecks {
         try expect(
             revalidated.notices.isEmpty,
             "revalidated(against:) kept a notice for a session-linked link"
+        )
+    }
+
+    @MainActor
+    private static func checkRevalidatedDropsNoticeSupersededByNewerTaskLink() async throws {
+        // Terminal failed/cancelled links stay session-less. After a newer manual
+        // link for the same task, revalidation must drop the old notice — the
+        // originating link is no longer current, and future resume batches skip
+        // the session-linked replacement.
+        let task = LedgerTask(title: "Superseded terminal notice")
+        let terminalLink = AgentTaskLink(
+            id: UUID(),
+            taskID: task.id,
+            keeplineWorkItemID: "work-terminal-old",
+            dispatchID: "dispatch-terminal-old",
+            dispatchState: .failed,
+            projectRoot: "/tmp",
+            runtimeID: "codex",
+            source: .dispatched,
+            linkedAt: Date(timeIntervalSince1970: 1_000)
+        )
+        let newerLink = AgentTaskLink(
+            id: UUID(),
+            taskID: task.id,
+            keeplineWorkItemID: "work-manual-new",
+            sessionID: "runtime-session-newer",
+            projectRoot: "/tmp",
+            runtimeID: "codex",
+            source: .manuallyLinked,
+            linkedAt: Date(timeIntervalSince1970: 2_000)
+        )
+        let links = [terminalLink, newerLink]
+        let stale = StashPendingResumeResult(
+            notices: [
+                StashIntegrationNotice(
+                    taskID: task.id,
+                    linkID: terminalLink.id,
+                    message: "stale terminal failure for superseded link"
+                )
+            ]
+        )
+        let revalidated = stale.revalidated(against: links)
+        try expect(
+            revalidated.notices.isEmpty,
+            "revalidated(against:) kept a notice for a superseded terminal link"
+        )
+        try expect(
+            revalidated.recoveredTaskIDs.contains(task.id),
+            "superseded terminal notice was not classified as recovered"
+        )
+        // Originating terminal link still present and session-less must publish
+        // when it remains the task's current link.
+        let stillCurrent = stale.revalidated(against: [terminalLink])
+        try expect(
+            stillCurrent.notices.count == 1,
+            "revalidated(against:) dropped a still-current terminal notice"
+        )
+        try expect(
+            stillCurrent.recoveredTaskIDs.isEmpty,
+            "still-current terminal notice must not be recovered"
         )
     }
 

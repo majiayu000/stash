@@ -35,15 +35,26 @@ public struct StashPendingResumeResult: Equatable, Sendable {
         notices.isEmpty && recoveredTaskIDs.isEmpty
     }
 
-    /// Drops buffered notices whose originating link is gone or already session-linked.
-    /// Terminal failed/cancelled links stay session-less and still publish.
-    /// Session-linked origins are treated as recovered so prior resume errors clear.
+    /// Drops buffered notices whose originating link is gone, already session-linked,
+    /// or superseded by a newer current link for the same task.
+    /// Terminal failed/cancelled origins still publish only while they remain current.
+    /// Session-linked or superseded origins are treated as recovered so prior resume
+    /// errors clear (a newer manual link is excluded from future resume batches).
     public func revalidated(against links: [AgentTaskLink]) -> StashPendingResumeResult {
         let byID = Dictionary(uniqueKeysWithValues: links.map { ($0.id, $0) })
         var filtered: [StashIntegrationNotice] = []
         var recovered = recoveredTaskIDs
         for notice in notices {
             guard let link = byID[notice.linkID], link.taskID == notice.taskID else {
+                continue
+            }
+            // Mirror LedgerStore.agentLink(for:): a newer non-terminal (or newer
+            // overall) link means this notice no longer represents the task.
+            if let current = Self.currentLink(for: notice.taskID, in: links),
+               current.id != notice.linkID {
+                if !recovered.contains(notice.taskID) {
+                    recovered.append(notice.taskID)
+                }
                 continue
             }
             if link.sessionID != nil {
@@ -58,6 +69,15 @@ public struct StashPendingResumeResult: Equatable, Sendable {
             notices: filtered,
             recoveredTaskIDs: recovered
         )
+    }
+
+    /// Same selection rules as `LedgerStore.agentLink(for:)`.
+    private static func currentLink(for taskID: UUID, in links: [AgentTaskLink]) -> AgentTaskLink? {
+        let forTask = links.filter { $0.taskID == taskID }
+        return forTask
+            .sorted { $0.linkedAt > $1.linkedAt }
+            .first { !$0.isTerminal }
+            ?? forTask.max { $0.linkedAt < $1.linkedAt }
     }
 }
 

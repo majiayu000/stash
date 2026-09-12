@@ -108,6 +108,11 @@ final class KeeplineIntegrationStore: ObservableObject {
     private var lastSuccessfulRefreshAt: Date?
     /// Task IDs whose current `taskErrors` entry was published by pending-dispatch resume.
     private var resumeErrorTaskIDs: Set<UUID> = []
+    /// Per-task generation for resume-owned errors. Overlapping refreshes capture a
+    /// snapshot before awaiting; recovered clears only apply when the generation is
+    /// unchanged so a newer failure is not wiped by an older recovery.
+    private var resumeErrorGeneration: [UUID: UInt64] = [:]
+    private var resumeErrorGenerationClock: UInt64 = 0
 
     init(
         transport: (any KeeplineTransport)?,
@@ -197,6 +202,7 @@ final class KeeplineIntegrationStore: ObservableObject {
     func clearError(for taskID: UUID) {
         taskErrors[taskID] = nil
         resumeErrorTaskIDs.remove(taskID)
+        resumeErrorGeneration[taskID] = nil
     }
 
     func link(_ session: KeeplineSession, to task: LedgerTask) async {
@@ -352,15 +358,24 @@ final class KeeplineIntegrationStore: ObservableObject {
             // Gate launch retries per link on dispatch.<runtimeID>, but always
             // reconcile links that already have a dispatch ID via transport.dispatch(id:).
             let capabilities = Set(nextMetadata.capabilities)
+            // Snapshot before awaiting so overlapping refreshes that publish a
+            // newer resume failure are not cleared by this refresh's recovery.
+            let observedResumeGenerations = resumeErrorGeneration
             do {
                 let outcome = try await coordinator.resumePendingAttempts(
                     capabilities: capabilities
                 )
-                applyPendingResumeOutcome(outcome)
+                applyPendingResumeOutcome(
+                    outcome,
+                    observedResumeGenerations: observedResumeGenerations
+                )
             } catch let cancelled as StashPendingResumeCancellation {
                 // Publish outcomes already classified before cancellation stopped
                 // the batch; otherwise terminal/ambiguous notices are lost.
-                applyPendingResumeOutcome(cancelled.partial)
+                applyPendingResumeOutcome(
+                    cancelled.partial,
+                    observedResumeGenerations: observedResumeGenerations
+                )
                 return
             } catch is CancellationError {
                 return
@@ -445,6 +460,7 @@ final class KeeplineIntegrationStore: ObservableObject {
         busyTaskIDs.insert(taskID)
         taskErrors[taskID] = nil
         resumeErrorTaskIDs.remove(taskID)
+        resumeErrorGeneration[taskID] = nil
         defer { busyTaskIDs.remove(taskID) }
         do {
             try await operation()
@@ -464,6 +480,7 @@ final class KeeplineIntegrationStore: ObservableObject {
         busyTaskIDs.insert(taskID)
         taskErrors[taskID] = nil
         resumeErrorTaskIDs.remove(taskID)
+        resumeErrorGeneration[taskID] = nil
         defer { busyTaskIDs.remove(taskID) }
         do {
             let value = try await operation()
@@ -515,6 +532,7 @@ final class KeeplineIntegrationStore: ObservableObject {
         // Non-resume errors replace the shared taskErrors entry; drop resume
         // ownership so a later recovered poll cannot clear this foreground notice.
         resumeErrorTaskIDs.remove(taskID)
+        resumeErrorGeneration[taskID] = nil
     }
 
     private func publishResumeTaskError(_ message: String, for taskID: UUID) {
@@ -528,6 +546,8 @@ final class KeeplineIntegrationStore: ObservableObject {
         }
         publishTaskError(message, for: taskID)
         resumeErrorTaskIDs.insert(taskID)
+        resumeErrorGenerationClock += 1
+        resumeErrorGeneration[taskID] = resumeErrorGenerationClock
     }
 
     private func clearResumeError(for taskID: UUID) {
@@ -540,14 +560,23 @@ final class KeeplineIntegrationStore: ObservableObject {
         }
         taskErrors[taskID] = nil
         resumeErrorTaskIDs.remove(taskID)
+        resumeErrorGeneration[taskID] = nil
     }
 
-    private func applyPendingResumeOutcome(_ outcome: StashPendingResumeResult) {
+    private func applyPendingResumeOutcome(
+        _ outcome: StashPendingResumeResult,
+        observedResumeGenerations: [UUID: UInt64]
+    ) {
         // Revalidate at publication time: notices may have been buffered earlier
         // in the batch, then a concurrent manualLink attached a session.
         let links = ledgerStore?.workspace.agentTaskLinks ?? []
         let validated = outcome.revalidated(against: links)
         for taskID in validated.recoveredTaskIDs {
+            let observed = observedResumeGenerations[taskID] ?? 0
+            let current = resumeErrorGeneration[taskID] ?? 0
+            // A newer overlapping refresh published a resume failure after this
+            // recovery was decided — leave that failure in place.
+            guard current == observed else { continue }
             clearResumeError(for: taskID)
         }
         for notice in validated.notices {
