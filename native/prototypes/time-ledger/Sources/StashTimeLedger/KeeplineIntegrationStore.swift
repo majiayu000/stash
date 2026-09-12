@@ -93,6 +93,8 @@ final class KeeplineIntegrationStore: ObservableObject {
     @Published private(set) var metadata: KeeplineMetadata?
     @Published private(set) var busyTaskIDs: Set<UUID> = []
     @Published private(set) var taskErrors: [UUID: String] = [:]
+    /// Set when work-item projection upsert fails while the connection stays `.ready`.
+    @Published private(set) var projectionSyncError: String?
 
     private let transport: (any KeeplineTransport)?
     private let serviceController: KeeplineServiceController?
@@ -341,7 +343,6 @@ final class KeeplineIntegrationStore: ObservableObject {
             let nextSessions = try await transport.listSessions().sorted(by: Self.sessionComesFirst)
             if metadata != nextMetadata { metadata = nextMetadata }
             if sessions != nextSessions { sessions = nextSessions }
-            failureCount = 0
             let refreshedAt = Date.now
             lastSuccessfulRefreshAt = refreshedAt
 
@@ -376,12 +377,18 @@ final class KeeplineIntegrationStore: ObservableObject {
 
             // Projection sync is best-effort relative to resume: a failing upsert
             // must not block pending-dispatch reconciliation on later refreshes.
+            // Keep `.ready`, but surface the failure and apply refresh backoff so
+            // auth/identity upsert errors are not silent 2s retry loops.
             do {
                 try await coordinator.syncTaskProjections()
+                failureCount = 0
+                if projectionSyncError != nil { projectionSyncError = nil }
             } catch is CancellationError {
                 return
             } catch {
-                // Leave .ready intact; the next refresh retries projections.
+                failureCount += 1
+                let message = error.localizedDescription
+                if projectionSyncError != message { projectionSyncError = message }
             }
         } catch {
             if didAttemptServiceLaunch, serviceController?.ownsRunningChild != true {
@@ -412,6 +419,7 @@ final class KeeplineIntegrationStore: ObservableObject {
             }
 
             failureCount += 1
+            if projectionSyncError != nil { projectionSyncError = nil }
             if let lastUpdated = lastSuccessfulRefreshAt {
                 publishState(.stale(lastUpdated: lastUpdated, message: error.localizedDescription))
             } else {
@@ -510,16 +518,26 @@ final class KeeplineIntegrationStore: ObservableObject {
     }
 
     private func publishResumeTaskError(_ message: String, for taskID: UUID) {
-        // Foreground ops mark the task busy before remote work. A periodic
-        // resume that fails mid-flight must not sticky-warn a task the user is
-        // already linking/launching; success clears via clearResumeError.
-        guard !busyTaskIDs.contains(taskID) else { return }
+        // Foreground ops mark the task busy before remote work. Suppress only
+        // stale transient lookup failures for busy tasks — nested launch→refresh
+        // can persist failed/cancelled and return an actionable notice that must
+        // still surface, because terminal links leave future resume batches.
+        if busyTaskIDs.contains(taskID),
+           ledgerStore?.agentLink(for: taskID)?.isTerminal != true {
+            return
+        }
         publishTaskError(message, for: taskID)
         resumeErrorTaskIDs.insert(taskID)
     }
 
     private func clearResumeError(for taskID: UUID) {
         guard resumeErrorTaskIDs.contains(taskID) else { return }
+        // Keep terminal notices published while launch was still busy; the
+        // foreground op completes successfully after nested refresh persists
+        // failed/cancelled and would otherwise wipe the only remaining notice.
+        if ledgerStore?.agentLink(for: taskID)?.isTerminal == true {
+            return
+        }
         taskErrors[taskID] = nil
         resumeErrorTaskIDs.remove(taskID)
     }

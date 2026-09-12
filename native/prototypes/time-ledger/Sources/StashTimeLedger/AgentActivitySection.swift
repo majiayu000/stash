@@ -95,7 +95,7 @@ struct AgentActivitySection: View {
                 sessionList(notice: "Offline · updated \(recency(from: lastUpdated))")
 
             case .ready:
-                sessionList(notice: nil)
+                sessionList(notice: projectionSyncNotice)
             }
         }
     }
@@ -179,8 +179,13 @@ struct AgentActivitySection: View {
         case .offline, .failedToStart, .failed: "Keepline is offline · task details remain available"
         case .incompatible: "Keepline must be updated before Agent actions can run"
         case .idle, .connecting: "Connecting · task details remain available"
-        case .ready: nil
+        case .ready: projectionSyncNotice
         }
+    }
+
+    private var projectionSyncNotice: String? {
+        guard let message = integration.projectionSyncError else { return nil }
+        return "Task sync failed · \(message)"
     }
 
     private var isConnecting: Bool {
