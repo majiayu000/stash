@@ -208,6 +208,7 @@ private struct StashIntegrationChecks {
         try await checkIdempotentRestartRecovery()
         try await checkResumeDispatchFailureIsIsolated()
         try await checkResumeSkipsLaunchWithoutCapabilityButPollsExisting()
+        try await checkResumeGatesLaunchRetriesPerRuntimeCapability()
         try await checkResumePropagatesCancellation()
         try await checkResumeClearsRecoveredTaskIDs()
         try await checkResumeDoesNotOverwriteManualLinkDuringPoll()
@@ -994,7 +995,7 @@ private struct StashIntegrationChecks {
         let transport = RecordingTransport()
         let coordinator = StashKeeplineCoordinator(store: store, transport: transport)
 
-        let outcome = try await coordinator.resumePendingAttempts(allowLaunchRetries: false)
+        let outcome = try await coordinator.resumePendingAttempts(capabilities: [])
 
         let lookups = await transport.dispatchLookupIDs
         let launches = await transport.count(.launchDispatch)
@@ -1008,6 +1009,86 @@ private struct StashIntegrationChecks {
         try expect(
             store.agentLink(for: launchTask.id)?.dispatchID == nil,
             "launch-pending link should remain unlaunched without dispatch caps"
+        )
+    }
+
+    @MainActor
+    private static func checkResumeGatesLaunchRetriesPerRuntimeCapability() async throws {
+        let codexTask = LedgerTask(title: "Codex launch pending")
+        let claudeTask = LedgerTask(title: "Claude launch pending")
+        let pollTask = LedgerTask(title: "Claude existing dispatch")
+        let codexLink = AgentTaskLink(
+            taskID: codexTask.id,
+            keeplineWorkItemID: "work-codex-launch",
+            dispatchState: .pending,
+            idempotencyKey: "stash:\(codexTask.id.uuidString):retry",
+            projectRoot: "/tmp",
+            runtimeID: "codex",
+            source: .dispatched
+        )
+        let claudeLink = AgentTaskLink(
+            taskID: claudeTask.id,
+            keeplineWorkItemID: "work-claude-launch",
+            dispatchState: .pending,
+            idempotencyKey: "stash:\(claudeTask.id.uuidString):retry",
+            projectRoot: "/tmp",
+            runtimeID: "claude-code",
+            source: .dispatched
+        )
+        let pollLink = AgentTaskLink(
+            taskID: pollTask.id,
+            keeplineWorkItemID: "work-claude-poll",
+            dispatchID: "dispatch-claude-existing",
+            dispatchState: .awaitingSession,
+            projectRoot: "/tmp",
+            runtimeID: "claude-code",
+            source: .dispatched
+        )
+        let repository = FailAtSaveRepository(
+            workspace: LedgerWorkspace(
+                tasks: [codexTask, claudeTask, pollTask],
+                agentTaskLinks: [codexLink, claudeLink, pollLink]
+            ),
+            failingSaveAttempt: 99
+        )
+        let store = LedgerStore(repository: repository, initialWorkspace: LedgerWorkspace())
+        await store.bootstrap()
+        let transport = RecordingTransport()
+        let coordinator = StashKeeplineCoordinator(store: store, transport: transport)
+
+        // Only codex launch is advertised — claude-code must stay pending, while
+        // an existing claude-code dispatch ID is still reconciled via status poll.
+        let outcome = try await coordinator.resumePendingAttempts(
+            capabilities: ["dispatch.codex"]
+        )
+
+        let lookups = await transport.dispatchLookupIDs
+        let launches = await transport.count(.launchDispatch)
+        let keys = await transport.dispatchKeys
+        try expect(launches == 1, "exact-runtime gate should allow only the supported launch")
+        try expect(
+            keys == ["stash:\(codexTask.id.uuidString):retry"],
+            "unsupported runtime launch escaped the per-link capability gate"
+        )
+        try expect(
+            lookups == ["dispatch-claude-existing"],
+            "existing unsupported-runtime dispatch should still be polled"
+        )
+        try expect(
+            store.agentLink(for: codexTask.id)?.dispatchID == "dispatch-1",
+            "supported runtime launch retry did not persist a dispatch ID"
+        )
+        try expect(
+            store.agentLink(for: claudeTask.id)?.dispatchID == nil,
+            "unsupported runtime launch should remain pending until its capability appears"
+        )
+        try expect(
+            outcome.recoveredTaskIDs.contains(pollTask.id),
+            "existing-dispatch poll should still mark the polled task recovered"
+        )
+        try expect(
+            !outcome.recoveredTaskIDs.contains(claudeTask.id),
+            "unsupported launch-pending task must not be marked recovered"
         )
     }
 

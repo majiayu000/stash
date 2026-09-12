@@ -348,14 +348,12 @@ final class KeeplineIntegrationStore: ObservableObject {
             // Pending-dispatch resume is best-effort and must not be starved by
             // projection sync failures. Run it before publishing `.ready` so the
             // session-linking UI stays disabled until polls finish on connect.
-            // Gate launch retries on dispatch.* capabilities, but always reconcile
-            // links that already have a dispatch ID via transport.dispatch(id:).
-            let allowLaunchRetries = nextMetadata.capabilities.contains {
-                $0.hasPrefix("dispatch.")
-            }
+            // Gate launch retries per link on dispatch.<runtimeID>, but always
+            // reconcile links that already have a dispatch ID via transport.dispatch(id:).
+            let capabilities = Set(nextMetadata.capabilities)
             do {
                 let outcome = try await coordinator.resumePendingAttempts(
-                    allowLaunchRetries: allowLaunchRetries
+                    capabilities: capabilities
                 )
                 for taskID in outcome.recoveredTaskIDs {
                     clearResumeError(for: taskID)

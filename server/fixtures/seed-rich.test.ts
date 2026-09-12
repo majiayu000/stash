@@ -12,6 +12,7 @@ const time_zone = new Date().getUTCHours() < 10
   : 'Pacific/Kiritimati';
 
 describe('rich demo seed', () => {
+  // Spawns seed-rich twice with session fixtures; CI hosts often exceed bun's 5s default.
   test('accepts current calendar fields and is idempotent for database rows', async () => {
     const root = mkdtempSync(join(tmpdir(), 'stash-rich-seed-test-'));
     const db_path = join(root, 'seed.db');
@@ -60,7 +61,7 @@ describe('rich demo seed', () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
-  });
+  }, { timeout: 30_000 });
 });
 
 async function run_seed(

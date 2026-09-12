@@ -196,7 +196,7 @@ public final class StashKeeplineCoordinator {
     }
 
     public func resumePendingAttempts(
-        allowLaunchRetries: Bool = true
+        capabilities: Set<String>? = nil
     ) async throws -> StashPendingResumeResult {
         let pending = store.workspace.agentTaskLinks.filter {
             !$0.isTerminal && $0.source == .dispatched && $0.sessionID == nil
@@ -208,9 +208,14 @@ public final class StashKeeplineCoordinator {
             if link.dispatchState == .ambiguous { continue }
             do {
                 if link.dispatchID == nil {
-                    // Launch retries need dispatch.<runtime> capabilities; status
-                    // polling for existing dispatch IDs must continue without them.
-                    guard allowLaunchRetries else { continue }
+                    // Launch retries need the exact dispatch.<runtimeID> capability
+                    // for this link (same gate as TaskAgentSection.supportsDispatch).
+                    // Status polling for existing dispatch IDs continues without it.
+                    // `nil` capabilities keep the test default of allowing every retry.
+                    if let capabilities {
+                        let required = "dispatch.\(link.runtimeID)"
+                        guard capabilities.contains(required) else { continue }
+                    }
                     guard let task = store.task(id: link.taskID) else { continue }
                     let dispatch = try await resumeDispatchAttempt(link: link, task: task)
                     if let current = store.workspace.agentTaskLinks.first(where: { $0.id == link.id }),
