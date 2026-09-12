@@ -216,7 +216,12 @@ private struct StashIntegrationChecks {
         let lostTask = LedgerTask(title: "Recover interrupted work")
         let quietTask = LedgerTask(title: "Keep working")
         let completedTask = LedgerTask(title: "Already closed", status: .completed)
-        let tasks = [ambiguousTask, completionTask, waitingTask, lostTask, quietTask, completedTask]
+        let nilWorkItemTask = LedgerTask(title: "Evidence without work-item identity")
+        let mismatchedWorkItemTask = LedgerTask(title: "Evidence for a different work item")
+        let tasks = [
+            ambiguousTask, completionTask, waitingTask, lostTask, quietTask, completedTask,
+            nilWorkItemTask, mismatchedWorkItemTask
+        ]
         let links = [
             AgentTaskLink(
                 taskID: ambiguousTask.id,
@@ -228,6 +233,7 @@ private struct StashIntegrationChecks {
             ),
             AgentTaskLink(
                 taskID: completionTask.id,
+                keeplineWorkItemID: "work-completion",
                 sessionID: "completion-session",
                 dispatchState: .linked,
                 runtimeID: "claude-code",
@@ -260,14 +266,45 @@ private struct StashIntegrationChecks {
                 dispatchState: .linked,
                 runtimeID: "codex",
                 source: .dispatched
+            ),
+            AgentTaskLink(
+                taskID: nilWorkItemTask.id,
+                sessionID: "nil-work-item-session",
+                dispatchState: .linked,
+                runtimeID: "codex",
+                source: .dispatched
+            ),
+            AgentTaskLink(
+                taskID: mismatchedWorkItemTask.id,
+                keeplineWorkItemID: "work-link",
+                sessionID: "mismatched-work-item-session",
+                dispatchState: .linked,
+                runtimeID: "codex",
+                source: .dispatched
             )
         ]
         let sessions = try [
-            attentionSessionFixture(id: "completion-session", status: "completed", evidenceID: "evidence-1"),
+            attentionSessionFixture(
+                id: "completion-session",
+                status: "completed",
+                evidenceID: "evidence-1",
+                completionEvidenceWorkItemId: "work-completion"
+            ),
             attentionSessionFixture(id: "waiting-session", status: "waiting"),
             attentionSessionFixture(id: "lost-session", status: "lost"),
             attentionSessionFixture(id: "running-session", status: "running"),
-            attentionSessionFixture(id: "closed-lost-session", status: "lost")
+            attentionSessionFixture(id: "closed-lost-session", status: "lost"),
+            attentionSessionFixture(
+                id: "nil-work-item-session",
+                status: "completed",
+                evidenceID: "evidence-nil-work-item"
+            ),
+            attentionSessionFixture(
+                id: "mismatched-work-item-session",
+                status: "completed",
+                evidenceID: "evidence-mismatched",
+                completionEvidenceWorkItemId: "work-other"
+            )
         ]
 
         let items = AgentAttentionQueue.items(tasks: tasks, links: links, sessions: sessions)
@@ -278,6 +315,10 @@ private struct StashIntegrationChecks {
                    "attention queue included quiet or closed tasks")
         try expect(items.last?.sessionID == "lost-session",
                    "interrupted attention item lost its exact runtime session ID")
+        try expect(!items.contains { $0.taskID == nilWorkItemTask.id },
+                   "attention queue treated nil work-item evidence as completion review")
+        try expect(!items.contains { $0.taskID == mismatchedWorkItemTask.id },
+                   "attention queue treated mismatched work-item evidence as completion review")
     }
 
     private static func checkRecoveryConfirmationTransport() async throws {
@@ -922,15 +963,18 @@ private func recoveryPreviewFixture(sessionID: String) throws -> KeeplineRecover
 private func attentionSessionFixture(
     id: String,
     status: String,
-    evidenceID: String? = nil
+    evidenceID: String? = nil,
+    completionEvidenceWorkItemId: String? = nil
 ) throws -> KeeplineSession {
     let evidence = evidenceID.map { "\"\($0)\"" } ?? "null"
+    let workItem = completionEvidenceWorkItemId.map { "\"\($0)\"" } ?? "null"
     return try fixture("""
     {
       "id":"row-\(id)","sessionId":"\(id)","runtimeId":"codex",
       "title":"Attention fixture","directory":"/tmp","status":"\(status)",
       "lastActiveAt":"2026-08-30T00:00:00Z","evidenceSummary":null,
-      "completionEvidenceId":\(evidence),"processRunning":true
+      "completionEvidenceId":\(evidence),"completionEvidenceWorkItemId":\(workItem),
+      "processRunning":true
     }
     """)
 }

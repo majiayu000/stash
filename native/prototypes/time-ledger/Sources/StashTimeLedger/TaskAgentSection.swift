@@ -112,7 +112,8 @@ struct TaskAgentSection: View {
             }
 
             if session.completionEvidenceID != nil,
-               session.completionEvidenceWorkItemID == link.keeplineWorkItemID,
+               let workItemID = link.keeplineWorkItemID,
+               workItemID == session.completionEvidenceWorkItemID,
                link.completionDecision == .undecided {
                 VStack(alignment: .leading, spacing: 9) {
                     Text(completionPrompt(for: session))
