@@ -214,9 +214,14 @@ private struct StashIntegrationChecks {
         let completionTask = LedgerTask(title: "Review the completed work")
         let waitingTask = LedgerTask(title: "Answer the Agent")
         let lostTask = LedgerTask(title: "Recover interrupted work")
+        let failedOnlyTask = LedgerTask(title: "Abandoned failed launch")
+        let cancelledOnlyTask = LedgerTask(title: "Abandoned cancelled launch")
         let quietTask = LedgerTask(title: "Keep working")
         let completedTask = LedgerTask(title: "Already closed", status: .completed)
-        let tasks = [ambiguousTask, completionTask, waitingTask, lostTask, quietTask, completedTask]
+        let tasks = [
+            ambiguousTask, completionTask, waitingTask, lostTask,
+            failedOnlyTask, cancelledOnlyTask, quietTask, completedTask
+        ]
         let links = [
             AgentTaskLink(
                 taskID: ambiguousTask.id,
@@ -248,6 +253,20 @@ private struct StashIntegrationChecks {
                 source: .dispatched
             ),
             AgentTaskLink(
+                taskID: failedOnlyTask.id,
+                dispatchID: "dispatch-failed-only",
+                dispatchState: .failed,
+                runtimeID: "codex",
+                source: .dispatched
+            ),
+            AgentTaskLink(
+                taskID: cancelledOnlyTask.id,
+                dispatchID: "dispatch-cancelled-only",
+                dispatchState: .cancelled,
+                runtimeID: "claude-code",
+                source: .dispatched
+            ),
+            AgentTaskLink(
                 taskID: quietTask.id,
                 sessionID: "running-session",
                 dispatchState: .linked,
@@ -275,9 +294,13 @@ private struct StashIntegrationChecks {
         try expect(items.map(\.kind) == [.ambiguous, .completionReview, .waitingInput, .interrupted],
                    "attention queue did not preserve action priority")
         try expect(items.map(\.taskID) == [ambiguousTask.id, completionTask.id, waitingTask.id, lostTask.id],
-                   "attention queue included quiet or closed tasks")
+                   "attention queue included quiet, closed, or terminal-only failed/cancelled tasks")
         try expect(items.last?.sessionID == "lost-session",
                    "interrupted attention item lost its exact runtime session ID")
+        try expect(
+            !items.contains { $0.taskID == failedOnlyTask.id || $0.taskID == cancelledOnlyTask.id },
+            "open task with only failed/cancelled dispatch and no session must not appear in attention"
+        )
     }
 
     private static func checkRecoveryConfirmationTransport() async throws {

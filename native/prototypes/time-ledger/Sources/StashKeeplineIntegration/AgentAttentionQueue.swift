@@ -72,7 +72,9 @@ public enum AgentAttentionQueue {
             return .completionReview
         }
         if session?.status == .waiting { return .waitingInput }
-        if session?.status == .lost || link.dispatchState?.endsAttempt == true { return .interrupted }
+        // Terminal failed/cancelled dispatches are not attention unless a recoverable
+        // session remains (status .lost). Otherwise the row is sticky with no recover action.
+        if session?.status == .lost { return .interrupted }
         return nil
     }
 }
