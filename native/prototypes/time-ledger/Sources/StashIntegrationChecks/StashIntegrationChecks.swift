@@ -13,14 +13,16 @@ private actor FailAtSaveRepository: WorkspaceRepository {
     private(set) var saveAttempt = 0
     private let failingSaveAttempt: Int
     private var failNextSave = false
+    private var onFailingSave: (@Sendable () async -> Void)?
 
     init(workspace: LedgerWorkspace, failingSaveAttempt: Int) {
         self.workspace = workspace
         self.failingSaveAttempt = failingSaveAttempt
     }
 
-    func armNextSaveFailure() {
+    func armNextSaveFailure(onFailingSave: (@Sendable () async -> Void)? = nil) {
         failNextSave = true
+        self.onFailingSave = onFailingSave
     }
 
     func load() async throws -> LedgerWorkspace? { workspace }
@@ -29,6 +31,11 @@ private actor FailAtSaveRepository: WorkspaceRepository {
         saveAttempt += 1
         if failNextSave {
             failNextSave = false
+            let hook = onFailingSave
+            onFailingSave = nil
+            if let hook {
+                await hook()
+            }
             throw ForcedSaveFailure()
         }
         if saveAttempt == failingSaveAttempt {
@@ -276,6 +283,7 @@ private struct StashIntegrationChecks {
         try await checkResumeSuppressesLookupFailureAfterManualLink()
         try await checkLaunchRetryTerminalFailurePublishesNotice()
         try await checkResumePropagatesSaveFailureAfterLinkedPoll()
+        try await checkResumeDoesNotRollbackConcurrentManualLinkOnSaveFailure()
         try await checkResumeCancelsBeforeLaunchMutation()
         if let binary = ProcessInfo.processInfo.environment["STASH_KEEPLINE_E2E_BINARY"],
            !binary.isEmpty {
@@ -1474,6 +1482,61 @@ private struct StashIntegrationChecks {
         try expect(
             store.agentLink(for: pendingTask.id)?.dispatchState == .awaitingSession,
             "unsaved linked poll did not restore the prior pending dispatch snapshot"
+        )
+    }
+
+    @MainActor
+    private static func checkResumeDoesNotRollbackConcurrentManualLinkOnSaveFailure() async throws {
+        let pendingTask = LedgerTask(title: "Manual link during save failure")
+        let pendingLink = AgentTaskLink(
+            taskID: pendingTask.id,
+            keeplineWorkItemID: "work-concurrent-save",
+            dispatchID: "dispatch-concurrent-save",
+            dispatchState: .awaitingSession,
+            projectRoot: "/tmp",
+            runtimeID: "codex",
+            source: .dispatched
+        )
+        let repository = FailAtSaveRepository(
+            workspace: LedgerWorkspace(
+                tasks: [pendingTask],
+                agentTaskLinks: [pendingLink]
+            ),
+            failingSaveAttempt: 99
+        )
+        let store = LedgerStore(repository: repository, initialWorkspace: LedgerWorkspace())
+        await store.bootstrap()
+        await repository.armNextSaveFailure {
+            await MainActor.run {
+                guard var current = store.agentLink(for: pendingTask.id) else { return }
+                current.sessionID = "runtime-session-manual-during-save"
+                current.source = .manuallyLinked
+                _ = store.persistAgentLink(current)
+            }
+        }
+        let transport = RecordingTransport(
+            dispatchLookupState: "linked",
+            dispatchLookupLinkedSessionID: "runtime-session-poll-linked"
+        )
+        let coordinator = StashKeeplineCoordinator(store: store, transport: transport)
+
+        let outcome = try await coordinator.resumePendingAttempts()
+
+        try expect(
+            store.agentLink(for: pendingTask.id)?.sessionID == "runtime-session-manual-during-save",
+            "save-failure rollback erased a concurrent manual session link"
+        )
+        try expect(
+            store.agentLink(for: pendingTask.id)?.source == .manuallyLinked,
+            "save-failure rollback restored the stale poll snapshot over a concurrent manual link"
+        )
+        try expect(
+            outcome.notices.isEmpty,
+            "poll save failure must not sticky-warn after a concurrent manual link"
+        )
+        try expect(
+            outcome.recoveredTaskIDs.isEmpty,
+            "unsaved poll apply must not count as recovered even when a concurrent manual link wins"
         )
     }
 

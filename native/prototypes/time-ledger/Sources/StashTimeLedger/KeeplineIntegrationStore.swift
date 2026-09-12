@@ -440,6 +440,9 @@ final class KeeplineIntegrationStore: ObservableObject {
         defer { busyTaskIDs.remove(taskID) }
         do {
             try await operation()
+            // A concurrent resume may have published while this foreground
+            // operation was in flight; drop resume-owned notices after success.
+            clearResumeError(for: taskID)
         } catch {
             publishTaskError(error.localizedDescription, for: taskID)
         }
@@ -455,7 +458,9 @@ final class KeeplineIntegrationStore: ObservableObject {
         resumeErrorTaskIDs.remove(taskID)
         defer { busyTaskIDs.remove(taskID) }
         do {
-            return try await operation()
+            let value = try await operation()
+            clearResumeError(for: taskID)
+            return value
         } catch {
             publishTaskError(error.localizedDescription, for: taskID)
             return nil
@@ -505,6 +510,10 @@ final class KeeplineIntegrationStore: ObservableObject {
     }
 
     private func publishResumeTaskError(_ message: String, for taskID: UUID) {
+        // Foreground ops mark the task busy before remote work. A periodic
+        // resume that fails mid-flight must not sticky-warn a task the user is
+        // already linking/launching; success clears via clearResumeError.
+        guard !busyTaskIDs.contains(taskID) else { return }
         publishTaskError(message, for: taskID)
         resumeErrorTaskIDs.insert(taskID)
     }

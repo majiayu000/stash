@@ -407,7 +407,10 @@ public final class StashKeeplineCoordinator {
     }
 
     /// Persists `updated`, then flushes. On flush failure, restores `previous` in
-    /// memory so an unsaved linked session cannot look like a recovered link.
+    /// memory so an unsaved linked session cannot look like a recovered link —
+    /// but only when the poll-owned value is still current. A concurrent
+    /// `manualLink` (or other MainActor update) may replace the link while
+    /// `require` is suspended; rolling back then would erase the newer update.
     private func persistLinkRequiringSave(
         _ updated: AgentTaskLink,
         restoringOnFailure previous: AgentTaskLink
@@ -418,7 +421,9 @@ public final class StashKeeplineCoordinator {
         do {
             try await WorkspacePersistenceGate.require(store)
         } catch {
-            if updated != previous {
+            if updated != previous,
+               let current = store.workspace.agentTaskLinks.first(where: { $0.id == updated.id }),
+               current == updated {
                 _ = store.persistAgentLink(previous)
             }
             throw error
