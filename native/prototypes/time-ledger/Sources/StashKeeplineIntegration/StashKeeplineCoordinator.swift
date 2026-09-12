@@ -15,7 +15,8 @@ public struct StashIntegrationNotice: Equatable, Sendable {
 public struct StashPendingResumeResult: Equatable, Sendable {
     public var notices: [StashIntegrationNotice]
     /// Task IDs whose pending dispatch was processed without a failure notice.
-    /// Callers should clear any prior transient resume error for these IDs.
+    /// Callers should clear only prior *resume* notices for these IDs — not
+    /// unrelated `taskErrors` entries such as a failed `manualLink`.
     public var recoveredTaskIDs: [UUID]
 
     public init(
@@ -217,8 +218,20 @@ public final class StashKeeplineCoordinator {
                 }
                 guard let dispatchID = link.dispatchID else { continue }
                 let dispatch = try await transport.dispatch(id: dispatchID)
-                let updated = Self.applying(dispatch, to: link)
-                if updated != link {
+                // Reload after the await: manualLink may have attached a session
+                // while this poll was in flight. Never persist a stale snapshot.
+                guard let current = store.workspace.agentTaskLinks.first(where: { $0.id == link.id }),
+                      !current.isTerminal,
+                      current.source == .dispatched,
+                      current.dispatchID == dispatchID else {
+                    continue
+                }
+                if current.sessionID != nil {
+                    recoveredTaskIDs.append(link.taskID)
+                    continue
+                }
+                let updated = Self.applying(dispatch, to: current)
+                if updated != current {
                     guard store.persistAgentLink(updated) else {
                         throw StashKeeplineCoordinatorError.activeLinkConflict
                     }
@@ -318,7 +331,16 @@ public final class StashKeeplineCoordinator {
                 )
             )
         }
-        let updated = Self.applying(dispatch, to: pending)
+        // Reload after remote work so a concurrent manualLink is not wiped.
+        guard let current = store.workspace.agentTaskLinks.first(where: { $0.id == pending.id }),
+              !current.isTerminal,
+              current.source == .dispatched else {
+            return
+        }
+        if current.sessionID != nil {
+            return
+        }
+        let updated = Self.applying(dispatch, to: current)
         guard store.persistAgentLink(updated) else {
             throw StashKeeplineCoordinatorError.activeLinkConflict
         }

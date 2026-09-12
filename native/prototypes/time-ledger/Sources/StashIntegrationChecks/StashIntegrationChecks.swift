@@ -50,14 +50,17 @@ private actor RecordingTransport: KeeplineTransport {
     private(set) var dispatchLookupIDs: [String] = []
     private let completionReviewEvidenceID: String?
     private let dispatchLookupError: Error?
+    private let onDispatchLookup: (@Sendable () async -> Void)?
     private(set) var recoveredSessionIDs: [String] = []
 
     init(
         completionReviewEvidenceID: String? = nil,
-        dispatchLookupError: Error? = nil
+        dispatchLookupError: Error? = nil,
+        onDispatchLookup: (@Sendable () async -> Void)? = nil
     ) {
         self.completionReviewEvidenceID = completionReviewEvidenceID
         self.dispatchLookupError = dispatchLookupError
+        self.onDispatchLookup = onDispatchLookup
     }
 
     func count(_ mutation: RecordedMutation) -> Int {
@@ -133,6 +136,9 @@ private actor RecordingTransport: KeeplineTransport {
 
     func dispatch(id: String) async throws -> KeeplineDispatch {
         dispatchLookupIDs.append(id)
+        if let onDispatchLookup {
+            await onDispatchLookup()
+        }
         if let dispatchLookupError {
             throw dispatchLookupError
         }
@@ -197,6 +203,7 @@ private struct StashIntegrationChecks {
         try await checkResumeSkipsLaunchWithoutCapabilityButPollsExisting()
         try await checkResumePropagatesCancellation()
         try await checkResumeClearsRecoveredTaskIDs()
+        try await checkResumeDoesNotOverwriteManualLinkDuringPoll()
         if let binary = ProcessInfo.processInfo.environment["STASH_KEEPLINE_E2E_BINARY"],
            !binary.isEmpty {
             try await checkPackagedCompletionClaimFlow(binary: binary)
@@ -1075,6 +1082,53 @@ private struct StashIntegrationChecks {
             outcome.recoveredTaskIDs == [pendingTask.id],
             "successful poll did not expose recovered task IDs for error clearing"
         )
+    }
+
+    @MainActor
+    private static func checkResumeDoesNotOverwriteManualLinkDuringPoll() async throws {
+        let pendingTask = LedgerTask(title: "Manual link during poll")
+        let pendingLink = AgentTaskLink(
+            taskID: pendingTask.id,
+            keeplineWorkItemID: "work-race",
+            dispatchID: "dispatch-race",
+            dispatchState: .awaitingSession,
+            projectRoot: "/tmp",
+            runtimeID: "codex",
+            source: .dispatched
+        )
+        let repository = FailAtSaveRepository(
+            workspace: LedgerWorkspace(
+                tasks: [pendingTask],
+                agentTaskLinks: [pendingLink]
+            ),
+            failingSaveAttempt: 99
+        )
+        let store = LedgerStore(repository: repository, initialWorkspace: LedgerWorkspace())
+        await store.bootstrap()
+        let transport = RecordingTransport(onDispatchLookup: {
+            await MainActor.run {
+                guard var current = store.agentLink(for: pendingTask.id) else { return }
+                current.sessionID = "runtime-session-manual"
+                _ = store.persistAgentLink(current)
+            }
+        })
+        let coordinator = StashKeeplineCoordinator(store: store, transport: transport)
+
+        let outcome = try await coordinator.resumePendingAttempts()
+
+        try expect(
+            store.agentLink(for: pendingTask.id)?.sessionID == "runtime-session-manual",
+            "stale awaiting_session poll overwrote a concurrent manual session link"
+        )
+        try expect(
+            store.agentLink(for: pendingTask.id)?.dispatchState == .awaitingSession,
+            "stale poll mutated dispatch state after manual link"
+        )
+        try expect(
+            outcome.recoveredTaskIDs == [pendingTask.id],
+            "manual link during poll should count as recovered, not a wipe"
+        )
+        try expect(outcome.notices.isEmpty, "manual link during poll produced unexpected notices")
     }
 
     @MainActor

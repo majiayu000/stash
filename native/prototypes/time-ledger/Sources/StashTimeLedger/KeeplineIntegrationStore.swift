@@ -104,6 +104,8 @@ final class KeeplineIntegrationStore: ObservableObject {
     private var didAttemptServiceLaunch = false
     private var sceneIsActive = true
     private var lastSuccessfulRefreshAt: Date?
+    /// Task IDs whose current `taskErrors` entry was published by pending-dispatch resume.
+    private var resumeErrorTaskIDs: Set<UUID> = []
 
     init(
         transport: (any KeeplineTransport)?,
@@ -192,6 +194,7 @@ final class KeeplineIntegrationStore: ObservableObject {
 
     func clearError(for taskID: UUID) {
         taskErrors[taskID] = nil
+        resumeErrorTaskIDs.remove(taskID)
     }
 
     func link(_ session: KeeplineSession, to task: LedgerTask) async {
@@ -336,20 +339,15 @@ final class KeeplineIntegrationStore: ObservableObject {
             }
 
             let nextSessions = try await transport.listSessions().sorted(by: Self.sessionComesFirst)
-            try await coordinator.syncTaskProjections()
             if metadata != nextMetadata { metadata = nextMetadata }
             if sessions != nextSessions { sessions = nextSessions }
             failureCount = 0
             let refreshedAt = Date.now
             lastSuccessfulRefreshAt = refreshedAt
-            if case .ready = state {
-                // Keep the published state stable while refreshing identical values.
-            } else {
-                publishState(.ready(refreshedAt))
-            }
 
-            // Pending-dispatch resume is best-effort: never poison a recovery-capable
-            // .ready connection when transport.dispatch fails or dispatch.* is absent.
+            // Pending-dispatch resume is best-effort and must not be starved by
+            // projection sync failures. Run it before publishing `.ready` so the
+            // session-linking UI stays disabled until polls finish on connect.
             // Gate launch retries on dispatch.* capabilities, but always reconcile
             // links that already have a dispatch ID via transport.dispatch(id:).
             let allowLaunchRetries = nextMetadata.capabilities.contains {
@@ -360,16 +358,32 @@ final class KeeplineIntegrationStore: ObservableObject {
                     allowLaunchRetries: allowLaunchRetries
                 )
                 for taskID in outcome.recoveredTaskIDs {
-                    clearError(for: taskID)
+                    clearResumeError(for: taskID)
                 }
                 for notice in outcome.notices {
-                    publishTaskError(notice.message, for: notice.taskID)
+                    publishResumeTaskError(notice.message, for: notice.taskID)
                 }
             } catch is CancellationError {
                 return
             } catch {
                 // Per-task isolation lives in the coordinator; this catch is a
                 // backstop so a bulk resume throw cannot mark the connection stale.
+            }
+
+            if case .ready = state {
+                // Keep the published state stable while refreshing identical values.
+            } else {
+                publishState(.ready(refreshedAt))
+            }
+
+            // Projection sync is best-effort relative to resume: a failing upsert
+            // must not block pending-dispatch reconciliation on later refreshes.
+            do {
+                try await coordinator.syncTaskProjections()
+            } catch is CancellationError {
+                return
+            } catch {
+                // Leave .ready intact; the next refresh retries projections.
             }
         } catch {
             if didAttemptServiceLaunch, serviceController?.ownsRunningChild != true {
@@ -424,6 +438,7 @@ final class KeeplineIntegrationStore: ObservableObject {
         guard !busyTaskIDs.contains(taskID) else { return }
         busyTaskIDs.insert(taskID)
         taskErrors[taskID] = nil
+        resumeErrorTaskIDs.remove(taskID)
         defer { busyTaskIDs.remove(taskID) }
         do {
             try await operation()
@@ -439,6 +454,7 @@ final class KeeplineIntegrationStore: ObservableObject {
         guard !busyTaskIDs.contains(taskID) else { return nil }
         busyTaskIDs.insert(taskID)
         taskErrors[taskID] = nil
+        resumeErrorTaskIDs.remove(taskID)
         defer { busyTaskIDs.remove(taskID) }
         do {
             return try await operation()
@@ -485,6 +501,17 @@ final class KeeplineIntegrationStore: ObservableObject {
 
     private func publishTaskError(_ message: String, for taskID: UUID) {
         if taskErrors[taskID] != message { taskErrors[taskID] = message }
+    }
+
+    private func publishResumeTaskError(_ message: String, for taskID: UUID) {
+        publishTaskError(message, for: taskID)
+        resumeErrorTaskIDs.insert(taskID)
+    }
+
+    private func clearResumeError(for taskID: UUID) {
+        guard resumeErrorTaskIDs.contains(taskID) else { return }
+        taskErrors[taskID] = nil
+        resumeErrorTaskIDs.remove(taskID)
     }
 }
 
