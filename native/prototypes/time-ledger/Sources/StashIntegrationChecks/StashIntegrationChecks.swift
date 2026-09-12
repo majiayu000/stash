@@ -38,16 +38,25 @@ private enum RecordedMutation: Hashable {
     case recoveryExecution
 }
 
+private struct ForcedDispatchLookupFailure: LocalizedError {
+    var errorDescription: String? { "forced dispatch lookup failure" }
+}
+
 private actor RecordingTransport: KeeplineTransport {
     private var mutationCounts: [RecordedMutation: Int] = [:]
     private var dispatchIDsByKey: [String: String] = [:]
     private(set) var dispatchKeys: [String] = []
     private(set) var logicalLaunchCount = 0
     private let completionReviewEvidenceID: String?
+    private let dispatchLookupError: Error?
     private(set) var recoveredSessionIDs: [String] = []
 
-    init(completionReviewEvidenceID: String? = nil) {
+    init(
+        completionReviewEvidenceID: String? = nil,
+        dispatchLookupError: Error? = nil
+    ) {
         self.completionReviewEvidenceID = completionReviewEvidenceID
+        self.dispatchLookupError = dispatchLookupError
     }
 
     func count(_ mutation: RecordedMutation) -> Int {
@@ -122,7 +131,10 @@ private actor RecordingTransport: KeeplineTransport {
     }
 
     func dispatch(id: String) async throws -> KeeplineDispatch {
-        try dispatchFixture(
+        if let dispatchLookupError {
+            throw dispatchLookupError
+        }
+        return try dispatchFixture(
             id: id,
             workItemID: "work-1",
             runtimeID: "codex",
@@ -179,6 +191,7 @@ private struct StashIntegrationChecks {
         try await checkCompletionReviewResponseIdentity()
         try await checkProjectionSyncGate()
         try await checkIdempotentRestartRecovery()
+        try await checkResumeDispatchFailureIsIsolated()
         if let binary = ProcessInfo.processInfo.environment["STASH_KEEPLINE_E2E_BINARY"],
            !binary.isEmpty {
             try await checkPackagedCompletionClaimFlow(binary: binary)
@@ -870,6 +883,57 @@ private struct StashIntegrationChecks {
         try expect(logicalLaunches == 1, "idempotent retry produced two logical launches")
         let savedLink = savedWorkspace?.agentTaskLinks.first
         try expect(savedLink?.dispatchID == "dispatch-1", "retry did not converge on the original dispatch")
+    }
+
+    @MainActor
+    private static func checkResumeDispatchFailureIsIsolated() async throws {
+        let pendingTask = LedgerTask(title: "Pending dispatch resume")
+        let recoveredTask = LedgerTask(title: "Already recoverable session")
+        let pendingLink = AgentTaskLink(
+            taskID: pendingTask.id,
+            keeplineWorkItemID: "work-pending",
+            dispatchID: "dispatch-bad",
+            dispatchState: .awaitingSession,
+            projectRoot: "/tmp",
+            runtimeID: "codex",
+            source: .dispatched
+        )
+        let recoveredLink = AgentTaskLink(
+            taskID: recoveredTask.id,
+            keeplineWorkItemID: "work-recovered",
+            sessionID: "runtime-session-1",
+            projectRoot: "/tmp",
+            runtimeID: "codex",
+            source: .manuallyLinked
+        )
+        let repository = FailAtSaveRepository(
+            workspace: LedgerWorkspace(
+                tasks: [pendingTask, recoveredTask],
+                agentTaskLinks: [pendingLink, recoveredLink]
+            ),
+            failingSaveAttempt: 99
+        )
+        let store = LedgerStore(repository: repository, initialWorkspace: LedgerWorkspace())
+        await store.bootstrap()
+        let transport = RecordingTransport(dispatchLookupError: ForcedDispatchLookupFailure())
+        let coordinator = StashKeeplineCoordinator(store: store, transport: transport)
+
+        let notices = try await coordinator.resumePendingAttempts()
+
+        try expect(notices.count == 1, "resume failure did not surface exactly one task notice")
+        try expect(notices[0].taskID == pendingTask.id, "resume failure notice targeted the wrong task")
+        try expect(
+            notices[0].message == "forced dispatch lookup failure",
+            "resume failure notice lost the dispatch error"
+        )
+        try expect(
+            store.agentLink(for: recoveredTask.id)?.sessionID == "runtime-session-1",
+            "resume failure mutated a healthy recoverable session link"
+        )
+        try expect(
+            store.agentLink(for: pendingTask.id)?.dispatchID == "dispatch-bad",
+            "failed resume should leave the pending dispatch link in place"
+        )
     }
 
     @MainActor

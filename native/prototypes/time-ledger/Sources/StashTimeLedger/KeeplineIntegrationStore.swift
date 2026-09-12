@@ -336,10 +336,6 @@ final class KeeplineIntegrationStore: ObservableObject {
             }
 
             let nextSessions = try await transport.listSessions().sorted(by: Self.sessionComesFirst)
-            let notices = try await coordinator.resumePendingAttempts()
-            for notice in notices {
-                publishTaskError(notice.message, for: notice.taskID)
-            }
             try await coordinator.syncTaskProjections()
             if metadata != nextMetadata { metadata = nextMetadata }
             if sessions != nextSessions { sessions = nextSessions }
@@ -350,6 +346,23 @@ final class KeeplineIntegrationStore: ObservableObject {
                 // Keep the published state stable while refreshing identical values.
             } else {
                 publishState(.ready(refreshedAt))
+            }
+
+            // Pending-dispatch resume is best-effort: never poison a recovery-capable
+            // .ready connection when transport.dispatch fails or dispatch.* is absent.
+            let hasDispatchCapability = nextMetadata.capabilities.contains {
+                $0.hasPrefix("dispatch.")
+            }
+            if hasDispatchCapability {
+                do {
+                    let notices = try await coordinator.resumePendingAttempts()
+                    for notice in notices {
+                        publishTaskError(notice.message, for: notice.taskID)
+                    }
+                } catch {
+                    // Per-task isolation lives in the coordinator; this catch is a
+                    // backstop so a bulk resume throw cannot mark the connection stale.
+                }
             }
         } catch {
             if didAttemptServiceLaunch, serviceController?.ownsRunningChild != true {

@@ -186,29 +186,36 @@ public final class StashKeeplineCoordinator {
         var notices: [StashIntegrationNotice] = []
         for link in pending {
             if link.dispatchState == .ambiguous { continue }
-            if link.dispatchID == nil {
-                guard let task = store.task(id: link.taskID) else { continue }
-                try await resumeDispatchAttempt(link: link, task: task)
-                continue
-            }
-            guard let dispatchID = link.dispatchID else { continue }
-            let dispatch = try await transport.dispatch(id: dispatchID)
-            let updated = Self.applying(dispatch, to: link)
-            if updated != link {
-                guard store.persistAgentLink(updated) else {
-                    throw StashKeeplineCoordinatorError.activeLinkConflict
+            do {
+                if link.dispatchID == nil {
+                    guard let task = store.task(id: link.taskID) else { continue }
+                    try await resumeDispatchAttempt(link: link, task: task)
+                    continue
                 }
-                try await WorkspacePersistenceGate.require(store)
-            }
-            if updated.dispatchState == .ambiguous {
+                guard let dispatchID = link.dispatchID else { continue }
+                let dispatch = try await transport.dispatch(id: dispatchID)
+                let updated = Self.applying(dispatch, to: link)
+                if updated != link {
+                    guard store.persistAgentLink(updated) else {
+                        throw StashKeeplineCoordinatorError.activeLinkConflict
+                    }
+                    try await WorkspacePersistenceGate.require(store)
+                }
+                if updated.dispatchState == .ambiguous {
+                    notices.append(StashIntegrationNotice(
+                        taskID: link.taskID,
+                        message: "More than one Agent session matched. Choose the correct session."
+                    ))
+                } else if updated.dispatchState == .failed || updated.dispatchState == .cancelled {
+                    notices.append(StashIntegrationNotice(
+                        taskID: link.taskID,
+                        message: dispatch.error ?? "Keepline could not launch this Agent."
+                    ))
+                }
+            } catch {
                 notices.append(StashIntegrationNotice(
                     taskID: link.taskID,
-                    message: "More than one Agent session matched. Choose the correct session."
-                ))
-            } else if updated.dispatchState == .failed || updated.dispatchState == .cancelled {
-                notices.append(StashIntegrationNotice(
-                    taskID: link.taskID,
-                    message: dispatch.error ?? "Keepline could not launch this Agent."
+                    message: error.localizedDescription
                 ))
             }
         }
