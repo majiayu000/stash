@@ -287,6 +287,8 @@ private struct StashIntegrationChecks {
         try await checkLaunchRetryTerminalFailurePublishesNotice()
         try await checkResumeDropsBufferedNoticeAfterOverlappingTerminalPoll()
         try await checkResumeRejectsNoticeAfterNewerSuccessfulPollGeneration()
+        try await checkResumeKeepsTerminalNoticeDespiteRecoveryGeneration()
+        try await checkForegroundErrorGenerationRejectsBufferedResumeNotice()
         try await checkResumePropagatesSaveFailureAfterLinkedPoll()
         try await checkResumeDoesNotRollbackConcurrentManualLinkOnSaveFailure()
         try await checkResumeCancelsBeforeLaunchMutation()
@@ -1733,6 +1735,126 @@ private struct StashIntegrationChecks {
         try expect(
             sameGeneration.notices.count == 1,
             "generation gate dropped a notice whose snapshot still matches"
+        )
+    }
+
+    @MainActor
+    private static func checkResumeKeepsTerminalNoticeDespiteRecoveryGeneration() async throws {
+        // Two refreshes observe the same generation. The first successfully polls
+        // awaiting_session and stamps a recovery generation; the second later
+        // persists failed/cancelled. Generation gating must not drop that terminal
+        // notice — terminal links leave future resume batches.
+        let task = LedgerTask(title: "Terminal after sibling recovery")
+        let link = AgentTaskLink(
+            taskID: task.id,
+            keeplineWorkItemID: "work-terminal-gen",
+            dispatchID: "dispatch-terminal-gen",
+            dispatchState: .failed,
+            projectRoot: "/tmp",
+            runtimeID: "codex",
+            source: .dispatched
+        )
+        let terminal = StashPendingResumeResult(
+            notices: [
+                StashIntegrationNotice(
+                    taskID: task.id,
+                    linkID: link.id,
+                    message: "authentication required",
+                    observedDispatchState: .failed
+                )
+            ]
+        )
+        let revalidated = terminal.revalidated(against: [link])
+        try expect(
+            revalidated.notices.count == 1,
+            "stamp-matching terminal notice should survive revalidation"
+        )
+        let kept = revalidated.rejectingNoticesSupersededByGeneration(
+            observed: [:],
+            current: [task.id: 3]
+        )
+        try expect(
+            kept.notices.count == 1,
+            "generation gate dropped a terminal notice after a sibling recovery stamp"
+        )
+        let cancelledLink = AgentTaskLink(
+            id: link.id,
+            taskID: task.id,
+            keeplineWorkItemID: "work-terminal-gen",
+            dispatchID: "dispatch-terminal-gen",
+            dispatchState: .cancelled,
+            projectRoot: "/tmp",
+            runtimeID: "codex",
+            source: .dispatched
+        )
+        let cancelledNotice = StashPendingResumeResult(
+            notices: [
+                StashIntegrationNotice(
+                    taskID: task.id,
+                    linkID: cancelledLink.id,
+                    message: "dispatch cancelled",
+                    observedDispatchState: .cancelled
+                )
+            ]
+        )
+        let cancelledKept = cancelledNotice
+            .revalidated(against: [cancelledLink])
+            .rejectingNoticesSupersededByGeneration(
+                observed: [:],
+                current: [task.id: 9]
+            )
+        try expect(
+            cancelledKept.notices.count == 1,
+            "generation gate dropped a cancelled terminal notice after recovery stamp"
+        )
+    }
+
+    @MainActor
+    private static func checkForegroundErrorGenerationRejectsBufferedResumeNotice() async throws {
+        // A refresh observes an absent generation, buffers a resume lookup failure,
+        // then awaits. Concurrent foreground publishTaskError must advance generation
+        // (not nil it) so the buffered notice fails the generation gate and cannot
+        // overwrite the actionable manual-link error.
+        let task = LedgerTask(title: "Foreground then buffered resume")
+        let link = AgentTaskLink(
+            taskID: task.id,
+            keeplineWorkItemID: "work-fg-gen",
+            dispatchID: "dispatch-fg-gen",
+            dispatchState: .awaitingSession,
+            projectRoot: "/tmp",
+            runtimeID: "codex",
+            source: .dispatched
+        )
+        let buffered = StashPendingResumeResult(
+            notices: [
+                StashIntegrationNotice(
+                    taskID: task.id,
+                    linkID: link.id,
+                    message: "stale resume lookup after foreground error",
+                    observedDispatchState: .awaitingSession
+                )
+            ]
+        )
+        let revalidated = buffered.revalidated(against: [link])
+        // Mirror publishTaskError: drop resume ownership by advancing generation
+        // rather than resetting to the absent value the refresh observed.
+        let afterForeground: [UUID: UInt64] = [task.id: 1]
+        let rejected = revalidated.rejectingNoticesSupersededByGeneration(
+            observed: [:],
+            current: afterForeground
+        )
+        try expect(
+            rejected.notices.isEmpty,
+            "buffered resume notice overwrote foreground error after generation was only cleared"
+        )
+        // Regression: nilling generation back to absent must not be treated as a fix.
+        let clearedToAbsent = revalidated.rejectingNoticesSupersededByGeneration(
+            observed: [:],
+            current: [:]
+        )
+        try expect(
+            clearedToAbsent.notices.count == 1,
+            "absent-generation baseline should still match an un-advanced snapshot"
         )
     }
 

@@ -532,9 +532,11 @@ final class KeeplineIntegrationStore: ObservableObject {
     private func publishTaskError(_ message: String, for taskID: UUID) {
         if taskErrors[taskID] != message { taskErrors[taskID] = message }
         // Non-resume errors replace the shared taskErrors entry; drop resume
-        // ownership so a later recovered poll cannot clear this foreground notice.
+        // ownership and advance generation so already-buffered resume notices
+        // (which may have observed an absent generation) cannot overwrite this
+        // foreground failure when the batch later publishes.
         resumeErrorTaskIDs.remove(taskID)
-        resumeErrorGeneration[taskID] = nil
+        bumpResumeErrorGeneration(for: taskID)
     }
 
     private func publishResumeTaskError(_ message: String, for taskID: UUID) {

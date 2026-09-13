@@ -96,12 +96,19 @@ public struct StashPendingResumeResult: Equatable, Sendable {
     /// snapshot taken before this refresh awaited. A newer overlapping recovery
     /// stamps the generation so an unchanged `awaiting_session` link cannot publish
     /// a stale failure after a successful poll already cleared the path.
+    /// Terminal failed/cancelled notices are exempt: a sibling refresh may have
+    /// stamped a recovery generation for an earlier `awaiting_session` poll, but
+    /// terminal links leave future resume batches so the actionable `dispatch.error`
+    /// must still surface.
     public func rejectingNoticesSupersededByGeneration(
         observed: [UUID: UInt64],
         current: [UUID: UInt64]
     ) -> StashPendingResumeResult {
         let filtered = notices.filter { notice in
-            (current[notice.taskID] ?? 0) == (observed[notice.taskID] ?? 0)
+            if notice.observedDispatchState?.endsAttempt == true {
+                return true
+            }
+            return (current[notice.taskID] ?? 0) == (observed[notice.taskID] ?? 0)
         }
         return StashPendingResumeResult(
             notices: filtered,
