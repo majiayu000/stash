@@ -317,6 +317,10 @@ public final class StashKeeplineCoordinator {
     /// Ensures a reserved manual recovery still owns the same launch attempt
     /// after an await. Import may drop the UUID or preserve it while swapping
     /// task/attempt fields; either case must not re-add or overwrite.
+    /// A concurrent resume poll may also promote the link to `.ambiguous`
+    /// while upsert/session-link suspends — reject that so recovery goes through
+    /// `resolveAmbiguous` instead of persisting a session onto unresolved
+    /// dispatch-specific ambiguity (`.ambiguous` is not terminal).
     private static func requireReservedManualRecoveryLink(
         _ current: AgentTaskLink?,
         matching original: AgentTaskLink
@@ -326,6 +330,9 @@ public final class StashKeeplineCoordinator {
               current.sessionID == nil,
               !current.isTerminal else {
             throw StashKeeplineCoordinatorError.linkNotFound
+        }
+        guard current.dispatchState != .ambiguous else {
+            throw StashKeeplineCoordinatorError.invalidDispatchCandidate
         }
         return current
     }

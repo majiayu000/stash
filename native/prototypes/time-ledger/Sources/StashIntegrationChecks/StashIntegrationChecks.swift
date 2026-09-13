@@ -330,6 +330,7 @@ private struct StashIntegrationChecks {
         try await checkResumeSkipsPersistingLinkRemovedDuringImport()
         try await checkManualLinkReservesMissingIdentityAgainstResume()
         try await checkManualLinkReservesKnownIdentityAgainstResume()
+        try await checkManualLinkRejectsAmbiguousDuringReservedUpsert()
         try await checkResumeSkipsLaunchAfterImportReplacesSameIDAttempt()
         try await checkManualLinkRejectsImportRemovalDuringMissingIdentityUpsert()
         try await checkManualLinkRejectsSameIDImportDuringMissingIdentitySessionLink()
@@ -2925,6 +2926,76 @@ private struct StashIntegrationChecks {
         try expect(
             store.agentLink(for: pendingTask.id)?.keeplineWorkItemID == "work-1",
             "known-identity manualLink changed the reserved work-item id"
+        )
+    }
+
+    @MainActor
+    private static func checkManualLinkRejectsAmbiguousDuringReservedUpsert() async throws {
+        // An in-flight resume poll can flip a reserved known-identity link to
+        // .ambiguous while manualLink awaits upsert. requireReserved must reject
+        // so we do not persist a session without resolveAmbiguous.
+        let pendingTask = LedgerTask(title: "Manual reject ambiguous during upsert")
+        let pendingLink = AgentTaskLink(
+            taskID: pendingTask.id,
+            keeplineWorkItemID: "work-1",
+            dispatchID: "dispatch-ambiguous-during-manual",
+            dispatchState: .awaitingSession,
+            idempotencyKey: "stash:\(pendingTask.id.uuidString):manual-reject-ambiguous",
+            projectRoot: "/tmp",
+            runtimeID: "codex",
+            source: .dispatched
+        )
+        let repository = FailAtSaveRepository(
+            workspace: LedgerWorkspace(
+                tasks: [pendingTask],
+                agentTaskLinks: [pendingLink]
+            ),
+            failingSaveAttempt: 99
+        )
+        let store = LedgerStore(repository: repository, initialWorkspace: LedgerWorkspace())
+        await store.bootstrap()
+
+        let gate = UpsertCancellationGate()
+        let transport = RecordingTransport(onUpsert: {
+            await gate.waitUntilCancelled()
+        })
+        let coordinator = StashKeeplineCoordinator(store: store, transport: transport)
+        let session = try sessionFixture()
+
+        let manualTask = Task { @MainActor in
+            try await coordinator.manualLink(session, to: pendingTask)
+        }
+        await gate.waitUntilUpsertStarted()
+        guard var current = store.agentLink(for: pendingTask.id) else {
+            throw CheckFailure.failed("reserved link disappeared before ambiguous promotion")
+        }
+        current.dispatchState = .ambiguous
+        current.candidateSessionIDs = ["candidate-a", "runtime-session-1"]
+        _ = store.persistAgentLink(current)
+        await gate.releaseUpsert()
+
+        do {
+            try await manualTask.value
+            throw CheckFailure.failed("manualLink succeeded after reserved link became ambiguous")
+        } catch StashKeeplineCoordinatorError.invalidDispatchCandidate {
+            // expected — caller should retry via resolveAmbiguous
+        }
+
+        let links = await transport.count(.manualSessionLink)
+        let resolves = await transport.count(.ambiguousResolution)
+        try expect(links == 0, "session link ran after reserved link became ambiguous")
+        try expect(resolves == 0, "manualLink resolved ambiguity instead of rejecting for resolveAmbiguous")
+        try expect(
+            store.agentLink(for: pendingTask.id)?.sessionID == nil,
+            "manualLink persisted a session onto an ambiguous reserved link"
+        )
+        try expect(
+            store.agentLink(for: pendingTask.id)?.dispatchState == .ambiguous,
+            "manualLink cleared the ambiguous state discovered during upsert"
+        )
+        try expect(
+            store.agentLink(for: pendingTask.id)?.candidateSessionIDs == ["candidate-a", "runtime-session-1"],
+            "manualLink cleared ambiguous candidates discovered during upsert"
         )
     }
 
