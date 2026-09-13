@@ -342,6 +342,8 @@ private struct StashIntegrationChecks {
         try await checkManualLinkRejectsImportedWorkItemIdentityDuringKnownIdentityUpsert()
         try await checkResumePreservesImportedWorkItemIdentityDuringMissingIdentityUpsert()
         try await checkManualLinkAcceptsConcurrentPollAttachedRequestedSession()
+        try await checkManualLinkReconcilesDifferentConcurrentPollSession()
+        try await checkManualLinkMissingIdentityFlushFailureLeavesNonLaunchableCheckpoint()
         if let binary = ProcessInfo.processInfo.environment["STASH_KEEPLINE_E2E_BINARY"],
            !binary.isEmpty {
             try await checkPackagedCompletionClaimFlow(binary: binary)
@@ -3723,6 +3725,117 @@ private struct StashIntegrationChecks {
         )
         let links = await transport.count(.manualSessionLink)
         try expect(links == 1, "manualLink skipped session link before concurrent poll attach")
+    }
+
+    @MainActor
+    private static func checkManualLinkReconcilesDifferentConcurrentPollSession() async throws {
+        // Existing-dispatch poll attaches session B while known-identity manualLink
+        // awaits linkSession for session A. After the remote mutation links A,
+        // requireReserved must not throw — persist the user's requested session.
+        let pendingTask = LedgerTask(title: "Manual reconciles different poll session")
+        let pendingLink = AgentTaskLink(
+            taskID: pendingTask.id,
+            keeplineWorkItemID: "work-1",
+            dispatchID: "dispatch-poll-other",
+            dispatchState: .awaitingSession,
+            projectRoot: "/tmp",
+            runtimeID: "codex",
+            source: .dispatched
+        )
+        let repository = FailAtSaveRepository(
+            workspace: LedgerWorkspace(
+                tasks: [pendingTask],
+                agentTaskLinks: [pendingLink]
+            ),
+            failingSaveAttempt: 99
+        )
+        let store = LedgerStore(repository: repository, initialWorkspace: LedgerWorkspace())
+        await store.bootstrap()
+        let transport = RecordingTransport(onLinkSession: {
+            await MainActor.run {
+                guard var current = store.agentLink(for: pendingTask.id) else { return }
+                current.sessionID = "runtime-session-other"
+                _ = store.persistAgentLink(current)
+            }
+        })
+        let coordinator = StashKeeplineCoordinator(store: store, transport: transport)
+        let session = try sessionFixture()
+
+        try await coordinator.manualLink(session, to: pendingTask)
+
+        try expect(
+            store.agentLink(for: pendingTask.id)?.sessionID == "runtime-session-1",
+            "manualLink left the concurrent poll session instead of the requested one"
+        )
+        try expect(
+            store.agentLink(for: pendingTask.id)?.keeplineWorkItemID == "work-1",
+            "manualLink changed work-item identity while reconciling poll session"
+        )
+        let links = await transport.count(.manualSessionLink)
+        try expect(links == 1, "manualLink skipped session link when poll attached another session")
+    }
+
+    @MainActor
+    private static func checkManualLinkMissingIdentityFlushFailureLeavesNonLaunchableCheckpoint() async throws {
+        // Missing-identity manual recovery upserts and remotely links the session,
+        // then the final flush fails. Disk must retain a non-launchable checkpoint
+        // (manuallyLinked + work-item ID) so restart cannot dispatch a new Agent.
+        let pendingTask = LedgerTask(title: "Manual missing identity flush failure")
+        let pendingLink = AgentTaskLink(
+            taskID: pendingTask.id,
+            dispatchState: .pending,
+            idempotencyKey: "stash:\(pendingTask.id.uuidString):flush-fail",
+            projectRoot: "/tmp",
+            runtimeID: "codex",
+            source: .dispatched
+        )
+        let repository = FailAtSaveRepository(
+            workspace: LedgerWorkspace(
+                tasks: [pendingTask],
+                agentTaskLinks: [pendingLink]
+            ),
+            failingSaveAttempt: 99
+        )
+        let store = LedgerStore(repository: repository, initialWorkspace: LedgerWorkspace())
+        await store.bootstrap()
+        let transport = RecordingTransport(onLinkSession: {
+            await repository.armNextSaveFailure()
+        })
+        let coordinator = StashKeeplineCoordinator(store: store, transport: transport)
+        let session = try sessionFixture()
+
+        try await expectPersistenceFailure {
+            try await coordinator.manualLink(session, to: pendingTask)
+        }
+
+        let savedWorkspace = await repository.workspace
+        let savedLink = savedWorkspace?.agentTaskLinks.first { $0.id == pendingLink.id }
+        try expect(
+            savedLink?.source == .manuallyLinked,
+            "flush failure did not leave a durable manuallyLinked checkpoint"
+        )
+        try expect(
+            savedLink?.keeplineWorkItemID != nil,
+            "flush failure checkpoint lost the upserted work-item identity"
+        )
+        try expect(
+            savedLink?.sessionID == nil,
+            "failed final flush unexpectedly persisted the session on disk"
+        )
+
+        let restarted = LedgerStore(repository: repository, initialWorkspace: LedgerWorkspace())
+        await restarted.bootstrap()
+        let restartedCoordinator = StashKeeplineCoordinator(store: restarted, transport: transport)
+        _ = try await restartedCoordinator.resumePendingAttempts()
+        let launches = await transport.count(.launchDispatch)
+        try expect(
+            launches == 0,
+            "restart launched a new Agent after unsaved missing-identity manual recovery"
+        )
+        try expect(
+            restarted.agentLink(for: pendingTask.id)?.source == .manuallyLinked,
+            "restart lost the durable non-launchable recovery checkpoint"
+        )
     }
 
     @MainActor

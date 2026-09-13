@@ -358,6 +358,19 @@ public final class StashKeeplineCoordinator {
             // Import may keep the same launch attempt while filling in a newer
             // work-item ID. Do not linkSession / overwrite that identity.
             try Self.requireCompatibleWorkItemIdentity(current, with: workItem.id)
+            // Durably flip to manuallyLinked + work-item ID before the remote
+            // session link. If the final post-link flush fails, restart must not
+            // reload a launchable dispatched attempt and dispatch a new Agent.
+            var checkpoint = current
+            checkpoint.keeplineWorkItemID = workItem.id
+            checkpoint.source = .manuallyLinked
+            try await persistLinkRequiringSave(checkpoint, restoringOnFailure: current)
+            current = try Self.requireReservedManualRecoveryLink(
+                store.workspace.agentTaskLinks.first(where: { $0.id == reserved.id }),
+                matching: reserved,
+                requestedSessionID: session.sessionID
+            )
+            try Self.requireCompatibleWorkItemIdentity(current, with: workItem.id)
             _ = try await WorkspacePersistenceGate.perform(.manualSessionLink, store: store) {
                 try await transport.linkSession(workItemID: workItem.id, sessionID: session.sessionID)
             }
@@ -371,6 +384,7 @@ public final class StashKeeplineCoordinator {
             current.sessionID = session.sessionID
             current.runtimeID = session.runtimeID.rawValue
             current.projectRoot = session.directory
+            current.source = .manuallyLinked
             guard store.persistAgentLink(current) else {
                 throw StashKeeplineCoordinatorError.activeLinkConflict
             }
@@ -411,26 +425,41 @@ public final class StashKeeplineCoordinator {
     /// same awaits, treat that completed recovery as success instead of
     /// `linkNotFound` (which would stick as a foreground error after the link
     /// leaves later resume batches).
+    /// When a poll attaches a *different* session, still return the link so the
+    /// caller can finish `linkSession` for the user's choice and persist that
+    /// session — throwing here after the remote mutation already linked the
+    /// requested session would leave the wrong local session sticky.
+    /// `requestedSessionID` names the caller's intended session; callers always
+    /// assign it after a successful remote `linkSession`.
     private static func requireReservedManualRecoveryLink(
         _ current: AgentTaskLink?,
         matching original: AgentTaskLink,
-        requestedSessionID: String
+        requestedSessionID _: String
     ) throws -> AgentTaskLink {
         guard let current,
-              matchesLaunchAttempt(current, original: original),
+              matchesReservedManualRecovery(current, original: original),
               !current.isTerminal else {
-            throw StashKeeplineCoordinatorError.linkNotFound
-        }
-        if current.sessionID == requestedSessionID {
-            return current
-        }
-        guard current.sessionID == nil else {
             throw StashKeeplineCoordinatorError.linkNotFound
         }
         guard current.dispatchState != .ambiguous else {
             throw StashKeeplineCoordinatorError.invalidDispatchCandidate
         }
         return current
+    }
+
+    /// Like `matchesLaunchAttempt`, but also accepts a durable
+    /// `dispatched → manuallyLinked` checkpoint written before session attach.
+    private static func matchesReservedManualRecovery(
+        _ current: AgentTaskLink,
+        original: AgentTaskLink
+    ) -> Bool {
+        current.id == original.id
+            && current.taskID == original.taskID
+            && (current.source == .dispatched
+                || (original.source == .dispatched && current.source == .manuallyLinked))
+            && current.idempotencyKey == original.idempotencyKey
+            && current.projectRoot == original.projectRoot
+            && current.runtimeID == original.runtimeID
     }
 
     /// Manual recovery may race an import that preserves the launch attempt
@@ -581,6 +610,12 @@ public final class StashKeeplineCoordinator {
                         taskID: link.taskID,
                         linkID: link.id
                     ))
+                    continue
+                }
+                // Poll started before reservation; manual recovery now owns the
+                // link. Do not attach a different poll session over the in-flight
+                // user choice (remote linkSession may already be in flight).
+                if reservedManualRecoveryLinkIDs.contains(current.id) {
                     continue
                 }
                 // Sibling refresh may have already promoted this link to .ambiguous
