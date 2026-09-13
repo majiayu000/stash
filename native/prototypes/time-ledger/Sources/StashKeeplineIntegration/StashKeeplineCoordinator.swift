@@ -50,8 +50,9 @@ public struct StashPendingResumeResult: Equatable, Sendable {
     /// dispatch state no longer matches (a newer overlapping poll mutated the link).
     /// Terminal failed/cancelled origins still publish only while they remain current
     /// and the buffered stamp still matches that terminal state.
-    /// Session-linked or superseded origins are treated as recovered so prior resume
-    /// errors clear (a newer manual link is excluded from future resume batches).
+    /// Missing, session-linked, or superseded origins are treated as recovered so
+    /// prior resume errors clear (a removed/imported link never re-enters resume,
+    /// and a newer manual link is excluded from future resume batches).
     /// State-stamp mismatches only suppress the stale notice — they do not recover,
     /// so a newer terminal publish for the same link is left intact.
     public func revalidated(against links: [AgentTaskLink]) -> StashPendingResumeResult {
@@ -64,6 +65,11 @@ public struct StashPendingResumeResult: Equatable, Sendable {
         var recovered = recoveredTaskIDs
         for notice in notices {
             guard let link = byID[notice.linkID], link.taskID == notice.taskID else {
+                // Import/replace removed the originating link; clear sticky resume
+                // errors because that link will never enter another pending batch.
+                if !recovered.contains(notice.taskID) {
+                    recovered.append(notice.taskID)
+                }
                 continue
             }
             // Mirror LedgerStore.agentLink(for:): a newer non-terminal (or newer
@@ -100,10 +106,10 @@ public struct StashPendingResumeResult: Equatable, Sendable {
     /// snapshot taken before this refresh awaited. A newer overlapping recovery
     /// stamps the generation so an unchanged `awaiting_session` link cannot publish
     /// a stale failure after a successful poll already cleared the path.
-    /// Terminal failed/cancelled notices still publish after a sibling *recovery*
-    /// stamp (terminal links leave future resume batches), but are rejected when a
-    /// *foreground* `publishTaskError` advanced generation past the snapshot — that
-    /// actionable retry failure must not be overwritten by an older dispatch notice.
+    /// Durable outcomes (failed/cancelled/ambiguous) still publish after a sibling
+    /// *recovery* stamp — those links leave future resume batches — but are rejected
+    /// when a *foreground* `publishTaskError` advanced generation past the snapshot;
+    /// that actionable retry failure must not be overwritten by an older notice.
     public func rejectingNoticesSupersededByGeneration(
         observed: [UUID: UInt64],
         current: [UUID: UInt64],
@@ -115,7 +121,7 @@ public struct StashPendingResumeResult: Equatable, Sendable {
             if currentGeneration == observedGeneration {
                 return true
             }
-            if notice.observedDispatchState?.endsAttempt == true {
+            if notice.observedDispatchState?.isDurableResumeOutcome == true {
                 let foregroundGeneration = foreground[notice.taskID] ?? 0
                 // Sibling recovery may advance `current` without a foreground stamp.
                 // A foreground error after this snapshot owns a generation > observed.
@@ -162,6 +168,9 @@ public final class StashKeeplineCoordinator {
     public let store: LedgerStore
     public let transport: any KeeplineTransport
     private var projectedTasks: [UUID: TaskProjection] = [:]
+    /// Links owned by an in-flight `manualLink` missing-identity recovery. Resume
+    /// must not upsert/dispatch the same UUID while that remote work awaits.
+    private var reservedManualRecoveryLinkIDs: Set<UUID> = []
 
     public init(store: LedgerStore, transport: any KeeplineTransport) {
         self.store = store
@@ -221,6 +230,17 @@ public final class StashKeeplineCoordinator {
             // Interrupted launches may leave a pending link without a work-item ID
             // when the runtime capability was absent. Establish identity here so
             // manual session recovery is not blocked until that capability returns.
+            // Reserve the pending link before the upsert await so a concurrent
+            // resume cannot persist identity and launchDispatch first.
+            let reservedID = existing?.id
+            if let reservedID {
+                reservedManualRecoveryLinkIDs.insert(reservedID)
+            }
+            defer {
+                if let reservedID {
+                    reservedManualRecoveryLinkIDs.remove(reservedID)
+                }
+            }
             workItem = try await WorkspacePersistenceGate.perform(.manualLinkUpsert, store: store) {
                 try await transport.upsertExternalWorkItem(
                     source: "stash",
@@ -337,6 +357,9 @@ public final class StashKeeplineCoordinator {
                 )
             }
             if link.dispatchState == .ambiguous { continue }
+            // A concurrent manualLink missing-identity upsert owns this link until
+            // it attaches a session; launching here would create a duplicate Agent.
+            if reservedManualRecoveryLinkIDs.contains(link.id) { continue }
             // Tracks an in-memory poll/retry apply performed in this iteration so
             // a later persistence failure is not mistaken for a concurrent manual link.
             var appliedPollSnapshot: AgentTaskLink?
@@ -502,6 +525,9 @@ public final class StashKeeplineCoordinator {
         guard let key = link.idempotencyKey, let projectRoot = link.projectRoot else {
             throw StashKeeplineCoordinatorError.incompleteDispatchAttempt
         }
+        if reservedManualRecoveryLinkIDs.contains(link.id) {
+            return nil
+        }
         var pending = link
         if pending.keeplineWorkItemID == nil {
             let workItem = try await WorkspacePersistenceGate.perform(.launchWorkItemUpsert, store: store) {
@@ -518,9 +544,14 @@ public final class StashKeeplineCoordinator {
             guard let current = store.workspace.agentTaskLinks.first(where: { $0.id == link.id }) else {
                 return nil
             }
-            guard !current.isTerminal,
-                  current.source == .dispatched,
-                  current.sessionID == nil else {
+            // Same-ID import replacements can keep the UUID while swapping task /
+            // attempt fields. Reject before persisting identity onto the replacement.
+            guard Self.matchesLaunchAttempt(current, original: link),
+                  current.sessionID == nil,
+                  !current.isTerminal else {
+                return nil
+            }
+            if reservedManualRecoveryLinkIDs.contains(link.id) {
                 return nil
             }
             pending = current
@@ -541,10 +572,14 @@ public final class StashKeeplineCoordinator {
         try Task.checkCancellation()
         // Invalidate no-dispatch retries when manualLink won while upsert/persist
         // awaited — otherwise launchDispatch still fires and leaves a duplicate Agent.
+        // Also reject same-ID import replacements that changed attempt identity.
         guard let latest = store.workspace.agentTaskLinks.first(where: { $0.id == link.id }),
-              !latest.isTerminal,
-              latest.source == .dispatched,
-              latest.sessionID == nil else {
+              Self.matchesLaunchAttempt(latest, original: link),
+              latest.sessionID == nil,
+              !latest.isTerminal else {
+            return nil
+        }
+        if reservedManualRecoveryLinkIDs.contains(link.id) {
             return nil
         }
         pending = latest
@@ -567,9 +602,10 @@ public final class StashKeeplineCoordinator {
         }
         let gateResult = try await WorkspacePersistenceGate.perform(.launchDispatch, store: store) {
             guard let current = store.workspace.agentTaskLinks.first(where: { $0.id == link.id }),
-                  !current.isTerminal,
-                  current.source == .dispatched,
+                  Self.matchesLaunchAttempt(current, original: link),
                   current.sessionID == nil,
+                  !current.isTerminal,
+                  !reservedManualRecoveryLinkIDs.contains(link.id),
                   let workItemID = current.keeplineWorkItemID else {
                 return LaunchGateResult.superseded
             }
@@ -589,8 +625,8 @@ public final class StashKeeplineCoordinator {
         }
         // Reload after remote work so a concurrent manualLink is not wiped.
         guard let current = store.workspace.agentTaskLinks.first(where: { $0.id == pending.id }),
-              !current.isTerminal,
-              current.source == .dispatched else {
+              Self.matchesLaunchAttempt(current, original: link),
+              !current.isTerminal else {
             return nil
         }
         if current.sessionID != nil {
@@ -606,6 +642,20 @@ public final class StashKeeplineCoordinator {
         let updated = Self.applying(dispatch, to: current)
         try await persistLinkRequiringSave(updated, restoringOnFailure: current)
         return dispatch
+    }
+
+    /// True when `current` is still the same launch attempt that started resume.
+    /// Same-ID imports can preserve the UUID while swapping task/attempt fields.
+    private static func matchesLaunchAttempt(
+        _ current: AgentTaskLink,
+        original: AgentTaskLink
+    ) -> Bool {
+        current.id == original.id
+            && current.taskID == original.taskID
+            && current.source == .dispatched
+            && current.idempotencyKey == original.idempotencyKey
+            && current.projectRoot == original.projectRoot
+            && current.runtimeID == original.runtimeID
     }
 
     /// Persists `updated`, then flushes. On flush failure, restores `previous` in

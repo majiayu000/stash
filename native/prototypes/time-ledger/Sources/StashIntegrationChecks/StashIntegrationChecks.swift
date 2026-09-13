@@ -308,8 +308,10 @@ private struct StashIntegrationChecks {
         try await checkResumeDropsBufferedNoticeAfterOverlappingTerminalPoll()
         try await checkResumeRejectsNoticeAfterNewerSuccessfulPollGeneration()
         try await checkResumeKeepsTerminalNoticeDespiteRecoveryGeneration()
+        try await checkResumeKeepsAmbiguousNoticeDespiteRecoveryGeneration()
         try await checkForegroundErrorGenerationRejectsBufferedResumeNotice()
         try await checkForegroundErrorGenerationRejectsBufferedTerminalNotice()
+        try await checkRevalidatedRecoversWhenOriginatingLinkMissing()
         try await checkResumePropagatesSaveFailureAfterLinkedPoll()
         try await checkResumeDoesNotRollbackConcurrentManualLinkOnSaveFailure()
         try await checkResumeRollsBackToReloadedWorkItemOnSaveFailure()
@@ -320,6 +322,8 @@ private struct StashIntegrationChecks {
         try await checkResumeSkipsLaunchAfterManualLinkDuringUpsert()
         try await checkResumeSkipsLaunchAfterManualLinkDuringLaunchFlush()
         try await checkResumeSkipsPersistingLinkRemovedDuringImport()
+        try await checkManualLinkReservesMissingIdentityAgainstResume()
+        try await checkResumeSkipsLaunchAfterImportReplacesSameIDAttempt()
         if let binary = ProcessInfo.processInfo.environment["STASH_KEEPLINE_E2E_BINARY"],
            !binary.isEmpty {
             try await checkPackagedCompletionClaimFlow(binary: binary)
@@ -1963,6 +1967,86 @@ private struct StashIntegrationChecks {
     }
 
     @MainActor
+    private static func checkResumeKeepsAmbiguousNoticeDespiteRecoveryGeneration() async throws {
+        // Two refreshes observe the same generation. The first recovers another
+        // link and stamps a recovery generation; the second later persists
+        // .ambiguous. Generation gating must not drop that notice — ambiguous
+        // links leave future resume batches, same as failed/cancelled.
+        let task = LedgerTask(title: "Ambiguous after sibling recovery")
+        let link = AgentTaskLink(
+            taskID: task.id,
+            keeplineWorkItemID: "work-ambiguous-gen",
+            dispatchID: "dispatch-ambiguous-gen",
+            dispatchState: .ambiguous,
+            candidateSessionIDs: ["session-a", "session-b"],
+            projectRoot: "/tmp",
+            runtimeID: "codex",
+            source: .dispatched
+        )
+        let ambiguous = StashPendingResumeResult(
+            notices: [
+                StashIntegrationNotice(
+                    taskID: task.id,
+                    linkID: link.id,
+                    message: "More than one Agent session matched. Choose the correct session.",
+                    observedDispatchState: .ambiguous
+                )
+            ]
+        )
+        let revalidated = ambiguous.revalidated(against: [link])
+        try expect(
+            revalidated.notices.count == 1,
+            "stamp-matching ambiguous notice should survive revalidation"
+        )
+        let kept = revalidated.rejectingNoticesSupersededByGeneration(
+            observed: [:],
+            current: [task.id: 3]
+        )
+        try expect(
+            kept.notices.count == 1,
+            "generation gate dropped an ambiguous notice after a sibling recovery stamp"
+        )
+        // Foreground publishTaskError after the snapshot must still reject it.
+        let afterForeground = revalidated.rejectingNoticesSupersededByGeneration(
+            observed: [:],
+            current: [task.id: 5],
+            foreground: [task.id: 5]
+        )
+        try expect(
+            afterForeground.notices.isEmpty,
+            "ambiguous notice overwrote a newer foreground error"
+        )
+    }
+
+    @MainActor
+    private static func checkRevalidatedRecoversWhenOriginatingLinkMissing() async throws {
+        // Import removes the pending link while a notice is still buffered. Dropping
+        // the notice alone leaves a sticky resume-owned taskErrors entry because the
+        // removed link never re-enters a pending-resume batch.
+        let task = LedgerTask(title: "Missing originating link")
+        let removedLinkID = UUID()
+        let buffered = StashPendingResumeResult(
+            notices: [
+                StashIntegrationNotice(
+                    taskID: task.id,
+                    linkID: removedLinkID,
+                    message: "stale resume error after import removed link",
+                    observedDispatchState: .awaitingSession
+                )
+            ]
+        )
+        let revalidated = buffered.revalidated(against: [])
+        try expect(
+            revalidated.notices.isEmpty,
+            "revalidated kept a notice whose originating link is gone"
+        )
+        try expect(
+            revalidated.recoveredTaskIDs.contains(task.id),
+            "missing originating link was not classified as recovered"
+        )
+    }
+
+    @MainActor
     private static func checkForegroundErrorGenerationRejectsBufferedResumeNotice() async throws {
         // A refresh observes an absent generation, buffers a resume lookup failure,
         // then awaits. Concurrent foreground publishTaskError must advance generation
@@ -2719,6 +2803,132 @@ private struct StashIntegrationChecks {
         try expect(
             outcome.notices.isEmpty,
             "import-removed link should not surface a launch notice"
+        )
+    }
+
+    @MainActor
+    private static func checkManualLinkReservesMissingIdentityAgainstResume() async throws {
+        // manualLink awaits missing-identity upsert on a pending dispatched link.
+        // Concurrent resume must not persist identity and launchDispatch first.
+        let pendingTask = LedgerTask(title: "Manual reserve missing identity")
+        let pendingLink = AgentTaskLink(
+            taskID: pendingTask.id,
+            dispatchState: .pending,
+            idempotencyKey: "stash:\(pendingTask.id.uuidString):manual-reserve",
+            projectRoot: "/tmp",
+            runtimeID: "codex",
+            source: .dispatched
+        )
+        let repository = FailAtSaveRepository(
+            workspace: LedgerWorkspace(
+                tasks: [pendingTask],
+                agentTaskLinks: [pendingLink]
+            ),
+            failingSaveAttempt: 99
+        )
+        let store = LedgerStore(repository: repository, initialWorkspace: LedgerWorkspace())
+        await store.bootstrap()
+
+        let gate = UpsertCancellationGate()
+        let transport = RecordingTransport(onUpsert: {
+            await gate.waitUntilCancelled()
+        })
+        let coordinator = StashKeeplineCoordinator(store: store, transport: transport)
+        let session = try sessionFixture()
+
+        let manualTask = Task { @MainActor in
+            try await coordinator.manualLink(session, to: pendingTask)
+        }
+        await gate.waitUntilUpsertStarted()
+        let outcome = try await coordinator.resumePendingAttempts()
+        await gate.releaseUpsert()
+        try await manualTask.value
+
+        let launches = await transport.count(.launchDispatch)
+        try expect(launches == 0, "resume launched while manualLink reserved missing-identity upsert")
+        try expect(
+            outcome.recoveredTaskIDs.isEmpty && outcome.notices.isEmpty,
+            "reserved resume should skip without classifying the link"
+        )
+        try expect(
+            store.agentLink(for: pendingTask.id)?.sessionID == "runtime-session-1",
+            "manualLink did not attach after reserving missing-identity upsert"
+        )
+        try expect(
+            store.agentLink(for: pendingTask.id)?.dispatchID == nil,
+            "resume still applied a dispatch onto the manual recovery link"
+        )
+    }
+
+    @MainActor
+    private static func checkResumeSkipsLaunchAfterImportReplacesSameIDAttempt() async throws {
+        // Import preserves the link UUID but swaps attempt identity while the
+        // no-dispatch upsert awaits. Resume must not launch with the pre-import
+        // idempotencyKey/projectRoot against the replacement attempt.
+        let pendingTask = LedgerTask(title: "Import replaces same-ID attempt")
+        let sharedID = UUID()
+        let pendingLink = AgentTaskLink(
+            id: sharedID,
+            taskID: pendingTask.id,
+            dispatchState: .pending,
+            idempotencyKey: "stash:\(pendingTask.id.uuidString):pre-import",
+            projectRoot: "/tmp/pre-import",
+            runtimeID: "codex",
+            source: .dispatched
+        )
+        let repository = FailAtSaveRepository(
+            workspace: LedgerWorkspace(
+                tasks: [pendingTask],
+                agentTaskLinks: [pendingLink]
+            ),
+            failingSaveAttempt: 99
+        )
+        let store = LedgerStore(repository: repository, initialWorkspace: LedgerWorkspace())
+        await store.bootstrap()
+        let transport = RecordingTransport(onUpsert: {
+            await MainActor.run {
+                let replacement = AgentTaskLink(
+                    id: sharedID,
+                    taskID: pendingTask.id,
+                    dispatchState: .pending,
+                    idempotencyKey: "stash:\(pendingTask.id.uuidString):post-import",
+                    projectRoot: "/tmp/post-import",
+                    runtimeID: "codex",
+                    source: .dispatched
+                )
+                let imported = LedgerWorkspace(
+                    tasks: [pendingTask],
+                    agentTaskLinks: [replacement]
+                )
+                do {
+                    try store.importData(try WorkspaceCodec.encode(imported))
+                } catch {
+                    assertionFailure("import during upsert fixture failed: \(error)")
+                }
+            }
+        })
+        let coordinator = StashKeeplineCoordinator(store: store, transport: transport)
+
+        let outcome = try await coordinator.resumePendingAttempts()
+
+        let launches = await transport.count(.launchDispatch)
+        try expect(launches == 0, "launchDispatch fired after same-ID import replaced the attempt")
+        try expect(
+            store.agentLink(for: pendingTask.id)?.idempotencyKey
+                == "stash:\(pendingTask.id.uuidString):post-import",
+            "resume mutated the imported replacement attempt identity"
+        )
+        try expect(
+            store.agentLink(for: pendingTask.id)?.keeplineWorkItemID == nil,
+            "resume persisted work-item identity onto the imported replacement"
+        )
+        try expect(
+            outcome.recoveredTaskIDs.isEmpty,
+            "same-ID import replacement was misclassified as recovered"
+        )
+        try expect(
+            outcome.notices.isEmpty,
+            "same-ID import replacement should not surface a launch notice"
         )
     }
 

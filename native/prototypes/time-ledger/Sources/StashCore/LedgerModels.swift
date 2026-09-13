@@ -137,6 +137,12 @@ public struct AgentDispatchState: RawRepresentable, Codable, Equatable, Hashable
     public var endsAttempt: Bool {
         self == .failed || self == .cancelled
     }
+
+    /// Outcomes that leave future resume batches and must survive sibling recovery
+    /// generation stamps (ambiguous links are skipped; failed/cancelled are terminal).
+    public var isDurableResumeOutcome: Bool {
+        endsAttempt || self == .ambiguous
+    }
 }
 
 public struct AgentTaskLink: Identifiable, Codable, Equatable, Sendable {
