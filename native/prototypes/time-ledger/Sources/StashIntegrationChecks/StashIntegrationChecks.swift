@@ -283,7 +283,9 @@ private struct StashIntegrationChecks {
         try await checkResumeSuppressesLookupFailureAfterManualLink()
         try await checkResumeDropsBufferedNoticeAfterLaterManualLink()
         try await checkRevalidatedDropsNoticeSupersededByNewerTaskLink()
+        try await checkRevalidatedDropsNoticeSupersededByNewerTerminalPoll()
         try await checkLaunchRetryTerminalFailurePublishesNotice()
+        try await checkResumeDropsBufferedNoticeAfterOverlappingTerminalPoll()
         try await checkResumePropagatesSaveFailureAfterLinkedPoll()
         try await checkResumeDoesNotRollbackConcurrentManualLinkOnSaveFailure()
         try await checkResumeCancelsBeforeLaunchMutation()
@@ -1475,7 +1477,8 @@ private struct StashIntegrationChecks {
                 StashIntegrationNotice(
                     taskID: failedTask.id,
                     linkID: failedLink.id,
-                    message: "stale buffered failure"
+                    message: "stale buffered failure",
+                    observedDispatchState: failedLink.dispatchState
                 )
             ]
         )
@@ -1520,7 +1523,8 @@ private struct StashIntegrationChecks {
                 StashIntegrationNotice(
                     taskID: task.id,
                     linkID: terminalLink.id,
-                    message: "stale terminal failure for superseded link"
+                    message: "stale terminal failure for superseded link",
+                    observedDispatchState: .failed
                 )
             ]
         )
@@ -1543,6 +1547,138 @@ private struct StashIntegrationChecks {
         try expect(
             stillCurrent.recoveredTaskIDs.isEmpty,
             "still-current terminal notice must not be recovered"
+        )
+    }
+
+    @MainActor
+    private static func checkRevalidatedDropsNoticeSupersededByNewerTerminalPoll() async throws {
+        // Overlapping refreshes: an older refresh buffers a transient lookup
+        // failure while the link is still awaiting_session. A newer refresh then
+        // polls the same link, persists failed/cancelled, and publishes the
+        // actionable dispatch error. Revalidation must drop the older notice so
+        // it cannot overwrite the terminal message; do not recover (that would
+        // clear the newer published error).
+        let task = LedgerTask(title: "Superseded by terminal poll")
+        let awaiting = AgentTaskLink(
+            id: UUID(),
+            taskID: task.id,
+            keeplineWorkItemID: "work-terminal-race",
+            dispatchID: "dispatch-terminal-race",
+            dispatchState: .awaitingSession,
+            projectRoot: "/tmp",
+            runtimeID: "codex",
+            source: .dispatched
+        )
+        var terminal = awaiting
+        terminal.dispatchState = .failed
+        let stale = StashPendingResumeResult(
+            notices: [
+                StashIntegrationNotice(
+                    taskID: task.id,
+                    linkID: awaiting.id,
+                    message: "forced dispatch lookup failure",
+                    observedDispatchState: .awaitingSession
+                )
+            ]
+        )
+        let revalidated = stale.revalidated(against: [terminal])
+        try expect(
+            revalidated.notices.isEmpty,
+            "revalidated(against:) kept a transient notice after terminal poll"
+        )
+        try expect(
+            revalidated.recoveredTaskIDs.isEmpty,
+            "dispatch-state stamp mismatch must not recover (would clear terminal publish)"
+        )
+        // Matching stamp for a still-current terminal notice must publish.
+        let terminalNotice = StashPendingResumeResult(
+            notices: [
+                StashIntegrationNotice(
+                    taskID: task.id,
+                    linkID: terminal.id,
+                    message: "authentication required",
+                    observedDispatchState: .failed
+                )
+            ]
+        )
+        let kept = terminalNotice.revalidated(against: [terminal])
+        try expect(
+            kept.notices.count == 1,
+            "revalidated(against:) dropped a stamp-matching terminal notice"
+        )
+    }
+
+    @MainActor
+    private static func checkResumeDropsBufferedNoticeAfterOverlappingTerminalPoll() async throws {
+        // Catch-path buffers a transient lookup failure for link A, then awaits
+        // sibling B. While B is in flight, an overlapping refresh persists
+        // failed/cancelled on A. Final revalidation must drop A's stale notice
+        // (state stamp mismatch) without recovering — a newer terminal publish
+        // for A must remain.
+        let failedTask = LedgerTask(title: "Transient then terminal")
+        let slowTask = LedgerTask(title: "Sibling slow poll")
+        let failedLink = AgentTaskLink(
+            taskID: failedTask.id,
+            keeplineWorkItemID: "work-overlap-fail",
+            dispatchID: "dispatch-overlap-fail",
+            dispatchState: .awaitingSession,
+            projectRoot: "/tmp",
+            runtimeID: "codex",
+            source: .dispatched
+        )
+        let slowLink = AgentTaskLink(
+            taskID: slowTask.id,
+            keeplineWorkItemID: "work-overlap-slow",
+            dispatchID: "dispatch-overlap-slow",
+            dispatchState: .awaitingSession,
+            projectRoot: "/tmp",
+            runtimeID: "codex",
+            source: .dispatched
+        )
+        let repository = FailAtSaveRepository(
+            workspace: LedgerWorkspace(
+                tasks: [failedTask, slowTask],
+                agentTaskLinks: [failedLink, slowLink]
+            ),
+            failingSaveAttempt: 99
+        )
+        let store = LedgerStore(repository: repository, initialWorkspace: LedgerWorkspace())
+        await store.bootstrap()
+        final class LookupCounter: @unchecked Sendable {
+            var count = 0
+        }
+        let lookups = LookupCounter()
+        let transport = RecordingTransport(
+            dispatchLookupErrorsByID: [
+                "dispatch-overlap-fail": ForcedDispatchLookupFailure()
+            ],
+            onDispatchLookup: {
+                lookups.count += 1
+                guard lookups.count >= 2 else { return }
+                await MainActor.run {
+                    guard var current = store.agentLink(for: failedTask.id),
+                          current.id == failedLink.id,
+                          !current.isTerminal else { return }
+                    current.dispatchState = .failed
+                    _ = store.persistAgentLink(current)
+                }
+            }
+        )
+        let coordinator = StashKeeplineCoordinator(store: store, transport: transport)
+
+        let outcome = try await coordinator.resumePendingAttempts()
+
+        try expect(
+            !outcome.notices.contains(where: { $0.taskID == failedTask.id }),
+            "buffered transient notice published after overlapping terminal poll"
+        )
+        try expect(
+            !outcome.recoveredTaskIDs.contains(failedTask.id),
+            "state-stamp mismatch recovered and would clear a newer terminal publish"
+        )
+        try expect(
+            store.agentLink(for: failedTask.id)?.dispatchState == .failed,
+            "overlapping terminal poll did not persist failed on the buffered link"
         )
     }
 

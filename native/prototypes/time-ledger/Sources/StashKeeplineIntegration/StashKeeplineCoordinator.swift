@@ -8,11 +8,21 @@ public struct StashIntegrationNotice: Equatable, Sendable {
     /// A concurrent `manualLink` may attach a session after the notice was buffered.
     public let linkID: UUID
     public let message: String
+    /// Dispatch state observed when the notice was buffered. Overlapping refreshes
+    /// can persist a newer terminal poll for the same link; revalidation drops the
+    /// notice when that stamp no longer matches.
+    public let observedDispatchState: AgentDispatchState?
 
-    public init(taskID: UUID, linkID: UUID, message: String) {
+    public init(
+        taskID: UUID,
+        linkID: UUID,
+        message: String,
+        observedDispatchState: AgentDispatchState? = nil
+    ) {
         self.taskID = taskID
         self.linkID = linkID
         self.message = message
+        self.observedDispatchState = observedDispatchState
     }
 }
 
@@ -36,10 +46,14 @@ public struct StashPendingResumeResult: Equatable, Sendable {
     }
 
     /// Drops buffered notices whose originating link is gone, already session-linked,
-    /// or superseded by a newer current link for the same task.
-    /// Terminal failed/cancelled origins still publish only while they remain current.
+    /// superseded by a newer current link for the same task, or whose observed
+    /// dispatch state no longer matches (a newer overlapping poll mutated the link).
+    /// Terminal failed/cancelled origins still publish only while they remain current
+    /// and the buffered stamp still matches that terminal state.
     /// Session-linked or superseded origins are treated as recovered so prior resume
     /// errors clear (a newer manual link is excluded from future resume batches).
+    /// State-stamp mismatches only suppress the stale notice — they do not recover,
+    /// so a newer terminal publish for the same link is left intact.
     public func revalidated(against links: [AgentTaskLink]) -> StashPendingResumeResult {
         let byID = Dictionary(uniqueKeysWithValues: links.map { ($0.id, $0) })
         var filtered: [StashIntegrationNotice] = []
@@ -61,6 +75,13 @@ public struct StashPendingResumeResult: Equatable, Sendable {
                 if !recovered.contains(notice.taskID) {
                     recovered.append(notice.taskID)
                 }
+                continue
+            }
+            // A newer overlapping refresh may have persisted failed/cancelled (or
+            // otherwise advanced dispatch state) after this notice was buffered.
+            // Publishing the older transient lookup failure would overwrite that
+            // actionable terminal message permanently.
+            if link.dispatchState != notice.observedDispatchState {
                 continue
             }
             filtered.append(notice)
@@ -364,7 +385,8 @@ public final class StashKeeplineCoordinator {
                 notices.append(StashIntegrationNotice(
                     taskID: current.taskID,
                     linkID: current.id,
-                    message: error.localizedDescription
+                    message: error.localizedDescription,
+                    observedDispatchState: current.dispatchState
                 ))
             }
         }
@@ -513,13 +535,15 @@ public final class StashKeeplineCoordinator {
             notices.append(StashIntegrationNotice(
                 taskID: current.taskID,
                 linkID: current.id,
-                message: "More than one Agent session matched. Choose the correct session."
+                message: "More than one Agent session matched. Choose the correct session.",
+                observedDispatchState: current.dispatchState
             ))
         } else if state == .failed || state == .cancelled {
             notices.append(StashIntegrationNotice(
                 taskID: current.taskID,
                 linkID: current.id,
-                message: dispatch.error ?? "Keepline could not launch this Agent."
+                message: dispatch.error ?? "Keepline could not launch this Agent.",
+                observedDispatchState: current.dispatchState
             ))
         } else {
             recoveredTaskIDs.append(current.taskID)
