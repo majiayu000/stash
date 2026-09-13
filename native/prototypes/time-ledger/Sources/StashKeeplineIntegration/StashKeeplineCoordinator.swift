@@ -231,22 +231,24 @@ public final class StashKeeplineCoordinator {
             guard workItem.id == existingWorkItemID else {
                 throw StashKeeplineCoordinatorError.workItemIdentityChanged
             }
-            try Self.requireReservedManualRecoveryLink(
+            // Reload before linkSession: import may preserve the launch attempt
+            // while swapping keeplineWorkItemID. Mirror missing-identity and
+            // reject before the remote mutation applies the upsert identity.
+            var current = try Self.requireReservedManualRecoveryLink(
                 store.workspace.agentTaskLinks.first(where: { $0.id == existing.id }),
                 matching: existing
             )
+            try Self.requireCompatibleWorkItemIdentity(current, with: workItem.id)
             _ = try await WorkspacePersistenceGate.perform(.manualSessionLink, store: store) {
                 try await transport.linkSession(workItemID: workItem.id, sessionID: session.sessionID)
             }
             // Reload before persist: import may have removed/replaced the link
             // while upsert or session-link awaited.
-            var current = try Self.requireReservedManualRecoveryLink(
+            current = try Self.requireReservedManualRecoveryLink(
                 store.workspace.agentTaskLinks.first(where: { $0.id == existing.id }),
                 matching: existing
             )
-            guard current.keeplineWorkItemID == existingWorkItemID else {
-                throw StashKeeplineCoordinatorError.linkNotFound
-            }
+            try Self.requireCompatibleWorkItemIdentity(current, with: workItem.id)
             current.keeplineWorkItemID = workItem.id
             current.sessionID = session.sessionID
             current.runtimeID = session.runtimeID.rawValue
@@ -341,10 +343,11 @@ public final class StashKeeplineCoordinator {
         return current
     }
 
-    /// Missing-identity recovery may race an import that preserves the launch
-    /// attempt fields `matchesLaunchAttempt` checks while supplying a newer
+    /// Manual recovery may race an import that preserves the launch attempt
+    /// fields `matchesLaunchAttempt` checks while supplying a newer
     /// `keeplineWorkItemID`. Reject before linkSession / persist so the upsert
-    /// result cannot overwrite that imported identity.
+    /// result cannot overwrite that imported identity (known- and missing-
+    /// identity paths both revalidate here).
     private static func requireCompatibleWorkItemIdentity(
         _ current: AgentTaskLink,
         with workItemID: String

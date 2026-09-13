@@ -335,6 +335,7 @@ private struct StashIntegrationChecks {
         try await checkManualLinkRejectsImportRemovalDuringMissingIdentityUpsert()
         try await checkManualLinkRejectsSameIDImportDuringMissingIdentitySessionLink()
         try await checkManualLinkRejectsImportedWorkItemIdentityDuringMissingIdentitySessionLink()
+        try await checkManualLinkRejectsImportedWorkItemIdentityDuringKnownIdentityUpsert()
         if let binary = ProcessInfo.processInfo.environment["STASH_KEEPLINE_E2E_BINARY"],
            !binary.isEmpty {
             try await checkPackagedCompletionClaimFlow(binary: binary)
@@ -3269,6 +3270,83 @@ private struct StashIntegrationChecks {
         )
         let links = await transport.count(.manualSessionLink)
         try expect(links == 1, "session link should still have been issued before revalidation")
+    }
+
+    @MainActor
+    private static func checkManualLinkRejectsImportedWorkItemIdentityDuringKnownIdentityUpsert() async throws {
+        // Import preserves the reserved known-identity launch attempt while swapping
+        // keeplineWorkItemID during upsert. Reject before linkSession so the old
+        // upsert identity is not applied remotely (mirror missing-identity guard).
+        let pendingTask = LedgerTask(title: "Manual known-identity import swaps work-item id")
+        let sharedID = UUID()
+        let pendingLink = AgentTaskLink(
+            id: sharedID,
+            taskID: pendingTask.id,
+            keeplineWorkItemID: "work-1",
+            dispatchState: .pending,
+            idempotencyKey: "stash:\(pendingTask.id.uuidString):manual-known-import-work-item",
+            projectRoot: "/tmp/shared-root",
+            runtimeID: "codex",
+            source: .dispatched
+        )
+        let repository = FailAtSaveRepository(
+            workspace: LedgerWorkspace(
+                tasks: [pendingTask],
+                agentTaskLinks: [pendingLink]
+            ),
+            failingSaveAttempt: 99
+        )
+        let store = LedgerStore(repository: repository, initialWorkspace: LedgerWorkspace())
+        await store.bootstrap()
+        let transport = RecordingTransport(onUpsert: {
+            await MainActor.run {
+                let replacement = AgentTaskLink(
+                    id: sharedID,
+                    taskID: pendingTask.id,
+                    keeplineWorkItemID: "work-imported-newer",
+                    dispatchState: .pending,
+                    idempotencyKey: "stash:\(pendingTask.id.uuidString):manual-known-import-work-item",
+                    projectRoot: "/tmp/shared-root",
+                    runtimeID: "codex",
+                    source: .dispatched
+                )
+                let imported = LedgerWorkspace(
+                    tasks: [pendingTask],
+                    agentTaskLinks: [replacement]
+                )
+                do {
+                    try store.importData(try WorkspaceCodec.encode(imported))
+                } catch {
+                    assertionFailure("import during known-identity upsert fixture failed: \(error)")
+                }
+            }
+        })
+        let coordinator = StashKeeplineCoordinator(store: store, transport: transport)
+        let session = try sessionFixture()
+
+        do {
+            try await coordinator.manualLink(session, to: pendingTask)
+            throw CheckFailure.failed(
+                "manualLink succeeded after known-identity import swapped work-item identity"
+            )
+        } catch StashKeeplineCoordinatorError.workItemIdentityChanged {
+            // expected
+        }
+
+        let current = store.agentLink(for: pendingTask.id)
+        try expect(
+            current?.keeplineWorkItemID == "work-imported-newer",
+            "manualLink overwrote the imported newer work-item identity on known-identity path"
+        )
+        try expect(
+            current?.sessionID == nil,
+            "manualLink attached a session after known-identity import swapped work-item identity"
+        )
+        let links = await transport.count(.manualSessionLink)
+        try expect(
+            links == 0,
+            "session link must not run after known-identity import swapped work-item identity"
+        )
     }
 
     @MainActor
