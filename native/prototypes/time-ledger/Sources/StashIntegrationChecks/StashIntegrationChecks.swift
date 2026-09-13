@@ -336,6 +336,8 @@ private struct StashIntegrationChecks {
         try await checkManualLinkRejectsSameIDImportDuringMissingIdentitySessionLink()
         try await checkManualLinkRejectsImportedWorkItemIdentityDuringMissingIdentitySessionLink()
         try await checkManualLinkRejectsImportedWorkItemIdentityDuringKnownIdentityUpsert()
+        try await checkResumePreservesImportedWorkItemIdentityDuringMissingIdentityUpsert()
+        try await checkManualLinkAcceptsConcurrentPollAttachedRequestedSession()
         if let binary = ProcessInfo.processInfo.environment["STASH_KEEPLINE_E2E_BINARY"],
            !binary.isEmpty {
             try await checkPackagedCompletionClaimFlow(binary: binary)
@@ -2381,7 +2383,10 @@ private struct StashIntegrationChecks {
                 guard var current = store.agentLink(for: pendingTask.id),
                       current.id == pendingLink.id,
                       current.keeplineWorkItemID == nil else { return }
-                current.keeplineWorkItemID = "work-sibling"
+                // Same identity the upsert will return — compatible with
+                // requireCompatibleWorkItemIdentity; still proves rollback restores
+                // the reloaded snapshot rather than the original nil-ID link.
+                current.keeplineWorkItemID = "work-1"
                 _ = store.persistAgentLink(current)
             }
             await repository.armNextSaveFailure()
@@ -2391,7 +2396,7 @@ private struct StashIntegrationChecks {
         let outcome = try await coordinator.resumePendingAttempts()
 
         try expect(
-            store.agentLink(for: pendingTask.id)?.keeplineWorkItemID == "work-sibling",
+            store.agentLink(for: pendingTask.id)?.keeplineWorkItemID == "work-1",
             "flush-failure rollback erased a sibling-persisted work-item ID"
         )
         try expect(
@@ -3347,6 +3352,122 @@ private struct StashIntegrationChecks {
             links == 0,
             "session link must not run after known-identity import swapped work-item identity"
         )
+    }
+
+    @MainActor
+    private static func checkResumePreservesImportedWorkItemIdentityDuringMissingIdentityUpsert() async throws {
+        // Import preserves launch-attempt fields while filling in a newer
+        // keeplineWorkItemID during missing-identity upsert. Resume must not
+        // overwrite that imported identity before launch.
+        let pendingTask = LedgerTask(title: "Resume preserves imported work-item id")
+        let sharedID = UUID()
+        let pendingLink = AgentTaskLink(
+            id: sharedID,
+            taskID: pendingTask.id,
+            dispatchState: .pending,
+            idempotencyKey: "stash:\(pendingTask.id.uuidString):resume-import-work-item",
+            projectRoot: "/tmp/shared-root",
+            runtimeID: "codex",
+            source: .dispatched
+        )
+        let repository = FailAtSaveRepository(
+            workspace: LedgerWorkspace(
+                tasks: [pendingTask],
+                agentTaskLinks: [pendingLink]
+            ),
+            failingSaveAttempt: 99
+        )
+        let store = LedgerStore(repository: repository, initialWorkspace: LedgerWorkspace())
+        await store.bootstrap()
+        let transport = RecordingTransport(onUpsert: {
+            await MainActor.run {
+                let replacement = AgentTaskLink(
+                    id: sharedID,
+                    taskID: pendingTask.id,
+                    keeplineWorkItemID: "work-imported-newer",
+                    dispatchState: .pending,
+                    idempotencyKey: "stash:\(pendingTask.id.uuidString):resume-import-work-item",
+                    projectRoot: "/tmp/shared-root",
+                    runtimeID: "codex",
+                    source: .dispatched
+                )
+                let imported = LedgerWorkspace(
+                    tasks: [pendingTask],
+                    agentTaskLinks: [replacement]
+                )
+                do {
+                    try store.importData(try WorkspaceCodec.encode(imported))
+                } catch {
+                    assertionFailure("import during resume upsert fixture failed: \(error)")
+                }
+            }
+        })
+        let coordinator = StashKeeplineCoordinator(store: store, transport: transport)
+
+        let outcome = try await coordinator.resumePendingAttempts()
+
+        let launches = await transport.count(.launchDispatch)
+        try expect(launches == 0, "launchDispatch fired after imported work-item identity diverged")
+        try expect(
+            store.agentLink(for: pendingTask.id)?.keeplineWorkItemID == "work-imported-newer",
+            "resume overwrote the imported newer work-item identity"
+        )
+        try expect(
+            outcome.recoveredTaskIDs.isEmpty,
+            "imported work-item identity divergence was misclassified as recovered"
+        )
+        try expect(
+            outcome.notices.isEmpty,
+            "imported work-item identity divergence should not surface a launch notice"
+        )
+    }
+
+    @MainActor
+    private static func checkManualLinkAcceptsConcurrentPollAttachedRequestedSession() async throws {
+        // Existing-dispatch poll attaches the requested session while known-identity
+        // manualLink awaits session-link. requireReserved must treat that completed
+        // recovery as success instead of sticky linkNotFound.
+        let pendingTask = LedgerTask(title: "Manual accepts concurrent poll session")
+        let pendingLink = AgentTaskLink(
+            taskID: pendingTask.id,
+            keeplineWorkItemID: "work-1",
+            dispatchID: "dispatch-poll-attach",
+            dispatchState: .awaitingSession,
+            projectRoot: "/tmp",
+            runtimeID: "codex",
+            source: .dispatched
+        )
+        let repository = FailAtSaveRepository(
+            workspace: LedgerWorkspace(
+                tasks: [pendingTask],
+                agentTaskLinks: [pendingLink]
+            ),
+            failingSaveAttempt: 99
+        )
+        let store = LedgerStore(repository: repository, initialWorkspace: LedgerWorkspace())
+        await store.bootstrap()
+        let transport = RecordingTransport(onLinkSession: {
+            await MainActor.run {
+                guard var current = store.agentLink(for: pendingTask.id) else { return }
+                current.sessionID = "runtime-session-1"
+                _ = store.persistAgentLink(current)
+            }
+        })
+        let coordinator = StashKeeplineCoordinator(store: store, transport: transport)
+        let session = try sessionFixture()
+
+        try await coordinator.manualLink(session, to: pendingTask)
+
+        try expect(
+            store.agentLink(for: pendingTask.id)?.sessionID == "runtime-session-1",
+            "manualLink lost the concurrently attached requested session"
+        )
+        try expect(
+            store.agentLink(for: pendingTask.id)?.keeplineWorkItemID == "work-1",
+            "manualLink changed work-item identity after concurrent poll attach"
+        )
+        let links = await transport.count(.manualSessionLink)
+        try expect(links == 1, "manualLink skipped session link before concurrent poll attach")
     }
 
     @MainActor

@@ -236,7 +236,8 @@ public final class StashKeeplineCoordinator {
             // reject before the remote mutation applies the upsert identity.
             var current = try Self.requireReservedManualRecoveryLink(
                 store.workspace.agentTaskLinks.first(where: { $0.id == existing.id }),
-                matching: existing
+                matching: existing,
+                requestedSessionID: session.sessionID
             )
             try Self.requireCompatibleWorkItemIdentity(current, with: workItem.id)
             _ = try await WorkspacePersistenceGate.perform(.manualSessionLink, store: store) {
@@ -246,7 +247,8 @@ public final class StashKeeplineCoordinator {
             // while upsert or session-link awaited.
             current = try Self.requireReservedManualRecoveryLink(
                 store.workspace.agentTaskLinks.first(where: { $0.id == existing.id }),
-                matching: existing
+                matching: existing,
+                requestedSessionID: session.sessionID
             )
             try Self.requireCompatibleWorkItemIdentity(current, with: workItem.id)
             current.keeplineWorkItemID = workItem.id
@@ -274,7 +276,8 @@ public final class StashKeeplineCoordinator {
             }
             var current = try Self.requireReservedManualRecoveryLink(
                 store.workspace.agentTaskLinks.first(where: { $0.id == reserved.id }),
-                matching: reserved
+                matching: reserved,
+                requestedSessionID: session.sessionID
             )
             // Import may keep the same launch attempt while filling in a newer
             // work-item ID. Do not linkSession / overwrite that identity.
@@ -284,7 +287,8 @@ public final class StashKeeplineCoordinator {
             }
             current = try Self.requireReservedManualRecoveryLink(
                 store.workspace.agentTaskLinks.first(where: { $0.id == reserved.id }),
-                matching: reserved
+                matching: reserved,
+                requestedSessionID: session.sessionID
             )
             try Self.requireCompatibleWorkItemIdentity(current, with: workItem.id)
             current.keeplineWorkItemID = workItem.id
@@ -327,14 +331,24 @@ public final class StashKeeplineCoordinator {
     /// while upsert/session-link suspends — reject that so recovery goes through
     /// `resolveAmbiguous` instead of persisting a session onto unresolved
     /// dispatch-specific ambiguity (`.ambiguous` is not terminal).
+    /// When an existing-dispatch poll attaches the requested session during the
+    /// same awaits, treat that completed recovery as success instead of
+    /// `linkNotFound` (which would stick as a foreground error after the link
+    /// leaves later resume batches).
     private static func requireReservedManualRecoveryLink(
         _ current: AgentTaskLink?,
-        matching original: AgentTaskLink
+        matching original: AgentTaskLink,
+        requestedSessionID: String
     ) throws -> AgentTaskLink {
         guard let current,
               matchesLaunchAttempt(current, original: original),
-              current.sessionID == nil,
               !current.isTerminal else {
+            throw StashKeeplineCoordinatorError.linkNotFound
+        }
+        if current.sessionID == requestedSessionID {
+            return current
+        }
+        guard current.sessionID == nil else {
             throw StashKeeplineCoordinatorError.linkNotFound
         }
         guard current.dispatchState != .ambiguous else {
@@ -636,6 +650,13 @@ public final class StashKeeplineCoordinator {
                 return nil
             }
             pending = current
+            // Import may preserve launch-attempt fields while supplying a newer
+            // keeplineWorkItemID. Mirror manualLink and reject before overwrite.
+            do {
+                try Self.requireCompatibleWorkItemIdentity(pending, with: workItem.id)
+            } catch {
+                return nil
+            }
             // Roll back to the reloaded pre-mutation snapshot, not the original
             // call-site `link`. A sibling refresh may have already persisted a
             // work-item ID into `pending` during the upsert await; restoring the
