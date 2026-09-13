@@ -111,6 +111,7 @@ private actor RecordingTransport: KeeplineTransport {
     private let dispatchLookupError: Error?
     private let onDispatchLookup: (@Sendable () async -> Void)?
     private let onUpsert: (@Sendable () async -> Void)?
+    private let onLinkSession: (@Sendable () async -> Void)?
     private let onLaunchDispatch: (@Sendable () async -> Void)?
     private let launchDispatchState: String
     private let launchDispatchError: String?
@@ -125,6 +126,7 @@ private actor RecordingTransport: KeeplineTransport {
         dispatchLookupErrorsByID: [String: Error] = [:],
         onDispatchLookup: (@Sendable () async -> Void)? = nil,
         onUpsert: (@Sendable () async -> Void)? = nil,
+        onLinkSession: (@Sendable () async -> Void)? = nil,
         onLaunchDispatch: (@Sendable () async -> Void)? = nil,
         launchDispatchState: String = "awaiting_session",
         launchDispatchError: String? = nil,
@@ -136,6 +138,7 @@ private actor RecordingTransport: KeeplineTransport {
         self.dispatchLookupErrorsByID = dispatchLookupErrorsByID
         self.onDispatchLookup = onDispatchLookup
         self.onUpsert = onUpsert
+        self.onLinkSession = onLinkSession
         self.onLaunchDispatch = onLaunchDispatch
         self.launchDispatchState = launchDispatchState
         self.launchDispatchError = launchDispatchError
@@ -187,6 +190,9 @@ private actor RecordingTransport: KeeplineTransport {
     }
 
     func linkSession(workItemID: String, sessionID: String) async throws -> KeeplineSessionLink {
+        if let onLinkSession {
+            await onLinkSession()
+        }
         mutationCounts[.manualSessionLink, default: 0] += 1
         return try fixture("""
         {
@@ -324,6 +330,8 @@ private struct StashIntegrationChecks {
         try await checkResumeSkipsPersistingLinkRemovedDuringImport()
         try await checkManualLinkReservesMissingIdentityAgainstResume()
         try await checkResumeSkipsLaunchAfterImportReplacesSameIDAttempt()
+        try await checkManualLinkRejectsImportRemovalDuringMissingIdentityUpsert()
+        try await checkManualLinkRejectsSameIDImportDuringMissingIdentitySessionLink()
         if let binary = ProcessInfo.processInfo.environment["STASH_KEEPLINE_E2E_BINARY"],
            !binary.isEmpty {
             try await checkPackagedCompletionClaimFlow(binary: binary)
@@ -2930,6 +2938,132 @@ private struct StashIntegrationChecks {
             outcome.notices.isEmpty,
             "same-ID import replacement should not surface a launch notice"
         )
+    }
+
+    @MainActor
+    private static func checkManualLinkRejectsImportRemovalDuringMissingIdentityUpsert() async throws {
+        // Import removes the reserved pending link while missing-identity upsert
+        // awaits. manualLink must not re-add the pre-import snapshot after persist.
+        let pendingTask = LedgerTask(title: "Manual import removes reserved link")
+        let pendingLink = AgentTaskLink(
+            taskID: pendingTask.id,
+            dispatchState: .pending,
+            idempotencyKey: "stash:\(pendingTask.id.uuidString):manual-import-remove",
+            projectRoot: "/tmp",
+            runtimeID: "codex",
+            source: .dispatched
+        )
+        let repository = FailAtSaveRepository(
+            workspace: LedgerWorkspace(
+                tasks: [pendingTask],
+                agentTaskLinks: [pendingLink]
+            ),
+            failingSaveAttempt: 99
+        )
+        let store = LedgerStore(repository: repository, initialWorkspace: LedgerWorkspace())
+        await store.bootstrap()
+        let transport = RecordingTransport(onUpsert: {
+            await MainActor.run {
+                let imported = LedgerWorkspace(
+                    tasks: [pendingTask],
+                    agentTaskLinks: []
+                )
+                do {
+                    try store.importData(try WorkspaceCodec.encode(imported))
+                } catch {
+                    assertionFailure("import during manual upsert fixture failed: \(error)")
+                }
+            }
+        })
+        let coordinator = StashKeeplineCoordinator(store: store, transport: transport)
+        let session = try sessionFixture()
+
+        do {
+            try await coordinator.manualLink(session, to: pendingTask)
+            throw CheckFailure.failed("manualLink succeeded after import removed the reserved link")
+        } catch StashKeeplineCoordinatorError.linkNotFound {
+            // expected
+        }
+
+        try expect(
+            store.agentLink(for: pendingTask.id) == nil,
+            "manualLink re-added a reserved link removed by import"
+        )
+        let links = await transport.count(.manualSessionLink)
+        try expect(links == 0, "session link ran after reserved link disappeared during upsert")
+    }
+
+    @MainActor
+    private static func checkManualLinkRejectsSameIDImportDuringMissingIdentitySessionLink() async throws {
+        // Import keeps the reserved UUID but swaps attempt identity while the
+        // session-link await runs. Persist must not overwrite the replacement.
+        let pendingTask = LedgerTask(title: "Manual import replaces during session link")
+        let sharedID = UUID()
+        let pendingLink = AgentTaskLink(
+            id: sharedID,
+            taskID: pendingTask.id,
+            dispatchState: .pending,
+            idempotencyKey: "stash:\(pendingTask.id.uuidString):pre-import-manual",
+            projectRoot: "/tmp/pre-import",
+            runtimeID: "codex",
+            source: .dispatched
+        )
+        let repository = FailAtSaveRepository(
+            workspace: LedgerWorkspace(
+                tasks: [pendingTask],
+                agentTaskLinks: [pendingLink]
+            ),
+            failingSaveAttempt: 99
+        )
+        let store = LedgerStore(repository: repository, initialWorkspace: LedgerWorkspace())
+        await store.bootstrap()
+        let transport = RecordingTransport(onLinkSession: {
+            await MainActor.run {
+                let replacement = AgentTaskLink(
+                    id: sharedID,
+                    taskID: pendingTask.id,
+                    dispatchState: .pending,
+                    idempotencyKey: "stash:\(pendingTask.id.uuidString):post-import-manual",
+                    projectRoot: "/tmp/post-import",
+                    runtimeID: "codex",
+                    source: .dispatched
+                )
+                let imported = LedgerWorkspace(
+                    tasks: [pendingTask],
+                    agentTaskLinks: [replacement]
+                )
+                do {
+                    try store.importData(try WorkspaceCodec.encode(imported))
+                } catch {
+                    assertionFailure("import during manual session-link fixture failed: \(error)")
+                }
+            }
+        })
+        let coordinator = StashKeeplineCoordinator(store: store, transport: transport)
+        let session = try sessionFixture()
+
+        do {
+            try await coordinator.manualLink(session, to: pendingTask)
+            throw CheckFailure.failed("manualLink succeeded after same-ID import replaced the attempt")
+        } catch StashKeeplineCoordinatorError.linkNotFound {
+            // expected
+        }
+
+        let current = store.agentLink(for: pendingTask.id)
+        try expect(
+            current?.idempotencyKey == "stash:\(pendingTask.id.uuidString):post-import-manual",
+            "manualLink overwrote the imported same-ID replacement attempt"
+        )
+        try expect(
+            current?.sessionID == nil,
+            "manualLink attached a session onto the imported replacement attempt"
+        )
+        try expect(
+            current?.keeplineWorkItemID == nil,
+            "manualLink persisted work-item identity onto the imported replacement"
+        )
+        let links = await transport.count(.manualSessionLink)
+        try expect(links == 1, "session link should still have been issued before revalidation")
     }
 
     @MainActor

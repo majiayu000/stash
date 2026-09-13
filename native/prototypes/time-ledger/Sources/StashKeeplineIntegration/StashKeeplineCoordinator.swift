@@ -226,21 +226,34 @@ public final class StashKeeplineCoordinator {
             guard workItem.id == existingWorkItemID else {
                 throw StashKeeplineCoordinatorError.workItemIdentityChanged
             }
-        } else {
+            _ = try await WorkspacePersistenceGate.perform(.manualSessionLink, store: store) {
+                try await transport.linkSession(workItemID: workItem.id, sessionID: session.sessionID)
+            }
+            // Reload before persist: import may have removed/replaced the link
+            // while upsert or session-link awaited.
+            guard var current = store.workspace.agentTaskLinks.first(where: { $0.id == existing.id }),
+                  current.taskID == existing.taskID,
+                  !current.isTerminal,
+                  current.sessionID == nil,
+                  current.keeplineWorkItemID == existingWorkItemID else {
+                throw StashKeeplineCoordinatorError.linkNotFound
+            }
+            current.keeplineWorkItemID = workItem.id
+            current.sessionID = session.sessionID
+            current.runtimeID = session.runtimeID.rawValue
+            current.projectRoot = session.directory
+            guard store.persistAgentLink(current) else {
+                throw StashKeeplineCoordinatorError.activeLinkConflict
+            }
+        } else if let reserved = existing {
             // Interrupted launches may leave a pending link without a work-item ID
             // when the runtime capability was absent. Establish identity here so
             // manual session recovery is not blocked until that capability returns.
-            // Reserve the pending link before the upsert await so a concurrent
-            // resume cannot persist identity and launchDispatch first.
-            let reservedID = existing?.id
-            if let reservedID {
-                reservedManualRecoveryLinkIDs.insert(reservedID)
-            }
-            defer {
-                if let reservedID {
-                    reservedManualRecoveryLinkIDs.remove(reservedID)
-                }
-            }
+            // Reserve across upsert + session-link so resume cannot launch first,
+            // and revalidate the reserved attempt after each await — import can
+            // remove the link or swap same-ID attempt fields while we suspend.
+            reservedManualRecoveryLinkIDs.insert(reserved.id)
+            defer { reservedManualRecoveryLinkIDs.remove(reserved.id) }
             workItem = try await WorkspacePersistenceGate.perform(.manualLinkUpsert, store: store) {
                 try await transport.upsertExternalWorkItem(
                     source: "stash",
@@ -248,20 +261,35 @@ public final class StashKeeplineCoordinator {
                     input: Self.workItemInput(task: task, projectRoot: session.directory)
                 )
             }
-        }
-
-        _ = try await WorkspacePersistenceGate.perform(.manualSessionLink, store: store) {
-            try await transport.linkSession(workItemID: workItem.id, sessionID: session.sessionID)
-        }
-        if var existing {
-            existing.keeplineWorkItemID = workItem.id
-            existing.sessionID = session.sessionID
-            existing.runtimeID = session.runtimeID.rawValue
-            existing.projectRoot = session.directory
-            guard store.persistAgentLink(existing) else {
+            try Self.requireReservedManualRecoveryLink(
+                store.workspace.agentTaskLinks.first(where: { $0.id == reserved.id }),
+                matching: reserved
+            )
+            _ = try await WorkspacePersistenceGate.perform(.manualSessionLink, store: store) {
+                try await transport.linkSession(workItemID: workItem.id, sessionID: session.sessionID)
+            }
+            var current = try Self.requireReservedManualRecoveryLink(
+                store.workspace.agentTaskLinks.first(where: { $0.id == reserved.id }),
+                matching: reserved
+            )
+            current.keeplineWorkItemID = workItem.id
+            current.sessionID = session.sessionID
+            current.runtimeID = session.runtimeID.rawValue
+            current.projectRoot = session.directory
+            guard store.persistAgentLink(current) else {
                 throw StashKeeplineCoordinatorError.activeLinkConflict
             }
         } else {
+            workItem = try await WorkspacePersistenceGate.perform(.manualLinkUpsert, store: store) {
+                try await transport.upsertExternalWorkItem(
+                    source: "stash",
+                    externalID: task.id.uuidString,
+                    input: Self.workItemInput(task: task, projectRoot: session.directory)
+                )
+            }
+            _ = try await WorkspacePersistenceGate.perform(.manualSessionLink, store: store) {
+                try await transport.linkSession(workItemID: workItem.id, sessionID: session.sessionID)
+            }
             let link = AgentTaskLink(
                 taskID: task.id,
                 keeplineWorkItemID: workItem.id,
@@ -275,6 +303,22 @@ public final class StashKeeplineCoordinator {
             }
         }
         try await WorkspacePersistenceGate.require(store)
+    }
+
+    /// Ensures a reserved missing-identity recovery still owns the same launch
+    /// attempt after an await. Import may drop the UUID or preserve it while
+    /// swapping task/attempt fields; either case must not re-add or overwrite.
+    private static func requireReservedManualRecoveryLink(
+        _ current: AgentTaskLink?,
+        matching original: AgentTaskLink
+    ) throws -> AgentTaskLink {
+        guard let current,
+              matchesLaunchAttempt(current, original: original),
+              current.sessionID == nil,
+              !current.isTerminal else {
+            throw StashKeeplineCoordinatorError.linkNotFound
+        }
+        return current
     }
 
     public func resolveAmbiguous(
