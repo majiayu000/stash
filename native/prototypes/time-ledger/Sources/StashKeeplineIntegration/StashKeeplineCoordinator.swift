@@ -377,6 +377,13 @@ public final class StashKeeplineCoordinator {
                     recoveredTaskIDs.append(link.taskID)
                     continue
                 }
+                // Sibling refresh may have already promoted this link to .ambiguous
+                // with candidates while this poll was in flight. Do not let an older
+                // nonterminal response erase that transition (same skip as the
+                // pre-await snapshot filter above).
+                if current.dispatchState == .ambiguous {
+                    continue
+                }
                 let updated = Self.applying(dispatch, to: current)
                 if updated != current {
                     appliedPollSnapshot = current
@@ -504,8 +511,13 @@ public final class StashKeeplineCoordinator {
                 }
                 pending = current
             }
+            // Roll back to the reloaded pre-mutation snapshot, not the original
+            // call-site `link`. A sibling refresh may have already persisted a
+            // work-item ID into `pending` during the upsert await; restoring the
+            // stale original would erase that progress on flush failure.
+            let previous = pending
             pending.keeplineWorkItemID = workItem.id
-            try await persistLinkRequiringSave(pending, restoringOnFailure: link)
+            try await persistLinkRequiringSave(pending, restoringOnFailure: previous)
             pending = store.workspace.agentTaskLinks.first(where: { $0.id == link.id }) ?? pending
         }
         // Cooperative cancellation can arrive while the upsert/persist awaits

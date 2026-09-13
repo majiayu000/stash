@@ -303,6 +303,8 @@ private struct StashIntegrationChecks {
         try await checkForegroundErrorGenerationRejectsBufferedTerminalNotice()
         try await checkResumePropagatesSaveFailureAfterLinkedPoll()
         try await checkResumeDoesNotRollbackConcurrentManualLinkOnSaveFailure()
+        try await checkResumeRollsBackToReloadedWorkItemOnSaveFailure()
+        try await checkResumeRejectsStalePollAfterAmbiguousTransition()
         try await checkResumeCancelsBeforeLaunchMutation()
         try await checkResumeCancelsAfterFinalLookupReturnsNormally()
         try await checkResumeSkipsLaunchAfterManualLinkDuringUpsert()
@@ -2103,6 +2105,122 @@ private struct StashIntegrationChecks {
         try expect(
             outcome.recoveredTaskIDs.isEmpty,
             "unsaved poll apply must not count as recovered even when a concurrent manual link wins"
+        )
+    }
+
+    @MainActor
+    private static func checkResumeRollsBackToReloadedWorkItemOnSaveFailure() async throws {
+        // Sibling refresh persists a work-item ID while this no-dispatch retry's
+        // upsert awaits. On flush failure, rollback must restore that reloaded
+        // snapshot — not the original call-site link that lacked a work-item ID.
+        let pendingTask = LedgerTask(title: "Rollback to reloaded work item")
+        let pendingLink = AgentTaskLink(
+            taskID: pendingTask.id,
+            dispatchState: .pending,
+            idempotencyKey: "stash:\(pendingTask.id.uuidString):rollback-reloaded",
+            projectRoot: "/tmp",
+            runtimeID: "codex",
+            source: .dispatched
+        )
+        let repository = FailAtSaveRepository(
+            workspace: LedgerWorkspace(
+                tasks: [pendingTask],
+                agentTaskLinks: [pendingLink]
+            ),
+            failingSaveAttempt: 99
+        )
+        let store = LedgerStore(repository: repository, initialWorkspace: LedgerWorkspace())
+        await store.bootstrap()
+        let transport = RecordingTransport(onUpsert: {
+            await MainActor.run {
+                guard var current = store.agentLink(for: pendingTask.id),
+                      current.id == pendingLink.id,
+                      current.keeplineWorkItemID == nil else { return }
+                current.keeplineWorkItemID = "work-sibling"
+                _ = store.persistAgentLink(current)
+            }
+            await repository.armNextSaveFailure()
+        })
+        let coordinator = StashKeeplineCoordinator(store: store, transport: transport)
+
+        let outcome = try await coordinator.resumePendingAttempts()
+
+        try expect(
+            store.agentLink(for: pendingTask.id)?.keeplineWorkItemID == "work-sibling",
+            "flush-failure rollback erased a sibling-persisted work-item ID"
+        )
+        try expect(
+            store.agentLink(for: pendingTask.id)?.dispatchID == nil,
+            "failed work-item persist unexpectedly advanced to a dispatch ID"
+        )
+        let launches = await transport.count(.launchDispatch)
+        try expect(launches == 0, "launchDispatch fired after work-item persist failure")
+        try expect(
+            outcome.notices.contains(where: { $0.taskID == pendingTask.id }),
+            "work-item persist failure did not surface a resume notice"
+        )
+        try expect(
+            !outcome.recoveredTaskIDs.contains(pendingTask.id),
+            "failed work-item persist was misclassified as recovered"
+        )
+    }
+
+    @MainActor
+    private static func checkResumeRejectsStalePollAfterAmbiguousTransition() async throws {
+        // Overlapping refreshes poll the same awaiting_session link. A sibling
+        // persists .ambiguous with candidates while this lookup is in flight; the
+        // older awaiting_session response must not erase that transition.
+        let pendingTask = LedgerTask(title: "Stale poll after ambiguous")
+        let pendingLink = AgentTaskLink(
+            taskID: pendingTask.id,
+            keeplineWorkItemID: "work-stale-ambiguous",
+            dispatchID: "dispatch-stale-ambiguous",
+            dispatchState: .awaitingSession,
+            projectRoot: "/tmp",
+            runtimeID: "codex",
+            source: .dispatched
+        )
+        let repository = FailAtSaveRepository(
+            workspace: LedgerWorkspace(
+                tasks: [pendingTask],
+                agentTaskLinks: [pendingLink]
+            ),
+            failingSaveAttempt: 99
+        )
+        let store = LedgerStore(repository: repository, initialWorkspace: LedgerWorkspace())
+        await store.bootstrap()
+        let transport = RecordingTransport(
+            onDispatchLookup: {
+                await MainActor.run {
+                    guard var current = store.agentLink(for: pendingTask.id),
+                          current.id == pendingLink.id,
+                          current.dispatchState == .awaitingSession else { return }
+                    current.dispatchState = .ambiguous
+                    current.candidateSessionIDs = ["candidate-a", "candidate-b"]
+                    _ = store.persistAgentLink(current)
+                }
+            },
+            dispatchLookupState: "awaiting_session"
+        )
+        let coordinator = StashKeeplineCoordinator(store: store, transport: transport)
+
+        let outcome = try await coordinator.resumePendingAttempts()
+
+        try expect(
+            store.agentLink(for: pendingTask.id)?.dispatchState == .ambiguous,
+            "stale awaiting_session poll erased a sibling ambiguous transition"
+        )
+        try expect(
+            store.agentLink(for: pendingTask.id)?.candidateSessionIDs == ["candidate-a", "candidate-b"],
+            "stale awaiting_session poll cleared sibling ambiguous candidates"
+        )
+        try expect(
+            !outcome.recoveredTaskIDs.contains(pendingTask.id),
+            "stale poll over ambiguous was misclassified as recovered"
+        )
+        try expect(
+            outcome.notices.isEmpty,
+            "stale poll over ambiguous published a recovery notice"
         )
     }
 
