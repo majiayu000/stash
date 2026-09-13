@@ -520,20 +520,38 @@ public final class StashKeeplineCoordinator {
             return nil
         }
         pending = latest
-        guard let workItemID = pending.keeplineWorkItemID else {
+        guard pending.keeplineWorkItemID != nil else {
             throw StashKeeplineCoordinatorError.missingWorkItemIdentity
         }
         let prompt = [task.title, task.notes.nonEmpty].compactMap { $0 }.joined(separator: "\n\n")
-        let dispatch = try await WorkspacePersistenceGate.perform(.launchDispatch, store: store) {
-            try await transport.dispatch(
+        // `perform` suspends on require(store)/flush before running the closure.
+        // Recheck inside the closure — after that gate — so a concurrent manualLink
+        // during flush cannot still reach transport.dispatch.
+        enum LaunchGateResult {
+            case superseded
+            case dispatched(KeeplineDispatch)
+        }
+        let gateResult = try await WorkspacePersistenceGate.perform(.launchDispatch, store: store) {
+            guard let current = store.workspace.agentTaskLinks.first(where: { $0.id == link.id }),
+                  !current.isTerminal,
+                  current.source == .dispatched,
+                  current.sessionID == nil,
+                  let workItemID = current.keeplineWorkItemID else {
+                return LaunchGateResult.superseded
+            }
+            let dispatch = try await transport.dispatch(
                 workItemID: workItemID,
                 request: DispatchRequest(
-                    runtimeID: KeeplineRuntimeID(rawValue: pending.runtimeID),
+                    runtimeID: KeeplineRuntimeID(rawValue: current.runtimeID),
                     cwd: projectRoot,
                     prompt: prompt,
                     idempotencyKey: key
                 )
             )
+            return .dispatched(dispatch)
+        }
+        guard case let .dispatched(dispatch) = gateResult else {
+            return nil
         }
         // Reload after remote work so a concurrent manualLink is not wiped.
         guard let current = store.workspace.agentTaskLinks.first(where: { $0.id == pending.id }),

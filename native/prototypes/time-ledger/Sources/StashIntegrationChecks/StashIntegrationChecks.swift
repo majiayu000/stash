@@ -14,6 +14,7 @@ private actor FailAtSaveRepository: WorkspaceRepository {
     private let failingSaveAttempt: Int
     private var failNextSave = false
     private var onFailingSave: (@Sendable () async -> Void)?
+    private var onNextSave: (@Sendable () async -> Void)?
 
     init(workspace: LedgerWorkspace, failingSaveAttempt: Int) {
         self.workspace = workspace
@@ -23,6 +24,12 @@ private actor FailAtSaveRepository: WorkspaceRepository {
     func armNextSaveFailure(onFailingSave: (@Sendable () async -> Void)? = nil) {
         failNextSave = true
         self.onFailingSave = onFailingSave
+    }
+
+    /// Suspends the next successful `save` so MainActor work can interleave while
+    /// `WorkspacePersistenceGate.require`/`flush` is awaiting the repository.
+    func armNextSaveSuspension(_ onNextSave: @escaping @Sendable () async -> Void) {
+        self.onNextSave = onNextSave
     }
 
     func load() async throws -> LedgerWorkspace? { workspace }
@@ -40,6 +47,10 @@ private actor FailAtSaveRepository: WorkspaceRepository {
         }
         if saveAttempt == failingSaveAttempt {
             throw ForcedSaveFailure()
+        }
+        if let hook = onNextSave {
+            onNextSave = nil
+            await hook()
         }
         self.workspace = workspace
     }
@@ -295,6 +306,7 @@ private struct StashIntegrationChecks {
         try await checkResumeCancelsBeforeLaunchMutation()
         try await checkResumeCancelsAfterFinalLookupReturnsNormally()
         try await checkResumeSkipsLaunchAfterManualLinkDuringUpsert()
+        try await checkResumeSkipsLaunchAfterManualLinkDuringLaunchFlush()
         if let binary = ProcessInfo.processInfo.environment["STASH_KEEPLINE_E2E_BINARY"],
            !binary.isEmpty {
             try await checkPackagedCompletionClaimFlow(binary: binary)
@@ -2264,6 +2276,62 @@ private struct StashIntegrationChecks {
         try expect(
             store.agentLink(for: pendingTask.id)?.sessionID == "runtime-session-manual-during-upsert",
             "launch retry mutated the concurrent manual session link"
+        )
+    }
+
+    @MainActor
+    private static func checkResumeSkipsLaunchAfterManualLinkDuringLaunchFlush() async throws {
+        // Preflight already passed, but launchDispatch's require(store)/flush still
+        // suspends. manualLink must win during that await without a duplicate Agent.
+        let pendingTask = LedgerTask(title: "Manual link during launch flush")
+        let pendingLink = AgentTaskLink(
+            taskID: pendingTask.id,
+            keeplineWorkItemID: "work-launch-flush",
+            dispatchState: .pending,
+            idempotencyKey: "stash:\(pendingTask.id.uuidString):manual-during-launch-flush",
+            projectRoot: "/tmp",
+            runtimeID: "codex",
+            source: .dispatched
+        )
+        let repository = FailAtSaveRepository(
+            workspace: LedgerWorkspace(
+                tasks: [pendingTask],
+                agentTaskLinks: [pendingLink]
+            ),
+            failingSaveAttempt: 99
+        )
+        let store = LedgerStore(repository: repository, initialWorkspace: LedgerWorkspace())
+        await store.bootstrap()
+
+        let gate = UpsertCancellationGate()
+        await repository.armNextSaveSuspension {
+            await gate.waitUntilCancelled()
+        }
+        let transport = RecordingTransport()
+        let coordinator = StashKeeplineCoordinator(store: store, transport: transport)
+
+        let resumeTask = Task { @MainActor in
+            try await coordinator.resumePendingAttempts()
+        }
+        await gate.waitUntilUpsertStarted()
+        guard var current = store.agentLink(for: pendingTask.id) else {
+            throw CheckFailure.failed("pending launch link disappeared before flush-window attach")
+        }
+        current.sessionID = "runtime-session-manual-during-launch-flush"
+        current.source = .manuallyLinked
+        _ = store.persistAgentLink(current)
+        await gate.releaseUpsert()
+
+        let outcome = try await resumeTask.value
+        let launches = await transport.count(.launchDispatch)
+        try expect(launches == 0, "launchDispatch still fired after manual link during launch flush")
+        try expect(
+            outcome.recoveredTaskIDs.contains(pendingTask.id),
+            "manual link during launch flush was not treated as recovered"
+        )
+        try expect(
+            store.agentLink(for: pendingTask.id)?.sessionID == "runtime-session-manual-during-launch-flush",
+            "launch retry mutated the concurrent manual session link after flush race"
         )
     }
 
