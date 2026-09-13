@@ -444,6 +444,12 @@ public final class LedgerStore: ObservableObject {
         guard (1...LedgerWorkspace.currentSchemaVersion).contains(imported.schemaVersion) else {
             throw CocoaError(.fileReadCorruptFile)
         }
+        let linkIDs = imported.agentTaskLinks.map(\.id)
+        guard Set(linkIDs).count == linkIDs.count else {
+            // Duplicate AgentTaskLink IDs crash Dictionary(uniqueKeysWithValues:)
+            // consumers such as StashPendingResumeResult.revalidated(against:).
+            throw CocoaError(.fileReadCorruptFile)
+        }
         imported.schemaVersion = LedgerWorkspace.currentSchemaVersion
         workspace = imported
         persistenceEnabled = true

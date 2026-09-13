@@ -295,6 +295,7 @@ private struct StashIntegrationChecks {
         try await checkResumeDropsBufferedNoticeAfterLaterManualLink()
         try await checkRevalidatedDropsNoticeSupersededByNewerTaskLink()
         try await checkRevalidatedDropsNoticeSupersededByNewerTerminalPoll()
+        try checkRevalidatedToleratesDuplicateImportedLinkIDs()
         try await checkLaunchRetryTerminalFailurePublishesNotice()
         try await checkResumeDropsBufferedNoticeAfterOverlappingTerminalPoll()
         try await checkResumeRejectsNoticeAfterNewerSuccessfulPollGeneration()
@@ -1567,6 +1568,46 @@ private struct StashIntegrationChecks {
         try expect(
             stillCurrent.recoveredTaskIDs.isEmpty,
             "still-current terminal notice must not be recovered"
+        )
+    }
+
+    private static func checkRevalidatedToleratesDuplicateImportedLinkIDs() throws {
+        // Corrupt backups may decode two AgentTaskLink rows with the same UUID.
+        // revalidated must not trap via Dictionary(uniqueKeysWithValues:).
+        let task = LedgerTask(title: "Duplicate imported link IDs")
+        let sharedID = UUID()
+        let older = AgentTaskLink(
+            id: sharedID,
+            taskID: task.id,
+            keeplineWorkItemID: "work-dup-old",
+            dispatchID: "dispatch-dup-old",
+            dispatchState: .awaitingSession,
+            projectRoot: "/tmp",
+            runtimeID: "codex",
+            source: .dispatched,
+            linkedAt: Date(timeIntervalSince1970: 1_000)
+        )
+        var newer = older
+        newer.dispatchState = .failed
+        newer.linkedAt = Date(timeIntervalSince1970: 2_000)
+        let buffered = StashPendingResumeResult(
+            notices: [
+                StashIntegrationNotice(
+                    taskID: task.id,
+                    linkID: sharedID,
+                    message: "stale awaiting notice",
+                    observedDispatchState: .awaitingSession
+                )
+            ]
+        )
+        let revalidated = buffered.revalidated(against: [older, newer])
+        try expect(
+            revalidated.notices.isEmpty,
+            "revalidated trapped or kept a stamp-mismatched notice for duplicate link IDs"
+        )
+        try expect(
+            revalidated.recoveredTaskIDs.isEmpty,
+            "stamp mismatch on duplicate IDs must not recover the task"
         )
     }
 

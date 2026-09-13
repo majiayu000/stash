@@ -45,9 +45,56 @@ struct StashCoreChecks {
         try await checkTrashAndProjects()
         try await checkChecklist()
         try await checkAgentLinkPersistence()
+        try await checkImportRejectsDuplicateAgentLinkIDs()
         try await checkStoreInteractionPerformance()
         try checkPlannerPerformance()
         print("StashCoreChecks: all checks passed")
+    }
+
+    @MainActor
+    private static func checkImportRejectsDuplicateAgentLinkIDs() async throws {
+        let now = Date(timeIntervalSince1970: 1_777_000_000)
+        let task = LedgerTask(title: "Import duplicate links", createdAt: now)
+        let sharedID = UUID()
+        let first = AgentTaskLink(
+            id: sharedID,
+            taskID: task.id,
+            keeplineWorkItemID: "work-a",
+            runtimeID: "codex",
+            source: .dispatched,
+            linkedAt: now
+        )
+        let second = AgentTaskLink(
+            id: sharedID,
+            taskID: task.id,
+            keeplineWorkItemID: "work-b",
+            runtimeID: "codex",
+            source: .dispatched,
+            linkedAt: now.addingTimeInterval(1)
+        )
+        let corrupted = LedgerWorkspace(
+            tasks: [task],
+            agentTaskLinks: [first, second]
+        )
+        let store = LedgerStore(
+            repository: MemoryRepository(),
+            initialWorkspace: LedgerWorkspace(tasks: [LedgerTask(title: "Safe")])
+        )
+        do {
+            try store.importData(try WorkspaceCodec.encode(corrupted))
+            throw CheckFailure.failed("importData accepted duplicate AgentTaskLink IDs")
+        } catch let error as CocoaError {
+            try expect(
+                error.code == .fileReadCorruptFile,
+                "importData threw unexpected CocoaError: \(error)"
+            )
+        } catch {
+            throw CheckFailure.failed("importData threw unexpected error: \(error)")
+        }
+        try expect(
+            store.workspace.tasks.map(\.title) == ["Safe"],
+            "failed import mutated the existing workspace"
+        )
     }
 
     @MainActor

@@ -55,7 +55,11 @@ public struct StashPendingResumeResult: Equatable, Sendable {
     /// State-stamp mismatches only suppress the stale notice — they do not recover,
     /// so a newer terminal publish for the same link is left intact.
     public func revalidated(against links: [AgentTaskLink]) -> StashPendingResumeResult {
-        let byID = Dictionary(uniqueKeysWithValues: links.map { ($0.id, $0) })
+        // Imported backups may contain duplicate link IDs. Prefer the newer
+        // `linkedAt` without trapping via `Dictionary(uniqueKeysWithValues:)`.
+        let byID = Dictionary(links.map { ($0.id, $0) }, uniquingKeysWith: { lhs, rhs in
+            lhs.linkedAt >= rhs.linkedAt ? lhs : rhs
+        })
         var filtered: [StashIntegrationNotice] = []
         var recovered = recoveredTaskIDs
         for notice in notices {
