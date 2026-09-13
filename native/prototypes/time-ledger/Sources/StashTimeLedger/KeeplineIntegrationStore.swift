@@ -108,9 +108,11 @@ final class KeeplineIntegrationStore: ObservableObject {
     private var lastSuccessfulRefreshAt: Date?
     /// Task IDs whose current `taskErrors` entry was published by pending-dispatch resume.
     private var resumeErrorTaskIDs: Set<UUID> = []
-    /// Per-task generation for resume-owned errors. Overlapping refreshes capture a
-    /// snapshot before awaiting; recovered clears only apply when the generation is
-    /// unchanged so a newer failure is not wiped by an older recovery.
+    /// Per-task generation for resume-owned errors and recoveries. Overlapping
+    /// refreshes capture a snapshot before awaiting; recovered clears and buffered
+    /// notice publishes only apply when the generation is unchanged so a newer
+    /// failure is not wiped by an older recovery, and a stale buffered failure is
+    /// not published after a newer successful poll.
     private var resumeErrorGeneration: [UUID: UInt64] = [:]
     private var resumeErrorGenerationClock: UInt64 = 0
 
@@ -546,8 +548,7 @@ final class KeeplineIntegrationStore: ObservableObject {
         }
         publishTaskError(message, for: taskID)
         resumeErrorTaskIDs.insert(taskID)
-        resumeErrorGenerationClock += 1
-        resumeErrorGeneration[taskID] = resumeErrorGenerationClock
+        bumpResumeErrorGeneration(for: taskID)
     }
 
     private func clearResumeError(for taskID: UUID) {
@@ -578,10 +579,23 @@ final class KeeplineIntegrationStore: ObservableObject {
             // recovery was decided — leave that failure in place.
             guard current == observed else { continue }
             clearResumeError(for: taskID)
+            // Stamp even when nothing was published yet: an older refresh may
+            // still hold a buffered failure for an unchanged awaiting_session
+            // link whose dispatch-state stamp still matches.
+            bumpResumeErrorGeneration(for: taskID)
         }
-        for notice in validated.notices {
+        let publishable = validated.rejectingNoticesSupersededByGeneration(
+            observed: observedResumeGenerations,
+            current: resumeErrorGeneration
+        )
+        for notice in publishable.notices {
             publishResumeTaskError(notice.message, for: notice.taskID)
         }
+    }
+
+    private func bumpResumeErrorGeneration(for taskID: UUID) {
+        resumeErrorGenerationClock += 1
+        resumeErrorGeneration[taskID] = resumeErrorGenerationClock
     }
 }
 

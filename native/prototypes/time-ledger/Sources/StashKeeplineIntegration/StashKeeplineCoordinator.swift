@@ -92,6 +92,23 @@ public struct StashPendingResumeResult: Equatable, Sendable {
         )
     }
 
+    /// Drops buffered notices whose task resume-error generation advanced past the
+    /// snapshot taken before this refresh awaited. A newer overlapping recovery
+    /// stamps the generation so an unchanged `awaiting_session` link cannot publish
+    /// a stale failure after a successful poll already cleared the path.
+    public func rejectingNoticesSupersededByGeneration(
+        observed: [UUID: UInt64],
+        current: [UUID: UInt64]
+    ) -> StashPendingResumeResult {
+        let filtered = notices.filter { notice in
+            (current[notice.taskID] ?? 0) == (observed[notice.taskID] ?? 0)
+        }
+        return StashPendingResumeResult(
+            notices: filtered,
+            recoveredTaskIDs: recoveredTaskIDs
+        )
+    }
+
     /// Same selection rules as `LedgerStore.agentLink(for:)`.
     private static func currentLink(for taskID: UUID, in links: [AgentTaskLink]) -> AgentTaskLink? {
         let forTask = links.filter { $0.taskID == taskID }

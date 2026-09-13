@@ -286,6 +286,7 @@ private struct StashIntegrationChecks {
         try await checkRevalidatedDropsNoticeSupersededByNewerTerminalPoll()
         try await checkLaunchRetryTerminalFailurePublishesNotice()
         try await checkResumeDropsBufferedNoticeAfterOverlappingTerminalPoll()
+        try await checkResumeRejectsNoticeAfterNewerSuccessfulPollGeneration()
         try await checkResumePropagatesSaveFailureAfterLinkedPoll()
         try await checkResumeDoesNotRollbackConcurrentManualLinkOnSaveFailure()
         try await checkResumeCancelsBeforeLaunchMutation()
@@ -1679,6 +1680,59 @@ private struct StashIntegrationChecks {
         try expect(
             store.agentLink(for: failedTask.id)?.dispatchState == .failed,
             "overlapping terminal poll did not persist failed on the buffered link"
+        )
+    }
+
+    @MainActor
+    private static func checkResumeRejectsNoticeAfterNewerSuccessfulPollGeneration() async throws {
+        // Older refresh buffers a transient lookup failure for an awaiting_session
+        // link, then awaits a sibling. A newer overlapping refresh successfully
+        // polls the same unchanged link and stamps a recovery generation. Final
+        // publication must drop the buffered notice — dispatch-state revalidation
+        // alone still matches awaiting_session.
+        let failedTask = LedgerTask(title: "Transient then recovered")
+        let failedLink = AgentTaskLink(
+            taskID: failedTask.id,
+            keeplineWorkItemID: "work-gen-fail",
+            dispatchID: "dispatch-gen-fail",
+            dispatchState: .awaitingSession,
+            projectRoot: "/tmp",
+            runtimeID: "codex",
+            source: .dispatched
+        )
+        let buffered = StashPendingResumeResult(
+            notices: [
+                StashIntegrationNotice(
+                    taskID: failedTask.id,
+                    linkID: failedLink.id,
+                    message: "stale lookup failure after newer recovery",
+                    observedDispatchState: .awaitingSession
+                )
+            ]
+        )
+        // Link state unchanged — stamp revalidation alone would keep the notice.
+        let revalidated = buffered.revalidated(against: [failedLink])
+        try expect(
+            revalidated.notices.count == 1,
+            "unchanged awaiting_session stamp should keep the buffered notice before generation gate"
+        )
+        let observed: [UUID: UInt64] = [:]
+        let afterRecovery: [UUID: UInt64] = [failedTask.id: 7]
+        let rejected = revalidated.rejectingNoticesSupersededByGeneration(
+            observed: observed,
+            current: afterRecovery
+        )
+        try expect(
+            rejected.notices.isEmpty,
+            "generation gate kept a notice after a newer successful recovery stamp"
+        )
+        let sameGeneration = revalidated.rejectingNoticesSupersededByGeneration(
+            observed: [failedTask.id: 7],
+            current: [failedTask.id: 7]
+        )
+        try expect(
+            sameGeneration.notices.count == 1,
+            "generation gate dropped a notice whose snapshot still matches"
         )
     }
 
