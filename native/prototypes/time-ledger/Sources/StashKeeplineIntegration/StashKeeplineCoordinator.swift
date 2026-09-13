@@ -50,11 +50,12 @@ public struct StashPendingResumeResult: Equatable, Sendable {
     /// dispatch state no longer matches (a newer overlapping poll mutated the link).
     /// Terminal failed/cancelled origins still publish only while they remain current
     /// and the buffered stamp still matches that terminal state.
-    /// Missing, session-linked, or superseded origins are treated as recovered so
-    /// prior resume errors clear (a removed/imported link never re-enters resume,
-    /// and a newer manual link is excluded from future resume batches).
-    /// State-stamp mismatches only suppress the stale notice — they do not recover,
-    /// so a newer terminal publish for the same link is left intact.
+    /// Missing or session-linked origins are treated as recovered so prior resume
+    /// errors clear (a removed/imported link never re-enters resume).
+    /// Superseded origins recover only when no surviving notice remains for that
+    /// task — otherwise an imported workspace with two nonterminal links for the
+    /// same task would bump generation on the older drop and suppress the current
+    /// link's failure. State-stamp mismatches only suppress the stale notice.
     public func revalidated(against links: [AgentTaskLink]) -> StashPendingResumeResult {
         // Imported backups may contain duplicate link IDs. Prefer the newer
         // `linkedAt` without trapping via `Dictionary(uniqueKeysWithValues:)`.
@@ -63,6 +64,9 @@ public struct StashPendingResumeResult: Equatable, Sendable {
         })
         var filtered: [StashIntegrationNotice] = []
         var recovered = recoveredTaskIDs
+        // Defer recovery for superseded notices until we know whether another
+        // notice for the same task still survives (the current link's failure).
+        var supersededTaskIDs: [UUID] = []
         for notice in notices {
             guard let link = byID[notice.linkID], link.taskID == notice.taskID else {
                 // Import/replace removed the originating link; clear sticky resume
@@ -76,8 +80,8 @@ public struct StashPendingResumeResult: Equatable, Sendable {
             // overall) link means this notice no longer represents the task.
             if let current = Self.currentLink(for: notice.taskID, in: links),
                current.id != notice.linkID {
-                if !recovered.contains(notice.taskID) {
-                    recovered.append(notice.taskID)
+                if !supersededTaskIDs.contains(notice.taskID) {
+                    supersededTaskIDs.append(notice.taskID)
                 }
                 continue
             }
@@ -95,6 +99,12 @@ public struct StashPendingResumeResult: Equatable, Sendable {
                 continue
             }
             filtered.append(notice)
+        }
+        let survivingTasks = Set(filtered.map(\.taskID))
+        for taskID in supersededTaskIDs where !survivingTasks.contains(taskID) {
+            if !recovered.contains(taskID) {
+                recovered.append(taskID)
+            }
         }
         return StashPendingResumeResult(
             notices: filtered,

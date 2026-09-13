@@ -308,6 +308,7 @@ private struct StashIntegrationChecks {
         try await checkResumeSuppressesLookupFailureAfterManualLink()
         try await checkResumeDropsBufferedNoticeAfterLaterManualLink()
         try await checkRevalidatedDropsNoticeSupersededByNewerTaskLink()
+        try checkRevalidatedKeepsCurrentFailureWhenOlderLinkSuperseded()
         try await checkRevalidatedDropsNoticeSupersededByNewerTerminalPoll()
         try checkRevalidatedToleratesDuplicateImportedLinkIDs()
         try await checkLaunchRetryTerminalFailurePublishesNotice()
@@ -1681,6 +1682,65 @@ private struct StashIntegrationChecks {
         try expect(
             stillCurrent.recoveredTaskIDs.isEmpty,
             "still-current terminal notice must not be recovered"
+        )
+    }
+
+    private static func checkRevalidatedKeepsCurrentFailureWhenOlderLinkSuperseded() throws {
+        // Imported workspaces may retain two nonterminal links for one task.
+        // When both polls fail, dropping the older superseded notice must not
+        // recover the shared task ID — that would bump generation and suppress
+        // the current link's resume failure on every refresh.
+        let task = LedgerTask(title: "Two active links both fail")
+        let older = AgentTaskLink(
+            id: UUID(),
+            taskID: task.id,
+            keeplineWorkItemID: "work-older",
+            dispatchID: "dispatch-older",
+            dispatchState: .awaitingSession,
+            projectRoot: "/tmp",
+            runtimeID: "codex",
+            source: .dispatched,
+            linkedAt: Date(timeIntervalSince1970: 1_000)
+        )
+        let current = AgentTaskLink(
+            id: UUID(),
+            taskID: task.id,
+            keeplineWorkItemID: "work-current",
+            dispatchID: "dispatch-current",
+            dispatchState: .awaitingSession,
+            projectRoot: "/tmp",
+            runtimeID: "codex",
+            source: .dispatched,
+            linkedAt: Date(timeIntervalSince1970: 2_000)
+        )
+        let buffered = StashPendingResumeResult(
+            notices: [
+                StashIntegrationNotice(
+                    taskID: task.id,
+                    linkID: older.id,
+                    message: "older link lookup failed",
+                    observedDispatchState: .awaitingSession
+                ),
+                StashIntegrationNotice(
+                    taskID: task.id,
+                    linkID: current.id,
+                    message: "current link lookup failed",
+                    observedDispatchState: .awaitingSession
+                )
+            ]
+        )
+        let revalidated = buffered.revalidated(against: [older, current])
+        try expect(
+            revalidated.notices.count == 1,
+            "revalidated did not keep exactly the current link's failure notice"
+        )
+        try expect(
+            revalidated.notices[0].linkID == current.id,
+            "revalidated kept the wrong link's failure notice"
+        )
+        try expect(
+            revalidated.recoveredTaskIDs.isEmpty,
+            "superseded older failure recovered the task and would suppress the current notice"
         )
     }
 
