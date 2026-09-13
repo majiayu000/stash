@@ -2351,20 +2351,38 @@ private struct StashIntegrationChecks {
             "reconcile cleared resume error while a resumable pending link remains"
         )
 
-        // Terminal sticky notices stay until explicitly replaced.
-        let terminal = AgentTaskLink(
+        // Import replaced the pending link with a failed/cancelled link that has a
+        // new id. The sticky entry still names the removed pending origin, so clear
+        // it — terminal links never re-enter a resume batch.
+        let importedTerminal = AgentTaskLink(
             taskID: task.id,
-            keeplineWorkItemID: "work-orphan-terminal",
-            dispatchID: "dispatch-orphan-terminal",
+            keeplineWorkItemID: "work-orphan-imported-terminal",
+            dispatchID: "dispatch-orphan-imported-terminal",
             dispatchState: .failed,
             projectRoot: "/tmp",
             runtimeID: "codex",
             source: .dispatched
         )
-        let preserved = empty.reconcilingOrphanedResumeErrors([task.id], against: [terminal])
+        let pendingOriginID = UUID()
+        let clearedImported = empty.reconcilingOrphanedResumeErrors(
+            [task.id],
+            against: [importedTerminal],
+            originLinkIDs: [task.id: pendingOriginID]
+        )
+        try expect(
+            clearedImported.recoveredTaskIDs.contains(task.id),
+            "empty outcome kept transient resume error after import replaced pending with terminal"
+        )
+
+        // Durable terminal notices published for the current terminal link stay.
+        let preserved = empty.reconcilingOrphanedResumeErrors(
+            [task.id],
+            against: [importedTerminal],
+            originLinkIDs: [task.id: importedTerminal.id]
+        )
         try expect(
             preserved.recoveredTaskIDs.isEmpty,
-            "reconcile synthesized recovery for a terminal sticky notice"
+            "reconcile synthesized recovery for a terminal sticky notice on the same link"
         )
     }
 

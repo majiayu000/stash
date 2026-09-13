@@ -108,6 +108,10 @@ final class KeeplineIntegrationStore: ObservableObject {
     private var lastSuccessfulRefreshAt: Date?
     /// Task IDs whose current `taskErrors` entry was published by pending-dispatch resume.
     private var resumeErrorTaskIDs: Set<UUID> = []
+    /// Originating `AgentTaskLink.id` for each resume-owned task error. Used to
+    /// distinguish durable terminal notices (same link still current) from sticky
+    /// transient messages left behind when import replaces the pending link.
+    private var resumeErrorOriginLinkIDs: [UUID: UUID] = [:]
     /// Per-task generation for resume-owned errors and recoveries. Overlapping
     /// refreshes capture a snapshot before awaiting; recovered clears and buffered
     /// notice publishes only apply when the generation is unchanged so a newer
@@ -209,6 +213,7 @@ final class KeeplineIntegrationStore: ObservableObject {
     func clearError(for taskID: UUID) {
         taskErrors[taskID] = nil
         resumeErrorTaskIDs.remove(taskID)
+        resumeErrorOriginLinkIDs[taskID] = nil
         resumeErrorGeneration[taskID] = nil
         foregroundErrorGeneration[taskID] = nil
     }
@@ -478,6 +483,7 @@ final class KeeplineIntegrationStore: ObservableObject {
         busyTaskIDs.insert(taskID)
         taskErrors[taskID] = nil
         resumeErrorTaskIDs.remove(taskID)
+        resumeErrorOriginLinkIDs[taskID] = nil
         resumeErrorGeneration[taskID] = nil
         foregroundErrorGeneration[taskID] = nil
         defer { busyTaskIDs.remove(taskID) }
@@ -499,6 +505,7 @@ final class KeeplineIntegrationStore: ObservableObject {
         busyTaskIDs.insert(taskID)
         taskErrors[taskID] = nil
         resumeErrorTaskIDs.remove(taskID)
+        resumeErrorOriginLinkIDs[taskID] = nil
         resumeErrorGeneration[taskID] = nil
         foregroundErrorGeneration[taskID] = nil
         defer { busyTaskIDs.remove(taskID) }
@@ -554,11 +561,12 @@ final class KeeplineIntegrationStore: ObservableObject {
         // (which may have observed an absent generation) cannot overwrite this
         // foreground failure when the batch later publishes.
         resumeErrorTaskIDs.remove(taskID)
+        resumeErrorOriginLinkIDs[taskID] = nil
         bumpResumeErrorGeneration(for: taskID)
         foregroundErrorGeneration[taskID] = resumeErrorGeneration[taskID]
     }
 
-    private func publishResumeTaskError(_ message: String, for taskID: UUID) {
+    private func publishResumeTaskError(_ message: String, for taskID: UUID, linkID: UUID) {
         // Foreground ops mark the task busy before remote work. Suppress only
         // stale transient lookup failures for busy tasks — nested launch→refresh
         // can persist failed/cancelled and return an actionable notice that must
@@ -582,6 +590,7 @@ final class KeeplineIntegrationStore: ObservableObject {
         }
         if taskErrors[taskID] != message { taskErrors[taskID] = message }
         resumeErrorTaskIDs.insert(taskID)
+        resumeErrorOriginLinkIDs[taskID] = linkID
         bumpResumeErrorGeneration(for: taskID)
         // Resume publication must not stamp a foreground generation — that would
         // incorrectly reject sibling terminal notices that should still surface.
@@ -589,14 +598,18 @@ final class KeeplineIntegrationStore: ObservableObject {
 
     private func clearResumeError(for taskID: UUID) {
         guard resumeErrorTaskIDs.contains(taskID) else { return }
-        // Keep terminal notices published while launch was still busy; the
-        // foreground op completes successfully after nested refresh persists
-        // failed/cancelled and would otherwise wipe the only remaining notice.
-        if ledgerStore?.agentLink(for: taskID)?.isTerminal == true {
+        // Keep durable terminal notices published for the current link (e.g. while
+        // launch was still busy and nested refresh persisted failed/cancelled).
+        // Imported replacements use a new link id, so a prior transient sticky
+        // message must clear even though the current link is terminal.
+        if let current = ledgerStore?.agentLink(for: taskID),
+           current.isTerminal,
+           resumeErrorOriginLinkIDs[taskID] == current.id {
             return
         }
         taskErrors[taskID] = nil
         resumeErrorTaskIDs.remove(taskID)
+        resumeErrorOriginLinkIDs[taskID] = nil
         resumeErrorGeneration[taskID] = nil
     }
 
@@ -611,7 +624,11 @@ final class KeeplineIntegrationStore: ObservableObject {
         let links = ledgerStore?.workspace.agentTaskLinks ?? []
         let validated = outcome
             .revalidated(against: links)
-            .reconcilingOrphanedResumeErrors(resumeErrorTaskIDs, against: links)
+            .reconcilingOrphanedResumeErrors(
+                resumeErrorTaskIDs,
+                against: links,
+                originLinkIDs: resumeErrorOriginLinkIDs
+            )
         for taskID in validated.recoveredTaskIDs {
             let observed = observedResumeGenerations[taskID] ?? 0
             let current = resumeErrorGeneration[taskID] ?? 0
@@ -630,7 +647,7 @@ final class KeeplineIntegrationStore: ObservableObject {
             foreground: foregroundErrorGeneration
         )
         for notice in publishable.notices {
-            publishResumeTaskError(notice.message, for: notice.taskID)
+            publishResumeTaskError(notice.message, for: notice.taskID, linkID: notice.linkID)
         }
     }
 

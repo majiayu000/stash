@@ -159,10 +159,17 @@ public struct StashPendingResumeResult: Equatable, Sendable {
     /// pending link (`!isTerminal`, `.dispatched`, no session). Empty outcomes after
     /// import removal never visit the missing-origin notice path in `revalidated`,
     /// so already-published `resumeErrorTaskIDs` must be reconciled against the
-    /// current workspace. Terminal sticky notices are left alone (store clear no-ops).
+    /// current workspace.
+    ///
+    /// Terminal current links keep their sticky entry only when
+    /// `originLinkIDs[taskID]` still names that same link — that is the durable
+    /// resume notice published for it. An imported failed/cancelled replacement
+    /// gets a new link id, so a prior transient resume lookup error must clear;
+    /// otherwise it sticks forever because terminal links leave future resume batches.
     public func reconcilingOrphanedResumeErrors(
         _ resumeErrorTaskIDs: Set<UUID>,
-        against links: [AgentTaskLink]
+        against links: [AgentTaskLink],
+        originLinkIDs: [UUID: UUID] = [:]
     ) -> StashPendingResumeResult {
         guard !resumeErrorTaskIDs.isEmpty else { return self }
         let resumableTaskIDs = Set(
@@ -172,7 +179,9 @@ public struct StashPendingResumeResult: Equatable, Sendable {
         )
         var recoveries = self.recoveries
         for taskID in resumeErrorTaskIDs where !resumableTaskIDs.contains(taskID) {
-            if let current = Self.currentLink(for: taskID, in: links), current.isTerminal {
+            if let current = Self.currentLink(for: taskID, in: links),
+               current.isTerminal,
+               originLinkIDs[taskID] == current.id {
                 continue
             }
             Self.appendUniqueRecovery(
