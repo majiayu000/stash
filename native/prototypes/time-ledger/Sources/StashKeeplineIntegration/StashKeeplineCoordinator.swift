@@ -316,8 +316,17 @@ public final class StashKeeplineCoordinator {
                 requestedSessionID: session.sessionID
             )
             try Self.requireCompatibleWorkItemIdentity(current, with: workItem.id)
+            // `perform` suspends on require(store)/flush before the closure.
+            // Recheck inside — after that gate — so an import during flush cannot
+            // still reach transport.linkSession (mirrors launchDispatch).
             _ = try await WorkspacePersistenceGate.perform(.manualSessionLink, store: store) {
-                try await transport.linkSession(workItemID: workItem.id, sessionID: session.sessionID)
+                let gated = try Self.requireReservedManualRecoveryLink(
+                    store.workspace.agentTaskLinks.first(where: { $0.id == existing.id }),
+                    matching: existing,
+                    requestedSessionID: session.sessionID
+                )
+                try Self.requireCompatibleWorkItemIdentity(gated, with: workItem.id)
+                return try await transport.linkSession(workItemID: workItem.id, sessionID: session.sessionID)
             }
             // Reload before persist: import may have removed/replaced the link
             // while upsert or session-link awaited.
@@ -371,8 +380,17 @@ public final class StashKeeplineCoordinator {
                 requestedSessionID: session.sessionID
             )
             try Self.requireCompatibleWorkItemIdentity(current, with: workItem.id)
+            // `perform` suspends on require(store)/flush before the closure.
+            // Recheck inside — after that gate — so an import during flush cannot
+            // still reach transport.linkSession (mirrors launchDispatch).
             _ = try await WorkspacePersistenceGate.perform(.manualSessionLink, store: store) {
-                try await transport.linkSession(workItemID: workItem.id, sessionID: session.sessionID)
+                let gated = try Self.requireReservedManualRecoveryLink(
+                    store.workspace.agentTaskLinks.first(where: { $0.id == reserved.id }),
+                    matching: reserved,
+                    requestedSessionID: session.sessionID
+                )
+                try Self.requireCompatibleWorkItemIdentity(gated, with: workItem.id)
+                return try await transport.linkSession(workItemID: workItem.id, sessionID: session.sessionID)
             }
             current = try Self.requireReservedManualRecoveryLink(
                 store.workspace.agentTaskLinks.first(where: { $0.id == reserved.id }),
@@ -448,7 +466,9 @@ public final class StashKeeplineCoordinator {
     }
 
     /// Like `matchesLaunchAttempt`, but also accepts a durable
-    /// `dispatched → manuallyLinked` checkpoint written before session attach.
+    /// `dispatched → manuallyLinked` checkpoint written before session attach,
+    /// and an unchanged manually-linked checkpoint on retry/restart after that
+    /// durable write (both `current` and `original` are `.manuallyLinked`).
     private static func matchesReservedManualRecovery(
         _ current: AgentTaskLink,
         original: AgentTaskLink
@@ -456,7 +476,8 @@ public final class StashKeeplineCoordinator {
         current.id == original.id
             && current.taskID == original.taskID
             && (current.source == .dispatched
-                || (original.source == .dispatched && current.source == .manuallyLinked))
+                || (current.source == .manuallyLinked
+                    && (original.source == .dispatched || original.source == .manuallyLinked)))
             && current.idempotencyKey == original.idempotencyKey
             && current.projectRoot == original.projectRoot
             && current.runtimeID == original.runtimeID

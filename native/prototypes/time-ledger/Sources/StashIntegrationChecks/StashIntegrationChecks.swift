@@ -344,6 +344,8 @@ private struct StashIntegrationChecks {
         try await checkManualLinkAcceptsConcurrentPollAttachedRequestedSession()
         try await checkManualLinkReconcilesDifferentConcurrentPollSession()
         try await checkManualLinkMissingIdentityFlushFailureLeavesNonLaunchableCheckpoint()
+        try await checkManualLinkRetriesAfterDurableManuallyLinkedCheckpoint()
+        try await checkManualLinkRejectsImportDuringMissingIdentitySessionLinkGateFlush()
         if let binary = ProcessInfo.processInfo.environment["STASH_KEEPLINE_E2E_BINARY"],
            !binary.isEmpty {
             try await checkPackagedCompletionClaimFlow(binary: binary)
@@ -3835,6 +3837,122 @@ private struct StashIntegrationChecks {
         try expect(
             restarted.agentLink(for: pendingTask.id)?.source == .manuallyLinked,
             "restart lost the durable non-launchable recovery checkpoint"
+        )
+    }
+
+    @MainActor
+    private static func checkManualLinkRetriesAfterDurableManuallyLinkedCheckpoint() async throws {
+        // After a durable manuallyLinked checkpoint (linkSession or final-flush
+        // failure), retry/restart enters known-identity recovery with both
+        // current and original source == .manuallyLinked. That combination must
+        // still match so recovery can finish attaching the session.
+        let pendingTask = LedgerTask(title: "Manual retry after durable checkpoint")
+        let pendingLink = AgentTaskLink(
+            taskID: pendingTask.id,
+            keeplineWorkItemID: "work-1",
+            dispatchState: .pending,
+            idempotencyKey: "stash:\(pendingTask.id.uuidString):retry-checkpoint",
+            projectRoot: "/tmp",
+            runtimeID: "codex",
+            source: .manuallyLinked
+        )
+        let repository = FailAtSaveRepository(
+            workspace: LedgerWorkspace(
+                tasks: [pendingTask],
+                agentTaskLinks: [pendingLink]
+            ),
+            failingSaveAttempt: 99
+        )
+        let store = LedgerStore(repository: repository, initialWorkspace: LedgerWorkspace())
+        await store.bootstrap()
+        let transport = RecordingTransport()
+        let coordinator = StashKeeplineCoordinator(store: store, transport: transport)
+        let session = try sessionFixture()
+
+        try await coordinator.manualLink(session, to: pendingTask)
+
+        try expect(
+            store.agentLink(for: pendingTask.id)?.sessionID == "runtime-session-1",
+            "manualLink did not attach session when retrying a durable manuallyLinked checkpoint"
+        )
+        try expect(
+            store.agentLink(for: pendingTask.id)?.source == .manuallyLinked,
+            "manualLink changed source while retrying a durable manuallyLinked checkpoint"
+        )
+        try expect(
+            store.agentLink(for: pendingTask.id)?.keeplineWorkItemID == "work-1",
+            "manualLink changed work-item identity while retrying a durable checkpoint"
+        )
+        let links = await transport.count(.manualSessionLink)
+        try expect(links == 1, "manualLink skipped session link when retrying durable checkpoint")
+        let launches = await transport.count(.launchDispatch)
+        try expect(launches == 0, "retry after durable checkpoint launched a new Agent")
+    }
+
+    @MainActor
+    private static func checkManualLinkRejectsImportDuringMissingIdentitySessionLinkGateFlush() async throws {
+        // Import removes the reserved recovery while manualSessionLink's
+        // preliminary flush awaits. In-gate revalidation must reject before
+        // transport.linkSession (mirror launchDispatch gate).
+        let pendingTask = LedgerTask(title: "Manual import during session-link gate flush")
+        let pendingLink = AgentTaskLink(
+            taskID: pendingTask.id,
+            dispatchState: .pending,
+            idempotencyKey: "stash:\(pendingTask.id.uuidString):session-link-gate-flush",
+            projectRoot: "/tmp",
+            runtimeID: "codex",
+            source: .dispatched
+        )
+        let repository = FailAtSaveRepository(
+            workspace: LedgerWorkspace(
+                tasks: [pendingTask],
+                agentTaskLinks: [pendingLink]
+            ),
+            failingSaveAttempt: 99
+        )
+        let store = LedgerStore(repository: repository, initialWorkspace: LedgerWorkspace())
+        await store.bootstrap()
+        let transport = RecordingTransport(onUpsert: {
+            // After upsert returns, the next flush is the durable checkpoint;
+            // the flush after that is manualSessionLink's preliminary require.
+            await repository.armNextSaveSuspension {
+                await repository.armNextSaveSuspension {
+                    await MainActor.run {
+                        let imported = LedgerWorkspace(
+                            tasks: [pendingTask],
+                            agentTaskLinks: []
+                        )
+                        do {
+                            try store.importData(try WorkspaceCodec.encode(imported))
+                        } catch {
+                            assertionFailure(
+                                "import during session-link gate flush fixture failed: \(error)"
+                            )
+                        }
+                    }
+                }
+            }
+        })
+        let coordinator = StashKeeplineCoordinator(store: store, transport: transport)
+        let session = try sessionFixture()
+
+        do {
+            try await coordinator.manualLink(session, to: pendingTask)
+            throw CheckFailure.failed(
+                "manualLink succeeded after import removed the reserved link during session-link flush"
+            )
+        } catch StashKeeplineCoordinatorError.linkNotFound {
+            // expected
+        }
+
+        try expect(
+            store.agentLink(for: pendingTask.id) == nil,
+            "manualLink re-added a reserved link removed during session-link gate flush"
+        )
+        let links = await transport.count(.manualSessionLink)
+        try expect(
+            links == 0,
+            "session link ran after reserved link disappeared during session-link gate flush"
         )
     }
 
