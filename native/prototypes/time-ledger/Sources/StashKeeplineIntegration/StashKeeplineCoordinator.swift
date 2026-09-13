@@ -26,23 +26,53 @@ public struct StashIntegrationNotice: Equatable, Sendable {
     }
 }
 
+/// A pending-resume recovery that may clear prior resume-owned task errors.
+/// When `linkID` is set, revalidation keeps the recovery only while that link
+/// remains current for the task — so an older sibling's successful poll cannot
+/// suppress the current link's failure.
+public struct StashPendingResumeRecovery: Equatable, Sendable {
+    public let taskID: UUID
+    public let linkID: UUID?
+
+    public init(taskID: UUID, linkID: UUID? = nil) {
+        self.taskID = taskID
+        self.linkID = linkID
+    }
+}
+
 public struct StashPendingResumeResult: Equatable, Sendable {
     public var notices: [StashIntegrationNotice]
-    /// Task IDs whose pending dispatch was processed without a failure notice.
-    /// Callers should clear only prior *resume* notices for these IDs — not
+    /// Recoveries whose pending dispatch was processed without a failure notice.
+    /// Callers should clear only prior *resume* notices for these task IDs — not
     /// unrelated `taskErrors` entries such as a failed `manualLink`.
-    public var recoveredTaskIDs: [UUID]
+    public var recoveries: [StashPendingResumeRecovery]
 
     public init(
         notices: [StashIntegrationNotice] = [],
+        recoveries: [StashPendingResumeRecovery] = [],
         recoveredTaskIDs: [UUID] = []
     ) {
         self.notices = notices
-        self.recoveredTaskIDs = recoveredTaskIDs
+        if !recoveries.isEmpty {
+            self.recoveries = recoveries
+        } else {
+            // Task-ID-only construction is unscoped (tests / notice-derived clears).
+            self.recoveries = recoveredTaskIDs.map { StashPendingResumeRecovery(taskID: $0) }
+        }
+    }
+
+    /// Unique task IDs from `recoveries`, preserving first-seen order.
+    public var recoveredTaskIDs: [UUID] {
+        var seen = Set<UUID>()
+        var ids: [UUID] = []
+        for recovery in recoveries where seen.insert(recovery.taskID).inserted {
+            ids.append(recovery.taskID)
+        }
+        return ids
     }
 
     public var isEmpty: Bool {
-        notices.isEmpty && recoveredTaskIDs.isEmpty
+        notices.isEmpty && recoveries.isEmpty
     }
 
     /// Drops buffered notices whose originating link is gone, already session-linked,
@@ -56,6 +86,8 @@ public struct StashPendingResumeResult: Equatable, Sendable {
     /// task — otherwise an imported workspace with two nonterminal links for the
     /// same task would bump generation on the older drop and suppress the current
     /// link's failure. State-stamp mismatches only suppress the stale notice.
+    /// Link-scoped recoveries from a successful poll of a noncurrent sibling are
+    /// discarded so they cannot advance generation ahead of the current link's notice.
     public func revalidated(against links: [AgentTaskLink]) -> StashPendingResumeResult {
         // Imported backups may contain duplicate link IDs. Prefer the newer
         // `linkedAt` without trapping via `Dictionary(uniqueKeysWithValues:)`.
@@ -63,7 +95,15 @@ public struct StashPendingResumeResult: Equatable, Sendable {
             lhs.linkedAt >= rhs.linkedAt ? lhs : rhs
         })
         var filtered: [StashIntegrationNotice] = []
-        var recovered = recoveredTaskIDs
+        var recovered: [StashPendingResumeRecovery] = []
+        for recovery in recoveries {
+            if let linkID = recovery.linkID,
+               let current = Self.currentLink(for: recovery.taskID, in: links),
+               current.id != linkID {
+                continue
+            }
+            Self.appendUniqueRecovery(recovery, to: &recovered)
+        }
         // Defer recovery for superseded notices until we know whether another
         // notice for the same task still survives (the current link's failure).
         var supersededTaskIDs: [UUID] = []
@@ -71,9 +111,10 @@ public struct StashPendingResumeResult: Equatable, Sendable {
             guard let link = byID[notice.linkID], link.taskID == notice.taskID else {
                 // Import/replace removed the originating link; clear sticky resume
                 // errors because that link will never enter another pending batch.
-                if !recovered.contains(notice.taskID) {
-                    recovered.append(notice.taskID)
-                }
+                Self.appendUniqueRecovery(
+                    StashPendingResumeRecovery(taskID: notice.taskID),
+                    to: &recovered
+                )
                 continue
             }
             // Mirror LedgerStore.agentLink(for:): a newer non-terminal (or newer
@@ -86,9 +127,10 @@ public struct StashPendingResumeResult: Equatable, Sendable {
                 continue
             }
             if link.sessionID != nil {
-                if !recovered.contains(notice.taskID) {
-                    recovered.append(notice.taskID)
-                }
+                Self.appendUniqueRecovery(
+                    StashPendingResumeRecovery(taskID: notice.taskID),
+                    to: &recovered
+                )
                 continue
             }
             // A newer overlapping refresh may have persisted failed/cancelled (or
@@ -102,13 +144,14 @@ public struct StashPendingResumeResult: Equatable, Sendable {
         }
         let survivingTasks = Set(filtered.map(\.taskID))
         for taskID in supersededTaskIDs where !survivingTasks.contains(taskID) {
-            if !recovered.contains(taskID) {
-                recovered.append(taskID)
-            }
+            Self.appendUniqueRecovery(
+                StashPendingResumeRecovery(taskID: taskID),
+                to: &recovered
+            )
         }
         return StashPendingResumeResult(
             notices: filtered,
-            recoveredTaskIDs: recovered
+            recoveries: recovered
         )
     }
 
@@ -141,8 +184,31 @@ public struct StashPendingResumeResult: Equatable, Sendable {
         }
         return StashPendingResumeResult(
             notices: filtered,
-            recoveredTaskIDs: recoveredTaskIDs
+            recoveries: recoveries
         )
+    }
+
+    private static func appendUniqueRecovery(
+        _ recovery: StashPendingResumeRecovery,
+        to recoveries: inout [StashPendingResumeRecovery]
+    ) {
+        if recoveries.contains(where: {
+            $0.taskID == recovery.taskID && $0.linkID == recovery.linkID
+        }) {
+            return
+        }
+        // Prefer a link-scoped recovery over a later unscoped duplicate for the
+        // same task, and skip unscoped when any recovery for the task exists.
+        if recovery.linkID == nil,
+           recoveries.contains(where: { $0.taskID == recovery.taskID }) {
+            return
+        }
+        if let indexedLinkID = recovery.linkID,
+           let index = recoveries.firstIndex(where: { $0.taskID == recovery.taskID && $0.linkID == nil }) {
+            recoveries[index] = StashPendingResumeRecovery(taskID: recovery.taskID, linkID: indexedLinkID)
+            return
+        }
+        recoveries.append(recovery)
     }
 
     /// Same selection rules as `LedgerStore.agentLink(for:)`.
@@ -450,14 +516,14 @@ public final class StashKeeplineCoordinator {
             !$0.isTerminal && $0.source == .dispatched && $0.sessionID == nil
         }
         var notices: [StashIntegrationNotice] = []
-        var recoveredTaskIDs: [UUID] = []
+        var recoveries: [StashPendingResumeRecovery] = []
         for link in pending {
             do {
                 try Task.checkCancellation()
             } catch {
                 throw Self.cancellationError(
                     notices: notices,
-                    recoveredTaskIDs: recoveredTaskIDs,
+                    recoveries: recoveries,
                     links: store.workspace.agentTaskLinks
                 )
             }
@@ -483,7 +549,10 @@ public final class StashKeeplineCoordinator {
                     )
                     if let current = store.workspace.agentTaskLinks.first(where: { $0.id == link.id }),
                        current.sessionID != nil {
-                        recoveredTaskIDs.append(link.taskID)
+                        recoveries.append(StashPendingResumeRecovery(
+                            taskID: link.taskID,
+                            linkID: link.id
+                        ))
                         continue
                     }
                     guard let dispatch else { continue }
@@ -493,7 +562,7 @@ public final class StashKeeplineCoordinator {
                         for: link,
                         dispatch: dispatch,
                         notices: &notices,
-                        recoveredTaskIDs: &recoveredTaskIDs
+                        recoveries: &recoveries
                     )
                     continue
                 }
@@ -508,7 +577,10 @@ public final class StashKeeplineCoordinator {
                     continue
                 }
                 if current.sessionID != nil {
-                    recoveredTaskIDs.append(link.taskID)
+                    recoveries.append(StashPendingResumeRecovery(
+                        taskID: link.taskID,
+                        linkID: link.id
+                    ))
                     continue
                 }
                 // Sibling refresh may have already promoted this link to .ambiguous
@@ -527,12 +599,12 @@ public final class StashKeeplineCoordinator {
                     for: link,
                     dispatch: dispatch,
                     notices: &notices,
-                    recoveredTaskIDs: &recoveredTaskIDs
+                    recoveries: &recoveries
                 )
             } catch is CancellationError {
                 throw Self.cancellationError(
                     notices: notices,
-                    recoveredTaskIDs: recoveredTaskIDs,
+                    recoveries: recoveries,
                     links: store.workspace.agentTaskLinks
                 )
             } catch let cancelled as StashPendingResumeCancellation {
@@ -547,7 +619,10 @@ public final class StashKeeplineCoordinator {
                 if appliedPollSnapshot == nil,
                    let current = store.workspace.agentTaskLinks.first(where: { $0.id == link.id }),
                    current.sessionID != nil {
-                    recoveredTaskIDs.append(link.taskID)
+                    recoveries.append(StashPendingResumeRecovery(
+                        taskID: link.taskID,
+                        linkID: link.id
+                    ))
                     continue
                 }
                 guard let current = store.workspace.agentTaskLinks.first(where: { $0.id == link.id }),
@@ -573,13 +648,13 @@ public final class StashKeeplineCoordinator {
         } catch {
             throw Self.cancellationError(
                 notices: notices,
-                recoveredTaskIDs: recoveredTaskIDs,
+                recoveries: recoveries,
                 links: store.workspace.agentTaskLinks
             )
         }
         // Revalidate after the full batch: an earlier catch may have buffered a
         // notice, then manualLink attached a session while a later poll awaited.
-        return StashPendingResumeResult(notices: notices, recoveredTaskIDs: recoveredTaskIDs)
+        return StashPendingResumeResult(notices: notices, recoveries: recoveries)
             .revalidated(against: store.workspace.agentTaskLinks)
     }
 
@@ -620,8 +695,9 @@ public final class StashKeeplineCoordinator {
 
     /// Returns the remote dispatch when it was applied to the pending link.
     /// Returns `nil` when the link disappeared, became terminal, already has
-    /// a session (caller should treat a session as recovered), or the runtime
-    /// capability gate blocks launch after work-item identity was ensured.
+    /// a session (caller should treat a session as recovered). Throws
+    /// `unsupportedDispatchRuntime` when the capability gate blocks launch after
+    /// work-item identity was ensured so callers can replace sticky setup errors.
     private func resumeDispatchAttempt(
         link: AgentTaskLink,
         task: LedgerTask,
@@ -700,9 +776,14 @@ public final class StashKeeplineCoordinator {
         }
         // Gate only the launch mutation. Work-item identity above must still be
         // established so manualLink can recover when this capability is absent.
+        // Throw (instead of a silent nil) so a prior sticky setup/upsert notice is
+        // replaced with an explicit unsupported-runtime message — otherwise every
+        // later refresh hits this gate again and never clears the old error.
         if let capabilities {
             let required = "dispatch.\(pending.runtimeID)"
-            guard capabilities.contains(required) else { return nil }
+            guard capabilities.contains(required) else {
+                throw StashKeeplineCoordinatorError.unsupportedDispatchRuntime(pending.runtimeID)
+            }
         }
         let prompt = [task.title, task.notes.nonEmpty].compactMap { $0 }.joined(separator: "\n\n")
         // `perform` suspends on require(store)/flush before running the closure.
@@ -796,12 +877,12 @@ public final class StashKeeplineCoordinator {
 
     private static func cancellationError(
         notices: [StashIntegrationNotice],
-        recoveredTaskIDs: [UUID],
+        recoveries: [StashPendingResumeRecovery],
         links: [AgentTaskLink]
     ) -> Error {
         let partial = StashPendingResumeResult(
             notices: notices,
-            recoveredTaskIDs: recoveredTaskIDs
+            recoveries: recoveries
         ).revalidated(against: links)
         if partial.isEmpty {
             return CancellationError()
@@ -813,7 +894,7 @@ public final class StashKeeplineCoordinator {
         for link: AgentTaskLink,
         dispatch: KeeplineDispatch,
         notices: inout [StashIntegrationNotice],
-        recoveredTaskIDs: inout [UUID]
+        recoveries: inout [StashPendingResumeRecovery]
     ) {
         // Prefer the post-persist link id/state when available.
         let current = store.workspace.agentTaskLinks.first(where: { $0.id == link.id }) ?? link
@@ -833,7 +914,12 @@ public final class StashKeeplineCoordinator {
                 observedDispatchState: current.dispatchState
             ))
         } else {
-            recoveredTaskIDs.append(current.taskID)
+            // Scope recovery to this link so a noncurrent sibling poll cannot
+            // clear errors owned by the task's current link.
+            recoveries.append(StashPendingResumeRecovery(
+                taskID: current.taskID,
+                linkID: current.id
+            ))
         }
     }
 
@@ -879,6 +965,7 @@ public enum StashKeeplineCoordinatorError: LocalizedError, Equatable, Sendable {
     case invalidCompletionContext
     case invalidCompletionResponse
     case workItemIdentityChanged
+    case unsupportedDispatchRuntime(String)
 
     public var errorDescription: String? {
         switch self {
@@ -892,6 +979,8 @@ public enum StashKeeplineCoordinatorError: LocalizedError, Equatable, Sendable {
         case .invalidCompletionContext: "The completion evidence does not belong to this task and Agent session."
         case .invalidCompletionResponse: "Keepline returned a completion review for different evidence."
         case .workItemIdentityChanged: "Keepline returned a different work item for this task."
+        case let .unsupportedDispatchRuntime(runtimeID):
+            "Keepline cannot launch Agents with runtime '\(runtimeID)' right now."
         }
     }
 }

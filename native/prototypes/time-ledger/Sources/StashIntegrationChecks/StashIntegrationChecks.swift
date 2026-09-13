@@ -299,6 +299,7 @@ private struct StashIntegrationChecks {
         try await checkResumeDispatchFailureIsIsolated()
         try await checkResumeSkipsLaunchWithoutCapabilityButPollsExisting()
         try await checkResumeUpsertsWorkItemWithoutCapability()
+        try await checkResumeCapabilityGatePublishesUnsupportedRuntimeNotice()
         try await checkManualLinkEstablishesMissingWorkItemIdentity()
         try await checkResumeGatesLaunchRetriesPerRuntimeCapability()
         try await checkResumePropagatesCancellation()
@@ -307,8 +308,10 @@ private struct StashIntegrationChecks {
         try await checkResumeDoesNotOverwriteManualLinkDuringPoll()
         try await checkResumeSuppressesLookupFailureAfterManualLink()
         try await checkResumeDropsBufferedNoticeAfterLaterManualLink()
+        try await checkResumeDiscardsRecoveryFromNoncurrentSiblingPoll()
         try await checkRevalidatedDropsNoticeSupersededByNewerTaskLink()
         try checkRevalidatedKeepsCurrentFailureWhenOlderLinkSuperseded()
+        try checkRevalidatedDiscardsRecoveryFromNoncurrentSuccessfulPoll()
         try await checkRevalidatedDropsNoticeSupersededByNewerTerminalPoll()
         try checkRevalidatedToleratesDuplicateImportedLinkIDs()
         try await checkLaunchRetryTerminalFailurePublishesNotice()
@@ -1128,7 +1131,18 @@ private struct StashIntegrationChecks {
         let launches = await transport.count(.launchDispatch)
         try expect(launches == 0, "launch retry escaped the dispatch capability gate")
         try expect(lookups == ["dispatch-existing"], "existing dispatch was not polled without launch caps")
-        try expect(outcome.notices.isEmpty, "status poll without launch caps produced notices")
+        try expect(
+            outcome.notices.count == 1,
+            "capability-gated launch should publish an unsupported-runtime notice"
+        )
+        try expect(
+            outcome.notices[0].taskID == launchTask.id,
+            "unsupported-runtime notice targeted the wrong task"
+        )
+        try expect(
+            outcome.notices[0].message.contains("codex"),
+            "unsupported-runtime notice did not name the gated runtime"
+        )
         try expect(
             outcome.recoveredTaskIDs == [pollTask.id],
             "successful existing-dispatch poll did not mark the task recovered"
@@ -1217,6 +1231,14 @@ private struct StashIntegrationChecks {
             !outcome.recoveredTaskIDs.contains(claudeTask.id),
             "unsupported launch-pending task must not be marked recovered"
         )
+        try expect(
+            outcome.notices.contains { $0.taskID == claudeTask.id && $0.message.contains("claude-code") },
+            "capability-gated claude launch should publish an unsupported-runtime notice"
+        )
+        try expect(
+            !outcome.notices.contains { $0.taskID == codexTask.id },
+            "supported runtime launch should not publish an unsupported-runtime notice"
+        )
     }
 
     @MainActor
@@ -1262,6 +1284,56 @@ private struct StashIntegrationChecks {
         try expect(
             outcome.recoveredTaskIDs.isEmpty,
             "capability-gated launch must not be classified as recovered"
+        )
+        try expect(
+            outcome.notices.count == 1,
+            "capability-gated launch after work-item upsert should publish an unsupported-runtime notice"
+        )
+        try expect(
+            outcome.notices[0].message.contains("codex"),
+            "unsupported-runtime notice did not name the gated runtime"
+        )
+    }
+
+    @MainActor
+    private static func checkResumeCapabilityGatePublishesUnsupportedRuntimeNotice() async throws {
+        // After a prior setup/upsert failure sticks as a resume notice, a later
+        // refresh that establishes work-item identity but still lacks
+        // dispatch.<runtime> must replace that sticky error with an explicit
+        // unsupported-runtime notice — not return silently and leave the old one.
+        let task = LedgerTask(title: "Capability gate replaces sticky setup")
+        let link = AgentTaskLink(
+            taskID: task.id,
+            keeplineWorkItemID: "work-gated",
+            dispatchState: .pending,
+            idempotencyKey: "stash:\(task.id.uuidString):gated",
+            projectRoot: "/tmp",
+            runtimeID: "codex",
+            source: .dispatched
+        )
+        let repository = FailAtSaveRepository(
+            workspace: LedgerWorkspace(tasks: [task], agentTaskLinks: [link]),
+            failingSaveAttempt: 99
+        )
+        let store = LedgerStore(repository: repository, initialWorkspace: LedgerWorkspace())
+        await store.bootstrap()
+        let transport = RecordingTransport()
+        let coordinator = StashKeeplineCoordinator(store: store, transport: transport)
+
+        let outcome = try await coordinator.resumePendingAttempts(capabilities: [])
+
+        let launches = await transport.count(.launchDispatch)
+        try expect(launches == 0, "capability gate still launched")
+        try expect(outcome.recoveredTaskIDs.isEmpty, "capability gate must not recover the task")
+        try expect(outcome.notices.count == 1, "capability gate did not publish a notice")
+        try expect(
+            outcome.notices[0].linkID == link.id,
+            "unsupported-runtime notice lost the originating link id"
+        )
+        try expect(
+            outcome.notices[0].message
+                == StashKeeplineCoordinatorError.unsupportedDispatchRuntime("codex").errorDescription,
+            "capability gate published the wrong unsupported-runtime message"
         )
     }
 
@@ -1625,6 +1697,63 @@ private struct StashIntegrationChecks {
     }
 
     @MainActor
+    private static func checkResumeDiscardsRecoveryFromNoncurrentSiblingPoll() async throws {
+        // Two nonterminal links for one task: older poll succeeds while the newer
+        // current link's lookup fails. Recovery must stay scoped to the older link
+        // and be discarded so the current failure notice survives revalidation.
+        let task = LedgerTask(title: "Sibling poll recovery scope")
+        let older = AgentTaskLink(
+            id: UUID(),
+            taskID: task.id,
+            keeplineWorkItemID: "work-sibling-older",
+            dispatchID: "dispatch-sibling-older",
+            dispatchState: .awaitingSession,
+            projectRoot: "/tmp",
+            runtimeID: "codex",
+            source: .dispatched,
+            linkedAt: Date(timeIntervalSince1970: 1_000)
+        )
+        let current = AgentTaskLink(
+            id: UUID(),
+            taskID: task.id,
+            keeplineWorkItemID: "work-sibling-current",
+            dispatchID: "dispatch-sibling-current",
+            dispatchState: .awaitingSession,
+            projectRoot: "/tmp",
+            runtimeID: "codex",
+            source: .dispatched,
+            linkedAt: Date(timeIntervalSince1970: 2_000)
+        )
+        let repository = FailAtSaveRepository(
+            workspace: LedgerWorkspace(tasks: [task], agentTaskLinks: [older, current]),
+            failingSaveAttempt: 99
+        )
+        let store = LedgerStore(repository: repository, initialWorkspace: LedgerWorkspace())
+        await store.bootstrap()
+        let transport = RecordingTransport(
+            dispatchLookupErrorsByID: [
+                "dispatch-sibling-current": ForcedDispatchLookupFailure()
+            ]
+        )
+        let coordinator = StashKeeplineCoordinator(store: store, transport: transport)
+
+        let outcome = try await coordinator.resumePendingAttempts()
+
+        try expect(
+            outcome.notices.count == 1,
+            "current sibling lookup failure was suppressed by older successful poll recovery"
+        )
+        try expect(
+            outcome.notices[0].linkID == current.id,
+            "resume kept a notice for the wrong sibling link"
+        )
+        try expect(
+            outcome.recoveredTaskIDs.isEmpty,
+            "noncurrent sibling successful poll recovered the shared task"
+        )
+    }
+
+    @MainActor
     private static func checkRevalidatedDropsNoticeSupersededByNewerTaskLink() async throws {
         // Terminal failed/cancelled links stay session-less. After a newer manual
         // link for the same task, revalidation must drop the old notice — the
@@ -1741,6 +1870,72 @@ private struct StashIntegrationChecks {
         try expect(
             revalidated.recoveredTaskIDs.isEmpty,
             "superseded older failure recovered the task and would suppress the current notice"
+        )
+    }
+
+    private static func checkRevalidatedDiscardsRecoveryFromNoncurrentSuccessfulPoll() throws {
+        // Imported workspaces may retain two nonterminal links for one task. A
+        // successful poll of the older link must not recover the shared task ID —
+        // that advances generation and rejects the current link's lookup failure.
+        let task = LedgerTask(title: "Older poll succeeds, current fails")
+        let older = AgentTaskLink(
+            id: UUID(),
+            taskID: task.id,
+            keeplineWorkItemID: "work-older-ok",
+            dispatchID: "dispatch-older-ok",
+            dispatchState: .awaitingSession,
+            projectRoot: "/tmp",
+            runtimeID: "codex",
+            source: .dispatched,
+            linkedAt: Date(timeIntervalSince1970: 1_000)
+        )
+        let current = AgentTaskLink(
+            id: UUID(),
+            taskID: task.id,
+            keeplineWorkItemID: "work-current-fail",
+            dispatchID: "dispatch-current-fail",
+            dispatchState: .awaitingSession,
+            projectRoot: "/tmp",
+            runtimeID: "codex",
+            source: .dispatched,
+            linkedAt: Date(timeIntervalSince1970: 2_000)
+        )
+        let buffered = StashPendingResumeResult(
+            notices: [
+                StashIntegrationNotice(
+                    taskID: task.id,
+                    linkID: current.id,
+                    message: "current link lookup failed",
+                    observedDispatchState: .awaitingSession
+                )
+            ],
+            recoveries: [
+                StashPendingResumeRecovery(taskID: task.id, linkID: older.id)
+            ]
+        )
+        let revalidated = buffered.revalidated(against: [older, current])
+        try expect(
+            revalidated.notices.count == 1,
+            "revalidated dropped the current link's failure notice"
+        )
+        try expect(
+            revalidated.notices[0].linkID == current.id,
+            "revalidated kept the wrong link's failure notice"
+        )
+        try expect(
+            revalidated.recoveredTaskIDs.isEmpty,
+            "noncurrent successful poll recovered the task and would suppress the current notice"
+        )
+
+        // The same recovery must survive when that older link is still current.
+        let onlyOlder = buffered.revalidated(against: [older])
+        try expect(
+            onlyOlder.recoveredTaskIDs == [task.id],
+            "link-scoped recovery for the still-current link was discarded"
+        )
+        try expect(
+            onlyOlder.notices.isEmpty,
+            "current-link recovery left a notice for a missing newer link"
         )
     }
 
