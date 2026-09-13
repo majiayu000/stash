@@ -96,19 +96,28 @@ public struct StashPendingResumeResult: Equatable, Sendable {
     /// snapshot taken before this refresh awaited. A newer overlapping recovery
     /// stamps the generation so an unchanged `awaiting_session` link cannot publish
     /// a stale failure after a successful poll already cleared the path.
-    /// Terminal failed/cancelled notices are exempt: a sibling refresh may have
-    /// stamped a recovery generation for an earlier `awaiting_session` poll, but
-    /// terminal links leave future resume batches so the actionable `dispatch.error`
-    /// must still surface.
+    /// Terminal failed/cancelled notices still publish after a sibling *recovery*
+    /// stamp (terminal links leave future resume batches), but are rejected when a
+    /// *foreground* `publishTaskError` advanced generation past the snapshot — that
+    /// actionable retry failure must not be overwritten by an older dispatch notice.
     public func rejectingNoticesSupersededByGeneration(
         observed: [UUID: UInt64],
-        current: [UUID: UInt64]
+        current: [UUID: UInt64],
+        foreground: [UUID: UInt64] = [:]
     ) -> StashPendingResumeResult {
         let filtered = notices.filter { notice in
-            if notice.observedDispatchState?.endsAttempt == true {
+            let observedGeneration = observed[notice.taskID] ?? 0
+            let currentGeneration = current[notice.taskID] ?? 0
+            if currentGeneration == observedGeneration {
                 return true
             }
-            return (current[notice.taskID] ?? 0) == (observed[notice.taskID] ?? 0)
+            if notice.observedDispatchState?.endsAttempt == true {
+                let foregroundGeneration = foreground[notice.taskID] ?? 0
+                // Sibling recovery may advance `current` without a foreground stamp.
+                // A foreground error after this snapshot owns a generation > observed.
+                return foregroundGeneration <= observedGeneration
+            }
+            return false
         }
         return StashPendingResumeResult(
             notices: filtered,

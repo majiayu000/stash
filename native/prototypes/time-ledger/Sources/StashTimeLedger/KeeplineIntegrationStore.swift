@@ -115,6 +115,11 @@ final class KeeplineIntegrationStore: ObservableObject {
     /// not published after a newer successful poll.
     private var resumeErrorGeneration: [UUID: UInt64] = [:]
     private var resumeErrorGenerationClock: UInt64 = 0
+    /// Generation stamped by the latest foreground `publishTaskError` for a task.
+    /// Terminal buffered resume notices may survive sibling recovery stamps, but
+    /// must not overwrite a newer foreground failure whose stamp is past their
+    /// observed snapshot.
+    private var foregroundErrorGeneration: [UUID: UInt64] = [:]
 
     init(
         transport: (any KeeplineTransport)?,
@@ -205,6 +210,7 @@ final class KeeplineIntegrationStore: ObservableObject {
         taskErrors[taskID] = nil
         resumeErrorTaskIDs.remove(taskID)
         resumeErrorGeneration[taskID] = nil
+        foregroundErrorGeneration[taskID] = nil
     }
 
     func link(_ session: KeeplineSession, to task: LedgerTask) async {
@@ -463,6 +469,7 @@ final class KeeplineIntegrationStore: ObservableObject {
         taskErrors[taskID] = nil
         resumeErrorTaskIDs.remove(taskID)
         resumeErrorGeneration[taskID] = nil
+        foregroundErrorGeneration[taskID] = nil
         defer { busyTaskIDs.remove(taskID) }
         do {
             try await operation()
@@ -483,6 +490,7 @@ final class KeeplineIntegrationStore: ObservableObject {
         taskErrors[taskID] = nil
         resumeErrorTaskIDs.remove(taskID)
         resumeErrorGeneration[taskID] = nil
+        foregroundErrorGeneration[taskID] = nil
         defer { busyTaskIDs.remove(taskID) }
         do {
             let value = try await operation()
@@ -537,6 +545,7 @@ final class KeeplineIntegrationStore: ObservableObject {
         // foreground failure when the batch later publishes.
         resumeErrorTaskIDs.remove(taskID)
         bumpResumeErrorGeneration(for: taskID)
+        foregroundErrorGeneration[taskID] = resumeErrorGeneration[taskID]
     }
 
     private func publishResumeTaskError(_ message: String, for taskID: UUID) {
@@ -548,9 +557,11 @@ final class KeeplineIntegrationStore: ObservableObject {
            ledgerStore?.agentLink(for: taskID)?.isTerminal != true {
             return
         }
-        publishTaskError(message, for: taskID)
+        if taskErrors[taskID] != message { taskErrors[taskID] = message }
         resumeErrorTaskIDs.insert(taskID)
         bumpResumeErrorGeneration(for: taskID)
+        // Resume publication must not stamp a foreground generation — that would
+        // incorrectly reject sibling terminal notices that should still surface.
     }
 
     private func clearResumeError(for taskID: UUID) {
@@ -588,7 +599,8 @@ final class KeeplineIntegrationStore: ObservableObject {
         }
         let publishable = validated.rejectingNoticesSupersededByGeneration(
             observed: observedResumeGenerations,
-            current: resumeErrorGeneration
+            current: resumeErrorGeneration,
+            foreground: foregroundErrorGeneration
         )
         for notice in publishable.notices {
             publishResumeTaskError(notice.message, for: notice.taskID)

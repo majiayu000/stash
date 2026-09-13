@@ -289,6 +289,7 @@ private struct StashIntegrationChecks {
         try await checkResumeRejectsNoticeAfterNewerSuccessfulPollGeneration()
         try await checkResumeKeepsTerminalNoticeDespiteRecoveryGeneration()
         try await checkForegroundErrorGenerationRejectsBufferedResumeNotice()
+        try await checkForegroundErrorGenerationRejectsBufferedTerminalNotice()
         try await checkResumePropagatesSaveFailureAfterLinkedPoll()
         try await checkResumeDoesNotRollbackConcurrentManualLinkOnSaveFailure()
         try await checkResumeCancelsBeforeLaunchMutation()
@@ -1855,6 +1856,92 @@ private struct StashIntegrationChecks {
         try expect(
             clearedToAbsent.notices.count == 1,
             "absent-generation baseline should still match an un-advanced snapshot"
+        )
+    }
+
+    @MainActor
+    private static func checkForegroundErrorGenerationRejectsBufferedTerminalNotice() async throws {
+        // A refresh buffers a terminal failed notice, then awaits another link.
+        // Concurrent foreground publishTaskError (retry with invalid directory /
+        // failed upsert) advances generation while the old terminal link remains
+        // current and stamp-matching. The endsAttempt path must still reject the
+        // buffered notice when a foreground stamp is past the observed snapshot;
+        // unconditional terminal exemption would overwrite the actionable error.
+        let task = LedgerTask(title: "Foreground then buffered terminal")
+        let link = AgentTaskLink(
+            taskID: task.id,
+            keeplineWorkItemID: "work-fg-terminal",
+            dispatchID: "dispatch-fg-terminal",
+            dispatchState: .failed,
+            projectRoot: "/tmp",
+            runtimeID: "codex",
+            source: .dispatched
+        )
+        let buffered = StashPendingResumeResult(
+            notices: [
+                StashIntegrationNotice(
+                    taskID: task.id,
+                    linkID: link.id,
+                    message: "stale dispatch.error after foreground retry failure",
+                    observedDispatchState: .failed
+                )
+            ]
+        )
+        let revalidated = buffered.revalidated(against: [link])
+        try expect(
+            revalidated.notices.count == 1,
+            "stamp-matching terminal notice should survive revalidation"
+        )
+        // Sibling recovery alone (no foreground stamp) must still keep the notice.
+        let afterSiblingRecovery = revalidated.rejectingNoticesSupersededByGeneration(
+            observed: [:],
+            current: [task.id: 3],
+            foreground: [:]
+        )
+        try expect(
+            afterSiblingRecovery.notices.count == 1,
+            "terminal notice dropped after sibling recovery without a foreground stamp"
+        )
+        // Foreground error stamp past observed snapshot must reject it.
+        let afterForeground = revalidated.rejectingNoticesSupersededByGeneration(
+            observed: [:],
+            current: [task.id: 4],
+            foreground: [task.id: 4]
+        )
+        try expect(
+            afterForeground.notices.isEmpty,
+            "buffered terminal notice overwrote foreground error despite generation advance"
+        )
+        let cancelledLink = AgentTaskLink(
+            id: link.id,
+            taskID: task.id,
+            keeplineWorkItemID: "work-fg-terminal",
+            dispatchID: "dispatch-fg-terminal",
+            dispatchState: .cancelled,
+            projectRoot: "/tmp",
+            runtimeID: "codex",
+            source: .dispatched
+        )
+        let cancelledBuffered = StashPendingResumeResult(
+            notices: [
+                StashIntegrationNotice(
+                    taskID: task.id,
+                    linkID: cancelledLink.id,
+                    message: "stale cancelled notice after foreground error",
+                    observedDispatchState: .cancelled
+                )
+            ]
+        )
+        let cancelledRejected = cancelledBuffered
+            .revalidated(against: [cancelledLink])
+            .rejectingNoticesSupersededByGeneration(
+                observed: [task.id: 1],
+                current: [task.id: 8],
+                foreground: [task.id: 8]
+            )
+        try expect(
+            cancelledRejected.notices.isEmpty,
+            "buffered cancelled terminal notice overwrote foreground error"
         )
     }
 
