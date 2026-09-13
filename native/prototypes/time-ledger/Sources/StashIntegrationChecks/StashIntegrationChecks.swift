@@ -329,6 +329,7 @@ private struct StashIntegrationChecks {
         try await checkResumeSkipsLaunchAfterManualLinkDuringLaunchFlush()
         try await checkResumeSkipsPersistingLinkRemovedDuringImport()
         try await checkManualLinkReservesMissingIdentityAgainstResume()
+        try await checkManualLinkReservesKnownIdentityAgainstResume()
         try await checkResumeSkipsLaunchAfterImportReplacesSameIDAttempt()
         try await checkManualLinkRejectsImportRemovalDuringMissingIdentityUpsert()
         try await checkManualLinkRejectsSameIDImportDuringMissingIdentitySessionLink()
@@ -2865,6 +2866,65 @@ private struct StashIntegrationChecks {
         try expect(
             store.agentLink(for: pendingTask.id)?.dispatchID == nil,
             "resume still applied a dispatch onto the manual recovery link"
+        )
+    }
+
+    @MainActor
+    private static func checkManualLinkReservesKnownIdentityAgainstResume() async throws {
+        // manualLink awaits known-identity upsert/session-link on a pending
+        // no-dispatch link. Concurrent resume must not launchDispatch first.
+        let pendingTask = LedgerTask(title: "Manual reserve known identity")
+        let pendingLink = AgentTaskLink(
+            taskID: pendingTask.id,
+            keeplineWorkItemID: "work-1",
+            dispatchState: .pending,
+            idempotencyKey: "stash:\(pendingTask.id.uuidString):manual-reserve-known",
+            projectRoot: "/tmp",
+            runtimeID: "codex",
+            source: .dispatched
+        )
+        let repository = FailAtSaveRepository(
+            workspace: LedgerWorkspace(
+                tasks: [pendingTask],
+                agentTaskLinks: [pendingLink]
+            ),
+            failingSaveAttempt: 99
+        )
+        let store = LedgerStore(repository: repository, initialWorkspace: LedgerWorkspace())
+        await store.bootstrap()
+
+        let gate = UpsertCancellationGate()
+        let transport = RecordingTransport(onUpsert: {
+            await gate.waitUntilCancelled()
+        })
+        let coordinator = StashKeeplineCoordinator(store: store, transport: transport)
+        let session = try sessionFixture()
+
+        let manualTask = Task { @MainActor in
+            try await coordinator.manualLink(session, to: pendingTask)
+        }
+        await gate.waitUntilUpsertStarted()
+        let outcome = try await coordinator.resumePendingAttempts()
+        await gate.releaseUpsert()
+        try await manualTask.value
+
+        let launches = await transport.count(.launchDispatch)
+        try expect(launches == 0, "resume launched while manualLink reserved known-identity upsert")
+        try expect(
+            outcome.recoveredTaskIDs.isEmpty && outcome.notices.isEmpty,
+            "reserved known-identity resume should skip without classifying the link"
+        )
+        try expect(
+            store.agentLink(for: pendingTask.id)?.sessionID == "runtime-session-1",
+            "manualLink did not attach after reserving known-identity upsert"
+        )
+        try expect(
+            store.agentLink(for: pendingTask.id)?.dispatchID == nil,
+            "resume still applied a dispatch onto the known-identity manual recovery link"
+        )
+        try expect(
+            store.agentLink(for: pendingTask.id)?.keeplineWorkItemID == "work-1",
+            "known-identity manualLink changed the reserved work-item id"
         )
     }
 

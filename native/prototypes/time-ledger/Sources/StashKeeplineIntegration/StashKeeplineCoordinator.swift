@@ -168,8 +168,9 @@ public final class StashKeeplineCoordinator {
     public let store: LedgerStore
     public let transport: any KeeplineTransport
     private var projectedTasks: [UUID: TaskProjection] = [:]
-    /// Links owned by an in-flight `manualLink` missing-identity recovery. Resume
-    /// must not upsert/dispatch the same UUID while that remote work awaits.
+    /// Links owned by an in-flight `manualLink` recovery (known or missing
+    /// work-item identity). Resume must not upsert/dispatch the same UUID while
+    /// that remote work awaits.
     private var reservedManualRecoveryLinkIDs: Set<UUID> = []
 
     public init(store: LedgerStore, transport: any KeeplineTransport) {
@@ -216,6 +217,10 @@ public final class StashKeeplineCoordinator {
         let existing = latestLink?.isTerminal == false ? latestLink : nil
         let workItem: KeeplineWorkItem
         if let existing, let existingWorkItemID = existing.keeplineWorkItemID {
+            // Reserve across upsert + session-link so resume cannot launch first
+            // while this known-identity recovery awaits remote work.
+            reservedManualRecoveryLinkIDs.insert(existing.id)
+            defer { reservedManualRecoveryLinkIDs.remove(existing.id) }
             workItem = try await WorkspacePersistenceGate.perform(.manualLinkUpsert, store: store) {
                 try await transport.upsertExternalWorkItem(
                     source: "stash",
@@ -226,16 +231,20 @@ public final class StashKeeplineCoordinator {
             guard workItem.id == existingWorkItemID else {
                 throw StashKeeplineCoordinatorError.workItemIdentityChanged
             }
+            try Self.requireReservedManualRecoveryLink(
+                store.workspace.agentTaskLinks.first(where: { $0.id == existing.id }),
+                matching: existing
+            )
             _ = try await WorkspacePersistenceGate.perform(.manualSessionLink, store: store) {
                 try await transport.linkSession(workItemID: workItem.id, sessionID: session.sessionID)
             }
             // Reload before persist: import may have removed/replaced the link
             // while upsert or session-link awaited.
-            guard var current = store.workspace.agentTaskLinks.first(where: { $0.id == existing.id }),
-                  current.taskID == existing.taskID,
-                  !current.isTerminal,
-                  current.sessionID == nil,
-                  current.keeplineWorkItemID == existingWorkItemID else {
+            var current = try Self.requireReservedManualRecoveryLink(
+                store.workspace.agentTaskLinks.first(where: { $0.id == existing.id }),
+                matching: existing
+            )
+            guard current.keeplineWorkItemID == existingWorkItemID else {
                 throw StashKeeplineCoordinatorError.linkNotFound
             }
             current.keeplineWorkItemID = workItem.id
@@ -305,9 +314,9 @@ public final class StashKeeplineCoordinator {
         try await WorkspacePersistenceGate.require(store)
     }
 
-    /// Ensures a reserved missing-identity recovery still owns the same launch
-    /// attempt after an await. Import may drop the UUID or preserve it while
-    /// swapping task/attempt fields; either case must not re-add or overwrite.
+    /// Ensures a reserved manual recovery still owns the same launch attempt
+    /// after an await. Import may drop the UUID or preserve it while swapping
+    /// task/attempt fields; either case must not re-add or overwrite.
     private static func requireReservedManualRecoveryLink(
         _ current: AgentTaskLink?,
         matching original: AgentTaskLink
@@ -401,8 +410,8 @@ public final class StashKeeplineCoordinator {
                 )
             }
             if link.dispatchState == .ambiguous { continue }
-            // A concurrent manualLink missing-identity upsert owns this link until
-            // it attaches a session; launching here would create a duplicate Agent.
+            // A concurrent manualLink recovery owns this link until it attaches a
+            // session; launching here would create a duplicate Agent.
             if reservedManualRecoveryLinkIDs.contains(link.id) { continue }
             // Tracks an in-memory poll/retry apply performed in this iteration so
             // a later persistence failure is not mistaken for a concurrent manual link.
