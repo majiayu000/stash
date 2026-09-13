@@ -334,6 +334,7 @@ private struct StashIntegrationChecks {
         try await checkResumeSkipsLaunchAfterImportReplacesSameIDAttempt()
         try await checkManualLinkRejectsImportRemovalDuringMissingIdentityUpsert()
         try await checkManualLinkRejectsSameIDImportDuringMissingIdentitySessionLink()
+        try await checkManualLinkRejectsImportedWorkItemIdentityDuringMissingIdentitySessionLink()
         if let binary = ProcessInfo.processInfo.environment["STASH_KEEPLINE_E2E_BINARY"],
            !binary.isEmpty {
             try await checkPackagedCompletionClaimFlow(binary: binary)
@@ -3192,6 +3193,79 @@ private struct StashIntegrationChecks {
         try expect(
             current?.keeplineWorkItemID == nil,
             "manualLink persisted work-item identity onto the imported replacement"
+        )
+        let links = await transport.count(.manualSessionLink)
+        try expect(links == 1, "session link should still have been issued before revalidation")
+    }
+
+    @MainActor
+    private static func checkManualLinkRejectsImportedWorkItemIdentityDuringMissingIdentitySessionLink() async throws {
+        // Import keeps the reserved UUID and launch-attempt fields while filling in
+        // a newer keeplineWorkItemID during session-link. Persist must not overwrite
+        // that imported identity with the earlier upsert result.
+        let pendingTask = LedgerTask(title: "Manual import supplies newer work-item id")
+        let sharedID = UUID()
+        let pendingLink = AgentTaskLink(
+            id: sharedID,
+            taskID: pendingTask.id,
+            dispatchState: .pending,
+            idempotencyKey: "stash:\(pendingTask.id.uuidString):manual-import-work-item",
+            projectRoot: "/tmp/shared-root",
+            runtimeID: "codex",
+            source: .dispatched
+        )
+        let repository = FailAtSaveRepository(
+            workspace: LedgerWorkspace(
+                tasks: [pendingTask],
+                agentTaskLinks: [pendingLink]
+            ),
+            failingSaveAttempt: 99
+        )
+        let store = LedgerStore(repository: repository, initialWorkspace: LedgerWorkspace())
+        await store.bootstrap()
+        let transport = RecordingTransport(onLinkSession: {
+            await MainActor.run {
+                let replacement = AgentTaskLink(
+                    id: sharedID,
+                    taskID: pendingTask.id,
+                    keeplineWorkItemID: "work-imported-newer",
+                    dispatchState: .pending,
+                    idempotencyKey: "stash:\(pendingTask.id.uuidString):manual-import-work-item",
+                    projectRoot: "/tmp/shared-root",
+                    runtimeID: "codex",
+                    source: .dispatched
+                )
+                let imported = LedgerWorkspace(
+                    tasks: [pendingTask],
+                    agentTaskLinks: [replacement]
+                )
+                do {
+                    try store.importData(try WorkspaceCodec.encode(imported))
+                } catch {
+                    assertionFailure("import during manual session-link fixture failed: \(error)")
+                }
+            }
+        })
+        let coordinator = StashKeeplineCoordinator(store: store, transport: transport)
+        let session = try sessionFixture()
+
+        do {
+            try await coordinator.manualLink(session, to: pendingTask)
+            throw CheckFailure.failed(
+                "manualLink succeeded after import supplied a newer work-item identity"
+            )
+        } catch StashKeeplineCoordinatorError.workItemIdentityChanged {
+            // expected
+        }
+
+        let current = store.agentLink(for: pendingTask.id)
+        try expect(
+            current?.keeplineWorkItemID == "work-imported-newer",
+            "manualLink overwrote the imported newer work-item identity"
+        )
+        try expect(
+            current?.sessionID == nil,
+            "manualLink attached a session after imported work-item identity diverged"
         )
         let links = await transport.count(.manualSessionLink)
         try expect(links == 1, "session link should still have been issued before revalidation")

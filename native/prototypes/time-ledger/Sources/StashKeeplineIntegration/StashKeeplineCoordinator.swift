@@ -270,17 +270,21 @@ public final class StashKeeplineCoordinator {
                     input: Self.workItemInput(task: task, projectRoot: session.directory)
                 )
             }
-            try Self.requireReservedManualRecoveryLink(
-                store.workspace.agentTaskLinks.first(where: { $0.id == reserved.id }),
-                matching: reserved
-            )
-            _ = try await WorkspacePersistenceGate.perform(.manualSessionLink, store: store) {
-                try await transport.linkSession(workItemID: workItem.id, sessionID: session.sessionID)
-            }
             var current = try Self.requireReservedManualRecoveryLink(
                 store.workspace.agentTaskLinks.first(where: { $0.id == reserved.id }),
                 matching: reserved
             )
+            // Import may keep the same launch attempt while filling in a newer
+            // work-item ID. Do not linkSession / overwrite that identity.
+            try Self.requireCompatibleWorkItemIdentity(current, with: workItem.id)
+            _ = try await WorkspacePersistenceGate.perform(.manualSessionLink, store: store) {
+                try await transport.linkSession(workItemID: workItem.id, sessionID: session.sessionID)
+            }
+            current = try Self.requireReservedManualRecoveryLink(
+                store.workspace.agentTaskLinks.first(where: { $0.id == reserved.id }),
+                matching: reserved
+            )
+            try Self.requireCompatibleWorkItemIdentity(current, with: workItem.id)
             current.keeplineWorkItemID = workItem.id
             current.sessionID = session.sessionID
             current.runtimeID = session.runtimeID.rawValue
@@ -335,6 +339,20 @@ public final class StashKeeplineCoordinator {
             throw StashKeeplineCoordinatorError.invalidDispatchCandidate
         }
         return current
+    }
+
+    /// Missing-identity recovery may race an import that preserves the launch
+    /// attempt fields `matchesLaunchAttempt` checks while supplying a newer
+    /// `keeplineWorkItemID`. Reject before linkSession / persist so the upsert
+    /// result cannot overwrite that imported identity.
+    private static func requireCompatibleWorkItemIdentity(
+        _ current: AgentTaskLink,
+        with workItemID: String
+    ) throws {
+        guard current.keeplineWorkItemID == nil
+                || current.keeplineWorkItemID == workItemID else {
+            throw StashKeeplineCoordinatorError.workItemIdentityChanged
+        }
     }
 
     public func resolveAmbiguous(
