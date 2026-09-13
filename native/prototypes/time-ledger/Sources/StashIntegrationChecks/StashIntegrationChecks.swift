@@ -293,6 +293,8 @@ private struct StashIntegrationChecks {
         try await checkResumePropagatesSaveFailureAfterLinkedPoll()
         try await checkResumeDoesNotRollbackConcurrentManualLinkOnSaveFailure()
         try await checkResumeCancelsBeforeLaunchMutation()
+        try await checkResumeCancelsAfterFinalLookupReturnsNormally()
+        try await checkResumeSkipsLaunchAfterManualLinkDuringUpsert()
         if let binary = ProcessInfo.processInfo.environment["STASH_KEEPLINE_E2E_BINARY"],
            !binary.isEmpty {
             try await checkPackagedCompletionClaimFlow(binary: binary)
@@ -2135,6 +2137,134 @@ private struct StashIntegrationChecks {
 
         let launches = await transport.count(.launchDispatch)
         try expect(launches == 0, "cancelled resume still performed launch-dispatch mutation")
+    }
+
+    @MainActor
+    private static func checkResumeCancelsAfterFinalLookupReturnsNormally() async throws {
+        // Cancellation-unaware dispatch lookup returns after the task is cancelled.
+        // Without a post-batch cancellation check, resume would return normally and
+        // refresh would continue into syncTaskProjections.
+        let recoveredTask = LedgerTask(title: "Classified before final cancel")
+        let finalTask = LedgerTask(title: "Final lookup ignores cancel")
+        let recoveredLink = AgentTaskLink(
+            taskID: recoveredTask.id,
+            keeplineWorkItemID: "work-final-cancel-ok",
+            dispatchID: "dispatch-final-cancel-ok",
+            dispatchState: .awaitingSession,
+            projectRoot: "/tmp",
+            runtimeID: "codex",
+            source: .dispatched
+        )
+        let finalLink = AgentTaskLink(
+            taskID: finalTask.id,
+            keeplineWorkItemID: "work-final-cancel-last",
+            dispatchID: "dispatch-final-cancel-last",
+            dispatchState: .awaitingSession,
+            projectRoot: "/tmp",
+            runtimeID: "codex",
+            source: .dispatched
+        )
+        let repository = FailAtSaveRepository(
+            workspace: LedgerWorkspace(
+                tasks: [recoveredTask, finalTask],
+                agentTaskLinks: [recoveredLink, finalLink]
+            ),
+            failingSaveAttempt: 99
+        )
+        let store = LedgerStore(repository: repository, initialWorkspace: LedgerWorkspace())
+        await store.bootstrap()
+
+        let gate = UpsertCancellationGate()
+        final class LookupCounter: @unchecked Sendable {
+            var count = 0
+        }
+        let lookups = LookupCounter()
+        let transport = RecordingTransport(
+            onDispatchLookup: {
+                lookups.count += 1
+                // First lookup classifies recovery; cancel on the final lookup and
+                // still return a normal linked dispatch payload afterward.
+                guard lookups.count >= 2 else { return }
+                await gate.waitUntilCancelled()
+            },
+            dispatchLookupState: "linked",
+            dispatchLookupLinkedSessionID: "runtime-session-final-cancel"
+        )
+        let coordinator = StashKeeplineCoordinator(store: store, transport: transport)
+
+        let resumeTask = Task { @MainActor in
+            try await coordinator.resumePendingAttempts()
+        }
+        await gate.waitUntilUpsertStarted()
+        resumeTask.cancel()
+        await gate.releaseUpsert()
+
+        do {
+            _ = try await resumeTask.value
+            throw CheckFailure.failed("resumePendingAttempts returned normally after post-lookup cancellation")
+        } catch let cancelled as StashPendingResumeCancellation {
+            try expect(
+                cancelled.partial.recoveredTaskIDs.contains(recoveredTask.id),
+                "final-return cancellation discarded the already-recovered task outcome"
+            )
+        } catch is CancellationError {
+            // Empty partial may collapse to CancellationError; still proves we did
+            // not return a normal success result after the unaware lookup.
+        }
+    }
+
+    @MainActor
+    private static func checkResumeSkipsLaunchAfterManualLinkDuringUpsert() async throws {
+        // manualLink attaches a session while the no-dispatch upsert awaits. The
+        // retry must invalidate before launchDispatch so no unsolicited Agent starts.
+        let pendingTask = LedgerTask(title: "Manual link during launch upsert")
+        let pendingLink = AgentTaskLink(
+            taskID: pendingTask.id,
+            dispatchState: .pending,
+            idempotencyKey: "stash:\(pendingTask.id.uuidString):manual-during-upsert",
+            projectRoot: "/tmp",
+            runtimeID: "codex",
+            source: .dispatched
+        )
+        let repository = FailAtSaveRepository(
+            workspace: LedgerWorkspace(
+                tasks: [pendingTask],
+                agentTaskLinks: [pendingLink]
+            ),
+            failingSaveAttempt: 99
+        )
+        let store = LedgerStore(repository: repository, initialWorkspace: LedgerWorkspace())
+        await store.bootstrap()
+
+        let gate = UpsertCancellationGate()
+        let transport = RecordingTransport(onUpsert: {
+            await gate.waitUntilCancelled()
+        })
+        let coordinator = StashKeeplineCoordinator(store: store, transport: transport)
+
+        let resumeTask = Task { @MainActor in
+            try await coordinator.resumePendingAttempts()
+        }
+        await gate.waitUntilUpsertStarted()
+        guard var current = store.agentLink(for: pendingTask.id) else {
+            throw CheckFailure.failed("pending launch link disappeared before manual attach")
+        }
+        current.sessionID = "runtime-session-manual-during-upsert"
+        current.source = .manuallyLinked
+        _ = store.persistAgentLink(current)
+        await gate.releaseUpsert()
+
+        let outcome = try await resumeTask.value
+        let launches = await transport.count(.launchDispatch)
+        try expect(launches == 0, "launchDispatch still fired after concurrent manual link")
+        try expect(
+            outcome.recoveredTaskIDs.contains(pendingTask.id),
+            "manual link during upsert was not treated as recovered"
+        )
+        try expect(
+            store.agentLink(for: pendingTask.id)?.sessionID == "runtime-session-manual-during-upsert",
+            "launch retry mutated the concurrent manual session link"
+        )
     }
 
     @MainActor

@@ -423,6 +423,19 @@ public final class StashKeeplineCoordinator {
                 ))
             }
         }
+        // Cancellation-unaware transports may return normally after shutdown /
+        // setSceneActive(false) cancelled the task during the final poll or save.
+        // Recheck here so refresh does not continue into syncTaskProjections while
+        // still preserving any partial outcomes already classified.
+        do {
+            try Task.checkCancellation()
+        } catch {
+            throw Self.cancellationError(
+                notices: notices,
+                recoveredTaskIDs: recoveredTaskIDs,
+                links: store.workspace.agentTaskLinks
+            )
+        }
         // Revalidate after the full batch: an earlier catch may have buffered a
         // notice, then manualLink attached a session while a later poll awaited.
         return StashPendingResumeResult(notices: notices, recoveredTaskIDs: recoveredTaskIDs)
@@ -480,6 +493,17 @@ public final class StashKeeplineCoordinator {
                     input: Self.workItemInput(task: task, projectRoot: projectRoot)
                 )
             }
+            // Reload before persisting the work-item id: manualLink may have attached
+            // a session during the upsert await. Writing the stale pending snapshot
+            // would wipe that link and still allow launchDispatch below.
+            if let current = store.workspace.agentTaskLinks.first(where: { $0.id == link.id }) {
+                guard !current.isTerminal,
+                      current.source == .dispatched,
+                      current.sessionID == nil else {
+                    return nil
+                }
+                pending = current
+            }
             pending.keeplineWorkItemID = workItem.id
             try await persistLinkRequiringSave(pending, restoringOnFailure: link)
             pending = store.workspace.agentTaskLinks.first(where: { $0.id == link.id }) ?? pending
@@ -487,6 +511,15 @@ public final class StashKeeplineCoordinator {
         // Cooperative cancellation can arrive while the upsert/persist awaits
         // above return normally. Recheck before the launch-dispatch mutation.
         try Task.checkCancellation()
+        // Invalidate no-dispatch retries when manualLink won while upsert/persist
+        // awaited — otherwise launchDispatch still fires and leaves a duplicate Agent.
+        guard let latest = store.workspace.agentTaskLinks.first(where: { $0.id == link.id }),
+              !latest.isTerminal,
+              latest.source == .dispatched,
+              latest.sessionID == nil else {
+            return nil
+        }
+        pending = latest
         guard let workItemID = pending.keeplineWorkItemID else {
             throw StashKeeplineCoordinatorError.missingWorkItemIdentity
         }

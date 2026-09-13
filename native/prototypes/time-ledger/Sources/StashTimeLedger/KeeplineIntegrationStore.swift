@@ -369,10 +369,13 @@ final class KeeplineIntegrationStore: ObservableObject {
             // Snapshot before awaiting so overlapping refreshes that publish a
             // newer resume failure are not cleared by this refresh's recovery.
             let observedResumeGenerations = resumeErrorGeneration
+            var resumeHadTransientFailures = false
             do {
                 let outcome = try await coordinator.resumePendingAttempts(
                     capabilities: capabilities
                 )
+                let links = ledgerStore?.workspace.agentTaskLinks ?? []
+                resumeHadTransientFailures = !outcome.revalidated(against: links).notices.isEmpty
                 applyPendingResumeOutcome(
                     outcome,
                     observedResumeGenerations: observedResumeGenerations
@@ -402,9 +405,16 @@ final class KeeplineIntegrationStore: ObservableObject {
             // must not block pending-dispatch reconciliation on later refreshes.
             // Keep `.ready`, but surface the failure and apply refresh backoff so
             // auth/identity upsert errors are not silent 2s retry loops.
+            // Carry transient resume lookup failures into the same backoff even when
+            // projections succeed — otherwise an unavailable dispatch endpoint is
+            // hammered every 2s while the connection stays `.ready`.
             do {
                 try await coordinator.syncTaskProjections()
-                failureCount = 0
+                if resumeHadTransientFailures {
+                    failureCount += 1
+                } else {
+                    failureCount = 0
+                }
                 if projectionSyncError != nil { projectionSyncError = nil }
             } catch is CancellationError {
                 return
@@ -555,6 +565,14 @@ final class KeeplineIntegrationStore: ObservableObject {
         // still surface, because terminal links leave future resume batches.
         if busyTaskIDs.contains(taskID),
            ledgerStore?.agentLink(for: taskID)?.isTerminal != true {
+            return
+        }
+        // A later refresh snapshots the already-advanced foreground generation, so
+        // the generation filter alone accepts a subsequent resume lookup failure.
+        // Never replace a currently foreground-owned taskErrors entry with a
+        // resume notice — the next successful poll would clear it even though the
+        // foreground operation never recovered.
+        if taskErrors[taskID] != nil, !resumeErrorTaskIDs.contains(taskID) {
             return
         }
         if taskErrors[taskID] != message { taskErrors[taskID] = message }
