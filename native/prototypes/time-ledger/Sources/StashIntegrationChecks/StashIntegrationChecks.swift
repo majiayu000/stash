@@ -322,6 +322,7 @@ private struct StashIntegrationChecks {
         try await checkForegroundErrorGenerationRejectsBufferedResumeNotice()
         try await checkForegroundErrorGenerationRejectsBufferedTerminalNotice()
         try await checkRevalidatedRecoversWhenOriginatingLinkMissing()
+        try checkEmptyOutcomeReconcilesOrphanedResumeErrorsAfterImportRemoval()
         try await checkResumePropagatesSaveFailureAfterLinkedPoll()
         try await checkResumeDoesNotRollbackConcurrentManualLinkOnSaveFailure()
         try await checkResumeRollsBackToReloadedWorkItemOnSaveFailure()
@@ -2316,6 +2317,54 @@ private struct StashIntegrationChecks {
         try expect(
             revalidated.recoveredTaskIDs.contains(task.id),
             "missing originating link was not classified as recovered"
+        )
+    }
+
+    private static func checkEmptyOutcomeReconcilesOrphanedResumeErrorsAfterImportRemoval() throws {
+        // A prior refresh already published a resume-owned error. The user then
+        // imports a workspace that keeps the task UUID but removes its pending
+        // link. The next empty resume outcome has no buffered notice, so
+        // revalidated alone cannot synthesize recovery — reconcile sticky IDs.
+        let task = LedgerTask(title: "Orphaned resume error after import")
+        let empty = StashPendingResumeResult()
+        let afterImport = empty
+            .revalidated(against: [])
+            .reconcilingOrphanedResumeErrors([task.id], against: [])
+        try expect(
+            afterImport.recoveredTaskIDs.contains(task.id),
+            "empty outcome did not clear resume error after import removed pending link"
+        )
+
+        // Still-resumable pending links must keep their sticky resume errors.
+        let pending = AgentTaskLink(
+            taskID: task.id,
+            keeplineWorkItemID: "work-orphan-keep",
+            dispatchID: "dispatch-orphan-keep",
+            dispatchState: .awaitingSession,
+            projectRoot: "/tmp",
+            runtimeID: "codex",
+            source: .dispatched
+        )
+        let kept = empty.reconcilingOrphanedResumeErrors([task.id], against: [pending])
+        try expect(
+            kept.recoveredTaskIDs.isEmpty,
+            "reconcile cleared resume error while a resumable pending link remains"
+        )
+
+        // Terminal sticky notices stay until explicitly replaced.
+        let terminal = AgentTaskLink(
+            taskID: task.id,
+            keeplineWorkItemID: "work-orphan-terminal",
+            dispatchID: "dispatch-orphan-terminal",
+            dispatchState: .failed,
+            projectRoot: "/tmp",
+            runtimeID: "codex",
+            source: .dispatched
+        )
+        let preserved = empty.reconcilingOrphanedResumeErrors([task.id], against: [terminal])
+        try expect(
+            preserved.recoveredTaskIDs.isEmpty,
+            "reconcile synthesized recovery for a terminal sticky notice"
         )
     }
 

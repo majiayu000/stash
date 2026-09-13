@@ -155,6 +155,37 @@ public struct StashPendingResumeResult: Equatable, Sendable {
         )
     }
 
+    /// Clears sticky resume-owned errors when their task no longer has a resumable
+    /// pending link (`!isTerminal`, `.dispatched`, no session). Empty outcomes after
+    /// import removal never visit the missing-origin notice path in `revalidated`,
+    /// so already-published `resumeErrorTaskIDs` must be reconciled against the
+    /// current workspace. Terminal sticky notices are left alone (store clear no-ops).
+    public func reconcilingOrphanedResumeErrors(
+        _ resumeErrorTaskIDs: Set<UUID>,
+        against links: [AgentTaskLink]
+    ) -> StashPendingResumeResult {
+        guard !resumeErrorTaskIDs.isEmpty else { return self }
+        let resumableTaskIDs = Set(
+            links
+                .filter { !$0.isTerminal && $0.source == .dispatched && $0.sessionID == nil }
+                .map(\.taskID)
+        )
+        var recoveries = self.recoveries
+        for taskID in resumeErrorTaskIDs where !resumableTaskIDs.contains(taskID) {
+            if let current = Self.currentLink(for: taskID, in: links), current.isTerminal {
+                continue
+            }
+            Self.appendUniqueRecovery(
+                StashPendingResumeRecovery(taskID: taskID),
+                to: &recoveries
+            )
+        }
+        return StashPendingResumeResult(
+            notices: notices,
+            recoveries: recoveries
+        )
+    }
+
     /// Drops buffered notices whose task resume-error generation advanced past the
     /// snapshot taken before this refresh awaited. A newer overlapping recovery
     /// stamps the generation so an unchanged `awaiting_session` link cannot publish

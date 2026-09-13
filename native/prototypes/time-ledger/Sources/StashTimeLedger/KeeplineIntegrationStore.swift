@@ -606,8 +606,12 @@ final class KeeplineIntegrationStore: ObservableObject {
     ) {
         // Revalidate at publication time: notices may have been buffered earlier
         // in the batch, then a concurrent manualLink attached a session.
+        // Also reconcile already-published resume-owned errors whose pending link
+        // disappeared between refreshes (empty outcomes synthesize no recoveries).
         let links = ledgerStore?.workspace.agentTaskLinks ?? []
-        let validated = outcome.revalidated(against: links)
+        let validated = outcome
+            .revalidated(against: links)
+            .reconcilingOrphanedResumeErrors(resumeErrorTaskIDs, against: links)
         for taskID in validated.recoveredTaskIDs {
             let observed = observedResumeGenerations[taskID] ?? 0
             let current = resumeErrorGeneration[taskID] ?? 0
