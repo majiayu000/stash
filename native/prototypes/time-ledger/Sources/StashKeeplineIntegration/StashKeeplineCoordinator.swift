@@ -578,6 +578,13 @@ public final class StashKeeplineCoordinator {
         if current.sessionID != nil {
             return nil
         }
+        // Sibling refresh may have already promoted this link to .ambiguous
+        // with candidates while this launch was in flight. Do not let an older
+        // nonterminal response erase that transition (same skip as the
+        // existing-dispatch status-poll path).
+        if current.dispatchState == .ambiguous {
+            return nil
+        }
         let updated = Self.applying(dispatch, to: current)
         try await persistLinkRequiringSave(updated, restoringOnFailure: current)
         return dispatch

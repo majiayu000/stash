@@ -111,6 +111,7 @@ private actor RecordingTransport: KeeplineTransport {
     private let dispatchLookupError: Error?
     private let onDispatchLookup: (@Sendable () async -> Void)?
     private let onUpsert: (@Sendable () async -> Void)?
+    private let onLaunchDispatch: (@Sendable () async -> Void)?
     private let launchDispatchState: String
     private let launchDispatchError: String?
     private let dispatchLookupState: String
@@ -124,6 +125,7 @@ private actor RecordingTransport: KeeplineTransport {
         dispatchLookupErrorsByID: [String: Error] = [:],
         onDispatchLookup: (@Sendable () async -> Void)? = nil,
         onUpsert: (@Sendable () async -> Void)? = nil,
+        onLaunchDispatch: (@Sendable () async -> Void)? = nil,
         launchDispatchState: String = "awaiting_session",
         launchDispatchError: String? = nil,
         dispatchLookupState: String = "awaiting_session",
@@ -134,6 +136,7 @@ private actor RecordingTransport: KeeplineTransport {
         self.dispatchLookupErrorsByID = dispatchLookupErrorsByID
         self.onDispatchLookup = onDispatchLookup
         self.onUpsert = onUpsert
+        self.onLaunchDispatch = onLaunchDispatch
         self.launchDispatchState = launchDispatchState
         self.launchDispatchError = launchDispatchError
         self.dispatchLookupState = dispatchLookupState
@@ -204,6 +207,9 @@ private actor RecordingTransport: KeeplineTransport {
             logicalLaunchCount += 1
             dispatchID = "dispatch-\(logicalLaunchCount)"
             dispatchIDsByKey[request.idempotencyKey] = dispatchID
+        }
+        if let onLaunchDispatch {
+            await onLaunchDispatch()
         }
         return try dispatchFixture(
             id: dispatchID,
@@ -306,6 +312,7 @@ private struct StashIntegrationChecks {
         try await checkResumeDoesNotRollbackConcurrentManualLinkOnSaveFailure()
         try await checkResumeRollsBackToReloadedWorkItemOnSaveFailure()
         try await checkResumeRejectsStalePollAfterAmbiguousTransition()
+        try await checkResumeRejectsStaleLaunchAfterAmbiguousTransition()
         try await checkResumeCancelsBeforeLaunchMutation()
         try await checkResumeCancelsAfterFinalLookupReturnsNormally()
         try await checkResumeSkipsLaunchAfterManualLinkDuringUpsert()
@@ -2262,6 +2269,70 @@ private struct StashIntegrationChecks {
         try expect(
             outcome.notices.isEmpty,
             "stale poll over ambiguous published a recovery notice"
+        )
+    }
+
+    @MainActor
+    private static func checkResumeRejectsStaleLaunchAfterAmbiguousTransition() async throws {
+        // Overlapping refreshes retry the same no-dispatch link. A sibling
+        // persists .ambiguous with candidates while this launch is in flight; the
+        // older awaiting_session response must not erase that transition.
+        let pendingTask = LedgerTask(title: "Stale launch after ambiguous")
+        let pendingLink = AgentTaskLink(
+            taskID: pendingTask.id,
+            keeplineWorkItemID: "work-stale-launch-ambiguous",
+            dispatchState: .pending,
+            idempotencyKey: "stash:\(pendingTask.id.uuidString):stale-launch-ambiguous",
+            projectRoot: "/tmp",
+            runtimeID: "codex",
+            source: .dispatched
+        )
+        let repository = FailAtSaveRepository(
+            workspace: LedgerWorkspace(
+                tasks: [pendingTask],
+                agentTaskLinks: [pendingLink]
+            ),
+            failingSaveAttempt: 99
+        )
+        let store = LedgerStore(repository: repository, initialWorkspace: LedgerWorkspace())
+        await store.bootstrap()
+        let transport = RecordingTransport(
+            onLaunchDispatch: {
+                await MainActor.run {
+                    guard var current = store.agentLink(for: pendingTask.id),
+                          current.id == pendingLink.id,
+                          current.dispatchState == .pending else { return }
+                    current.dispatchID = "dispatch-sibling-ambiguous"
+                    current.dispatchState = .ambiguous
+                    current.candidateSessionIDs = ["candidate-a", "candidate-b"]
+                    _ = store.persistAgentLink(current)
+                }
+            },
+            launchDispatchState: "awaiting_session"
+        )
+        let coordinator = StashKeeplineCoordinator(store: store, transport: transport)
+
+        let outcome = try await coordinator.resumePendingAttempts()
+
+        try expect(
+            store.agentLink(for: pendingTask.id)?.dispatchState == .ambiguous,
+            "stale awaiting_session launch erased a sibling ambiguous transition"
+        )
+        try expect(
+            store.agentLink(for: pendingTask.id)?.candidateSessionIDs == ["candidate-a", "candidate-b"],
+            "stale awaiting_session launch cleared sibling ambiguous candidates"
+        )
+        try expect(
+            store.agentLink(for: pendingTask.id)?.dispatchID == "dispatch-sibling-ambiguous",
+            "stale launch response replaced the sibling ambiguous dispatch ID"
+        )
+        try expect(
+            !outcome.recoveredTaskIDs.contains(pendingTask.id),
+            "stale launch over ambiguous was misclassified as recovered"
+        )
+        try expect(
+            outcome.notices.isEmpty,
+            "stale launch over ambiguous published a recovery notice"
         )
     }
 
