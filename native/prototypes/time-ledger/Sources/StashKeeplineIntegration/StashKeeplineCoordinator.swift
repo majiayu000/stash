@@ -206,10 +206,7 @@ public final class StashKeeplineCoordinator {
         }
         let existing = latestLink?.isTerminal == false ? latestLink : nil
         let workItem: KeeplineWorkItem
-        if let existing {
-            guard let existingWorkItemID = existing.keeplineWorkItemID else {
-                throw StashKeeplineCoordinatorError.missingWorkItemIdentity
-            }
+        if let existing, let existingWorkItemID = existing.keeplineWorkItemID {
             workItem = try await WorkspacePersistenceGate.perform(.manualLinkUpsert, store: store) {
                 try await transport.upsertExternalWorkItem(
                     source: "stash",
@@ -221,6 +218,9 @@ public final class StashKeeplineCoordinator {
                 throw StashKeeplineCoordinatorError.workItemIdentityChanged
             }
         } else {
+            // Interrupted launches may leave a pending link without a work-item ID
+            // when the runtime capability was absent. Establish identity here so
+            // manual session recovery is not blocked until that capability returns.
             workItem = try await WorkspacePersistenceGate.perform(.manualLinkUpsert, store: store) {
                 try await transport.upsertExternalWorkItem(
                     source: "stash",
@@ -234,6 +234,7 @@ public final class StashKeeplineCoordinator {
             try await transport.linkSession(workItemID: workItem.id, sessionID: session.sessionID)
         }
         if var existing {
+            existing.keeplineWorkItemID = workItem.id
             existing.sessionID = session.sessionID
             existing.runtimeID = session.runtimeID.rawValue
             existing.projectRoot = session.directory
@@ -341,16 +342,17 @@ public final class StashKeeplineCoordinator {
             var appliedPollSnapshot: AgentTaskLink?
             do {
                 if link.dispatchID == nil {
-                    // Launch retries need the exact dispatch.<runtimeID> capability
-                    // for this link (same gate as TaskAgentSection.supportsDispatch).
+                    guard let task = store.task(id: link.taskID) else { continue }
+                    // Capability gating lives inside resumeDispatchAttempt after any
+                    // missing work-item upsert so manual recovery can establish
+                    // identity even when this runtime is not currently launchable.
                     // Status polling for existing dispatch IDs continues without it.
                     // `nil` capabilities keep the test default of allowing every retry.
-                    if let capabilities {
-                        let required = "dispatch.\(link.runtimeID)"
-                        guard capabilities.contains(required) else { continue }
-                    }
-                    guard let task = store.task(id: link.taskID) else { continue }
-                    let dispatch = try await resumeDispatchAttempt(link: link, task: task)
+                    let dispatch = try await resumeDispatchAttempt(
+                        link: link,
+                        task: task,
+                        capabilities: capabilities
+                    )
                     if let current = store.workspace.agentTaskLinks.first(where: { $0.id == link.id }),
                        current.sessionID != nil {
                         recoveredTaskIDs.append(link.taskID)
@@ -489,9 +491,14 @@ public final class StashKeeplineCoordinator {
     }
 
     /// Returns the remote dispatch when it was applied to the pending link.
-    /// Returns `nil` when the link disappeared, became terminal, or already has
-    /// a session (caller should treat a session as recovered).
-    private func resumeDispatchAttempt(link: AgentTaskLink, task: LedgerTask) async throws -> KeeplineDispatch? {
+    /// Returns `nil` when the link disappeared, became terminal, already has
+    /// a session (caller should treat a session as recovered), or the runtime
+    /// capability gate blocks launch after work-item identity was ensured.
+    private func resumeDispatchAttempt(
+        link: AgentTaskLink,
+        task: LedgerTask,
+        capabilities: Set<String>? = nil
+    ) async throws -> KeeplineDispatch? {
         guard let key = link.idempotencyKey, let projectRoot = link.projectRoot else {
             throw StashKeeplineCoordinatorError.incompleteDispatchAttempt
         }
@@ -505,16 +512,18 @@ public final class StashKeeplineCoordinator {
                 )
             }
             // Reload before persisting the work-item id: manualLink may have attached
-            // a session during the upsert await. Writing the stale pending snapshot
-            // would wipe that link and still allow launchDispatch below.
-            if let current = store.workspace.agentTaskLinks.first(where: { $0.id == link.id }) {
-                guard !current.isTerminal,
-                      current.source == .dispatched,
-                      current.sessionID == nil else {
-                    return nil
-                }
-                pending = current
+            // a session, or an import may have replaced the workspace, during the
+            // upsert await. Writing the stale pending snapshot would re-add a
+            // discarded link and still allow launchDispatch below.
+            guard let current = store.workspace.agentTaskLinks.first(where: { $0.id == link.id }) else {
+                return nil
             }
+            guard !current.isTerminal,
+                  current.source == .dispatched,
+                  current.sessionID == nil else {
+                return nil
+            }
+            pending = current
             // Roll back to the reloaded pre-mutation snapshot, not the original
             // call-site `link`. A sibling refresh may have already persisted a
             // work-item ID into `pending` during the upsert await; restoring the
@@ -522,7 +531,10 @@ public final class StashKeeplineCoordinator {
             let previous = pending
             pending.keeplineWorkItemID = workItem.id
             try await persistLinkRequiringSave(pending, restoringOnFailure: previous)
-            pending = store.workspace.agentTaskLinks.first(where: { $0.id == link.id }) ?? pending
+            guard let reloaded = store.workspace.agentTaskLinks.first(where: { $0.id == link.id }) else {
+                return nil
+            }
+            pending = reloaded
         }
         // Cooperative cancellation can arrive while the upsert/persist awaits
         // above return normally. Recheck before the launch-dispatch mutation.
@@ -538,6 +550,12 @@ public final class StashKeeplineCoordinator {
         pending = latest
         guard pending.keeplineWorkItemID != nil else {
             throw StashKeeplineCoordinatorError.missingWorkItemIdentity
+        }
+        // Gate only the launch mutation. Work-item identity above must still be
+        // established so manualLink can recover when this capability is absent.
+        if let capabilities {
+            let required = "dispatch.\(pending.runtimeID)"
+            guard capabilities.contains(required) else { return nil }
         }
         let prompt = [task.title, task.notes.nonEmpty].compactMap { $0 }.joined(separator: "\n\n")
         // `perform` suspends on require(store)/flush before running the closure.

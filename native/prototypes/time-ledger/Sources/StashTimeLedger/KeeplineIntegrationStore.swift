@@ -570,10 +570,15 @@ final class KeeplineIntegrationStore: ObservableObject {
         // A later refresh snapshots the already-advanced foreground generation, so
         // the generation filter alone accepts a subsequent resume lookup failure.
         // Never replace a currently foreground-owned taskErrors entry with a
-        // resume notice — the next successful poll would clear it even though the
-        // foreground operation never recovered.
+        // non-terminal resume notice — the next successful poll would clear it
+        // even though the foreground operation never recovered.
+        // Terminal failed/cancelled outcomes are final: generation gating already
+        // dropped notices older than the foreground stamp, so a newer terminal
+        // dispatch.error must replace the stale foreground-owned entry.
         if taskErrors[taskID] != nil, !resumeErrorTaskIDs.contains(taskID) {
-            return
+            if ledgerStore?.agentLink(for: taskID)?.isTerminal != true {
+                return
+            }
         }
         if taskErrors[taskID] != message { taskErrors[taskID] = message }
         resumeErrorTaskIDs.insert(taskID)

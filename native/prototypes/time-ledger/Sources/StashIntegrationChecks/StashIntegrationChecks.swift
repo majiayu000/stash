@@ -292,6 +292,8 @@ private struct StashIntegrationChecks {
         try await checkIdempotentRestartRecovery()
         try await checkResumeDispatchFailureIsIsolated()
         try await checkResumeSkipsLaunchWithoutCapabilityButPollsExisting()
+        try await checkResumeUpsertsWorkItemWithoutCapability()
+        try await checkManualLinkEstablishesMissingWorkItemIdentity()
         try await checkResumeGatesLaunchRetriesPerRuntimeCapability()
         try await checkResumePropagatesCancellation()
         try await checkResumePreservesPartialOutcomesOnCancellation()
@@ -317,6 +319,7 @@ private struct StashIntegrationChecks {
         try await checkResumeCancelsAfterFinalLookupReturnsNormally()
         try await checkResumeSkipsLaunchAfterManualLinkDuringUpsert()
         try await checkResumeSkipsLaunchAfterManualLinkDuringLaunchFlush()
+        try await checkResumeSkipsPersistingLinkRemovedDuringImport()
         if let binary = ProcessInfo.processInfo.environment["STASH_KEEPLINE_E2E_BINARY"],
            !binary.isEmpty {
             try await checkPackagedCompletionClaimFlow(binary: binary)
@@ -1198,6 +1201,91 @@ private struct StashIntegrationChecks {
     }
 
     @MainActor
+    private static func checkResumeUpsertsWorkItemWithoutCapability() async throws {
+        // Interrupted launches may lack keeplineWorkItemID. When the runtime
+        // capability is absent, still persist work-item identity so manualLink
+        // can recover — gate only the launch mutation.
+        let launchTask = LedgerTask(title: "Needs work-item without launch cap")
+        let launchLink = AgentTaskLink(
+            taskID: launchTask.id,
+            dispatchState: .pending,
+            idempotencyKey: "stash:\(launchTask.id.uuidString):no-cap-upsert",
+            projectRoot: "/tmp",
+            runtimeID: "codex",
+            source: .dispatched
+        )
+        let repository = FailAtSaveRepository(
+            workspace: LedgerWorkspace(
+                tasks: [launchTask],
+                agentTaskLinks: [launchLink]
+            ),
+            failingSaveAttempt: 99
+        )
+        let store = LedgerStore(repository: repository, initialWorkspace: LedgerWorkspace())
+        await store.bootstrap()
+        let transport = RecordingTransport()
+        let coordinator = StashKeeplineCoordinator(store: store, transport: transport)
+
+        let outcome = try await coordinator.resumePendingAttempts(capabilities: [])
+
+        let upserts = await transport.count(.upsert)
+        let launches = await transport.count(.launchDispatch)
+        try expect(upserts == 1, "missing work-item was not upserted without launch capability")
+        try expect(launches == 0, "launch retry escaped the dispatch capability gate")
+        try expect(
+            store.agentLink(for: launchTask.id)?.keeplineWorkItemID == "work-1",
+            "work-item identity was not persisted when launch capability was absent"
+        )
+        try expect(
+            store.agentLink(for: launchTask.id)?.dispatchID == nil,
+            "unsupported launch should remain unlaunched after work-item upsert"
+        )
+        try expect(
+            outcome.recoveredTaskIDs.isEmpty,
+            "capability-gated launch must not be classified as recovered"
+        )
+    }
+
+    @MainActor
+    private static func checkManualLinkEstablishesMissingWorkItemIdentity() async throws {
+        // Pending dispatched links without a work-item ID must still accept a
+        // manual session choice — do not require the missing identity up front.
+        let task = LedgerTask(title: "Manual link missing work item")
+        let link = AgentTaskLink(
+            taskID: task.id,
+            dispatchState: .pending,
+            idempotencyKey: "stash:\(task.id.uuidString):manual-missing-work",
+            projectRoot: "/tmp",
+            runtimeID: "codex",
+            source: .dispatched
+        )
+        let repository = FailAtSaveRepository(
+            workspace: LedgerWorkspace(tasks: [task], agentTaskLinks: [link]),
+            failingSaveAttempt: 99
+        )
+        let store = LedgerStore(repository: repository, initialWorkspace: LedgerWorkspace())
+        await store.bootstrap()
+        let transport = RecordingTransport()
+        let coordinator = StashKeeplineCoordinator(store: store, transport: transport)
+        let session = try sessionFixture()
+
+        try await coordinator.manualLink(session, to: task)
+
+        try expect(
+            store.agentLink(for: task.id)?.keeplineWorkItemID == "work-1",
+            "manualLink did not establish missing work-item identity"
+        )
+        try expect(
+            store.agentLink(for: task.id)?.sessionID == "runtime-session-1",
+            "manualLink did not attach the chosen session"
+        )
+        let upserts = await transport.count(.upsert)
+        let links = await transport.count(.manualSessionLink)
+        try expect(upserts == 1, "manualLink skipped work-item upsert for missing identity")
+        try expect(links == 1, "manualLink skipped session link after establishing identity")
+    }
+
+    @MainActor
     private static func checkResumePropagatesCancellation() async throws {
         let first = LedgerTask(title: "Cancelled mid-resume")
         let second = LedgerTask(title: "Must not resume after cancel")
@@ -1966,6 +2054,19 @@ private struct StashIntegrationChecks {
             afterSiblingRecovery.notices.count == 1,
             "terminal notice dropped after sibling recovery without a foreground stamp"
         )
+        // Newer terminal outcome after an older foreground error: observed snapshot
+        // already includes the foreground stamp, so the generation gate keeps the
+        // notice. publishResumeTaskError must then allow terminal replacement of
+        // the foreground-owned taskErrors entry (see KeeplineIntegrationStore).
+        let afterOlderForeground = revalidated.rejectingNoticesSupersededByGeneration(
+            observed: [task.id: 2],
+            current: [task.id: 2],
+            foreground: [task.id: 2]
+        )
+        try expect(
+            afterOlderForeground.notices.count == 1,
+            "newer terminal notice rejected when foreground stamp matched the snapshot"
+        )
         // Foreground error stamp past observed snapshot must reject it.
         let afterForeground = revalidated.rejectingNoticesSupersededByGeneration(
             observed: [:],
@@ -2562,6 +2663,62 @@ private struct StashIntegrationChecks {
         try expect(
             store.agentLink(for: pendingTask.id)?.sessionID == "runtime-session-manual-during-launch-flush",
             "launch retry mutated the concurrent manual session link after flush race"
+        )
+    }
+
+    @MainActor
+    private static func checkResumeSkipsPersistingLinkRemovedDuringImport() async throws {
+        // Import replaces the workspace while the no-dispatch upsert awaits. The
+        // replacement keeps the task UUID but drops the pending link; resume must
+        // not re-add the discarded link or launch an Agent into the imported copy.
+        let pendingTask = LedgerTask(title: "Import removes pending link")
+        let pendingLink = AgentTaskLink(
+            taskID: pendingTask.id,
+            dispatchState: .pending,
+            idempotencyKey: "stash:\(pendingTask.id.uuidString):import-removes-link",
+            projectRoot: "/tmp",
+            runtimeID: "codex",
+            source: .dispatched
+        )
+        let repository = FailAtSaveRepository(
+            workspace: LedgerWorkspace(
+                tasks: [pendingTask],
+                agentTaskLinks: [pendingLink]
+            ),
+            failingSaveAttempt: 99
+        )
+        let store = LedgerStore(repository: repository, initialWorkspace: LedgerWorkspace())
+        await store.bootstrap()
+        let transport = RecordingTransport(onUpsert: {
+            await MainActor.run {
+                let imported = LedgerWorkspace(
+                    tasks: [pendingTask],
+                    agentTaskLinks: []
+                )
+                do {
+                    try store.importData(try WorkspaceCodec.encode(imported))
+                } catch {
+                    assertionFailure("import during upsert fixture failed: \(error)")
+                }
+            }
+        })
+        let coordinator = StashKeeplineCoordinator(store: store, transport: transport)
+
+        let outcome = try await coordinator.resumePendingAttempts()
+
+        let launches = await transport.count(.launchDispatch)
+        try expect(launches == 0, "launchDispatch fired after import removed the pending link")
+        try expect(
+            store.workspace.agentTaskLinks.isEmpty,
+            "resume re-persisted a link discarded by import"
+        )
+        try expect(
+            outcome.recoveredTaskIDs.isEmpty,
+            "import-removed link was misclassified as recovered"
+        )
+        try expect(
+            outcome.notices.isEmpty,
+            "import-removed link should not surface a launch notice"
         )
     }
 
