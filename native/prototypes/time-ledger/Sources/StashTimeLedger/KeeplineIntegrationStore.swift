@@ -350,12 +350,17 @@ final class KeeplineIntegrationStore: ObservableObject {
             }
 
             // Task reconciliation failures do not invalidate a successful service snapshot.
-            for (taskID, message) in reconciliationErrors where taskErrors[taskID] == message {
-                taskErrors[taskID] = nil
-            }
-            reconciliationErrors.removeAll()
             do {
                 let notices = try await coordinator.resumePendingAttempts()
+                let unresolvedTaskIDs = Set(notices.map(\.taskID))
+                for (taskID, message) in reconciliationErrors {
+                    guard !unresolvedTaskIDs.contains(taskID),
+                          ledgerStore?.agentLink(for: taskID)?.dispatchState?.endsAttempt != true else {
+                        continue
+                    }
+                    if taskErrors[taskID] == message { taskErrors[taskID] = nil }
+                    reconciliationErrors[taskID] = nil
+                }
                 for notice in notices {
                     reconciliationErrors[notice.taskID] = notice.message
                     publishTaskError(notice.message, for: notice.taskID)
