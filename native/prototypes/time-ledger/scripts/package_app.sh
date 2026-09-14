@@ -75,6 +75,8 @@ plutil -insert CFBundleDisplayName -string "Stash" "$CONTENTS_DIR/Info.plist"
 plutil -insert CFBundlePackageType -string APPL "$CONTENTS_DIR/Info.plist"
 plutil -insert CFBundleShortVersionString -string 0.1.0 "$CONTENTS_DIR/Info.plist"
 plutil -insert CFBundleVersion -string 2 "$CONTENTS_DIR/Info.plist"
+plutil -insert StashSourceRevision -string "$(git -C "$PACKAGE_DIR" rev-parse HEAD)" "$CONTENTS_DIR/Info.plist"
+plutil -insert KeeplineSourceRevision -string "$(git -C "$KEEPLINE_DIR" rev-parse HEAD)" "$CONTENTS_DIR/Info.plist"
 plutil -insert LSMinimumSystemVersion -string 14.0 "$CONTENTS_DIR/Info.plist"
 plutil -insert NSHighResolutionCapable -bool true "$CONTENTS_DIR/Info.plist"
 

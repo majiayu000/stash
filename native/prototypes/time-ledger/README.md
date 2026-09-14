@@ -14,6 +14,36 @@ stops only that owned child when the app exits. No background daemon remains
 after Stash closes, and an already-running compatible Keepline service is left
 untouched.
 
+## Build prerequisites and dependency revision
+
+Requires macOS 14 or later, a Swift toolchain, and Bun for the embedded service.
+Keep the repositories next to each other:
+
+```text
+parent/
+  stash/
+  keepline/          # includes sdk/swift and the embedded service source
+```
+
+`Package.swift` imports the local Keepline SDK; it does not fetch or pin that
+repository. Packaging uses the same checkout for the embedded service. For a
+reproducible baseline, use the Keepline commit recorded in the
+`native-integration` job of [`../../../.github/workflows/ci.yml`](../../../.github/workflows/ci.yml).
+Prepare a separate checkout at that revision if your existing Keepline checkout
+contains work you need to preserve. Install its dependencies with
+`bun install --frozen-lockfile` before packaging.
+
+The built app records both source revisions in `Contents/Info.plist`:
+
+```sh
+plutil -extract StashSourceRevision raw '.build/app/Stash Time Ledger.app/Contents/Info.plist'
+plutil -extract KeeplineSourceRevision raw '.build/app/Stash Time Ledger.app/Contents/Info.plist'
+codesign --verify --deep --strict '.build/app/Stash Time Ledger.app'
+```
+
+These identify the source commits used for the build; they are separate from
+the display version. Build from clean source checkouts when comparing releases.
+
 ## Run
 
 ```sh
@@ -24,10 +54,15 @@ swift run StashTimeLedger
 
 ```sh
 swift run StashCoreChecks
+swift run StashIntegrationChecks
 ```
 
-The checks cover capture parsing, explainable five-to-eight-task planning,
+The core checks cover capture parsing, explainable five-to-eight-task planning,
 locked-plan behavior, atomic JSON persistence, and 10,000-task performance.
+Integration checks cover Agent identity, persistence boundaries, attention, and
+recovery contracts. Set `STASH_KEEPLINE_E2E_BINARY` to a packaged
+`Contents/Resources/KeeplineService` to also check the real embedded service
+against isolated test data, as the native CI job does.
 
 ## Build a macOS app
 

@@ -14,7 +14,36 @@ stash sits between them. Your todos point at projects; your projects gather
 lessons, decisions and Claude/Codex sessions; the next time you start work, the
 context surfaces itself.
 
-## Quick start
+## Choose a product surface
+
+**For daily use on macOS, start with Stash Time Ledger**, the native SwiftUI
+app in [`native/prototypes/time-ledger`](native/prototypes/time-ledger/README.md).
+It owns task capture, daily planning, reminders, and local JSON persistence.
+Its optional Agent workflow uses an embedded Keepline Service. Ordinary task
+management works without the Web server or Keepline.
+
+```sh
+cd native/prototypes/time-ledger
+# Requires macOS 14+, Swift, Bun, and the sibling Keepline checkout described below.
+./scripts/package_app.sh
+open '.build/app/Stash Time Ledger.app'
+```
+
+Native builds require `../keepline/sdk/swift` relative to this repository and
+packaging builds that checkout's embedded service. The native README describes
+how to match the reviewed Keepline revision used by CI and inspect a built app.
+
+**The Web workbench remains available** for browser-based task management,
+session history, usage analytics, and weekly review. The instructions below
+apply to that surface. It runs a Bun API and a Vite client.
+
+The two surfaces have **separate data stores**: native uses
+`~/Library/Application Support/Stash Time Ledger/workspace-v1.json`, while Web
+uses SQLite at the path described below. There is no automatic synchronization
+or import between them. Choose the surface containing your existing tasks;
+starting another surface does not migrate those tasks.
+
+## Web quick start
 
 ```sh
 # 1) Install
