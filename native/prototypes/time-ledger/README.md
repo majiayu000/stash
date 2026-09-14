@@ -73,7 +73,8 @@ open '.build/app/Stash Time Ledger.app'
 
 Quit a running packaged copy before rebuilding it. The packaging command will
 stop with a clear error instead of replacing an active app bundle. The packaged
-app is ad-hoc signed for local use. Its data lives at:
+app is ad-hoc signed for local use and loads its packaged resources first, so
+launching it does not depend on the source checkout or build directory. Its data lives at:
 
 ```text
 ~/Library/Application Support/Stash Time Ledger/workspace-v1.json

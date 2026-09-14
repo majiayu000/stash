@@ -52,9 +52,8 @@ private struct KeeplineIntegrationConfiguration {
         if let rawExecutable = rawExecutable?.nonEmpty {
             executableURL = URL(fileURLWithPath: rawExecutable).standardizedFileURL
         } else if let bundledName = values["BundledExecutableName"]?.nonEmpty {
-            executableURL = [Bundle.main, Bundle.module]
-                .compactMap { $0.url(forResource: bundledName, withExtension: nil) }
-                .first
+            executableURL = Bundle.main.url(forResource: bundledName, withExtension: nil)
+                ?? Bundle.module.url(forResource: bundledName, withExtension: nil)
         } else {
             executableURL = nil
         }
@@ -71,18 +70,17 @@ private struct KeeplineIntegrationConfiguration {
     }
 
     private static func integrationValues() throws -> [String: String] {
-        for bundle in [Bundle.main, Bundle.module] {
-            guard let url = bundle.url(forResource: "KeeplineIntegration", withExtension: "plist") else {
-                continue
-            }
-            let data = try Data(contentsOf: url)
-            let plist = try PropertyListSerialization.propertyList(from: data, format: nil)
-            guard let values = plist as? [String: String] else {
-                throw IntegrationConfigurationError.invalidResource
-            }
-            return values
+        // Do not initialize SwiftPM's build-directory bundle when the app has its resources.
+        guard let url = Bundle.main.url(forResource: "KeeplineIntegration", withExtension: "plist")
+            ?? Bundle.module.url(forResource: "KeeplineIntegration", withExtension: "plist") else {
+            return [:]
         }
-        return [:]
+        let data = try Data(contentsOf: url)
+        let plist = try PropertyListSerialization.propertyList(from: data, format: nil)
+        guard let values = plist as? [String: String] else {
+            throw IntegrationConfigurationError.invalidResource
+        }
+        return values
     }
 }
 
