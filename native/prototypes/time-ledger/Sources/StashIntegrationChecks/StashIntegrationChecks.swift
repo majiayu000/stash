@@ -45,6 +45,7 @@ private actor RecordingTransport: KeeplineTransport {
     private(set) var logicalLaunchCount = 0
     private let completionReviewEvidenceID: String?
     private(set) var recoveredSessionIDs: [String] = []
+    private(set) var polledDispatchIDs: [String] = []
 
     init(completionReviewEvidenceID: String? = nil) {
         self.completionReviewEvidenceID = completionReviewEvidenceID
@@ -122,7 +123,9 @@ private actor RecordingTransport: KeeplineTransport {
     }
 
     func dispatch(id: String) async throws -> KeeplineDispatch {
-        try dispatchFixture(
+        polledDispatchIDs.append(id)
+        if id == "dispatch-unavailable" { throw KeeplineError.invalidResponse }
+        return try dispatchFixture(
             id: id,
             workItemID: "work-1",
             runtimeID: "codex",
@@ -170,6 +173,8 @@ private struct StashIntegrationChecks {
     static func main() async throws {
         try checkOwnedChildTermination()
         try checkAgentAttentionQueue()
+        try checkAgentAttentionBoundaries()
+        try await checkPendingAttemptFailureIsolation()
         try await checkRecoveryConfirmationTransport()
         try await checkLaunchUpsertGate()
         try await checkLaunchDispatchGate()
@@ -228,6 +233,7 @@ private struct StashIntegrationChecks {
             ),
             AgentTaskLink(
                 taskID: completionTask.id,
+                keeplineWorkItemID: "work-1",
                 sessionID: "completion-session",
                 dispatchState: .linked,
                 runtimeID: "claude-code",
@@ -263,7 +269,7 @@ private struct StashIntegrationChecks {
             )
         ]
         let sessions = try [
-            attentionSessionFixture(id: "completion-session", status: "completed", evidenceID: "evidence-1"),
+            attentionSessionFixture(id: "completion-session", status: "completed", evidenceID: "evidence-1", evidenceWorkItemID: "work-1"),
             attentionSessionFixture(id: "waiting-session", status: "waiting"),
             attentionSessionFixture(id: "lost-session", status: "lost"),
             attentionSessionFixture(id: "running-session", status: "running"),
@@ -278,6 +284,61 @@ private struct StashIntegrationChecks {
                    "attention queue included quiet or closed tasks")
         try expect(items.last?.sessionID == "lost-session",
                    "interrupted attention item lost its exact runtime session ID")
+    }
+
+    private static func checkAgentAttentionBoundaries() throws {
+        let task = LedgerTask(title: "Review only evidence for this work item")
+        for (linkWorkItem, evidenceWorkItem) in [
+            (nil, nil), ("work-1", nil), (nil, "work-1"),
+            ("", ""), ("work-1", "work-2")
+        ] as [(String?, String?)] {
+            let link = AgentTaskLink(
+                taskID: task.id, keeplineWorkItemID: linkWorkItem,
+                sessionID: "review-session", runtimeID: "codex", source: .manuallyLinked
+            )
+            let session = try attentionSessionFixture(
+                id: "review-session", status: "completed", evidenceID: "evidence-1",
+                evidenceWorkItemID: evidenceWorkItem
+            )
+            try expect(AgentAttentionQueue.items(tasks: [task], links: [link], sessions: [session]).isEmpty,
+                       "unowned or mismatched completion evidence entered the attention queue")
+        }
+        for state in [AgentDispatchState.failed, .cancelled] {
+            let link = AgentTaskLink(
+                taskID: task.id, dispatchState: state,
+                runtimeID: "codex", source: .dispatched
+            )
+            try expect(AgentAttentionQueue.items(tasks: [task], links: [link], sessions: []).isEmpty,
+                       "failed or cancelled launch without a lost session requested recovery")
+        }
+    }
+
+    @MainActor
+    private static func checkPendingAttemptFailureIsolation() async throws {
+        let failedTask = LedgerTask(title: "Unavailable dispatch")
+        let healthyTask = LedgerTask(title: "Healthy dispatch")
+        let links = [
+            AgentTaskLink(taskID: failedTask.id, dispatchID: "dispatch-unavailable",
+                          runtimeID: "codex", source: .dispatched),
+            AgentTaskLink(taskID: healthyTask.id, dispatchID: "dispatch-healthy",
+                          runtimeID: "codex", source: .dispatched)
+        ]
+        let repository = FailAtSaveRepository(
+            workspace: LedgerWorkspace(tasks: [failedTask, healthyTask], agentTaskLinks: links),
+            failingSaveAttempt: 999
+        )
+        let store = LedgerStore(repository: repository, initialWorkspace: LedgerWorkspace())
+        await store.bootstrap()
+        let transport = RecordingTransport()
+        let coordinator = StashKeeplineCoordinator(store: store, transport: transport)
+        let notices = try await coordinator.resumePendingAttempts()
+        try expect(notices.map(\.taskID) == [failedTask.id],
+                   "pending attempt failure was not reported against its own task")
+        let polled = await transport.polledDispatchIDs
+        try expect(polled == ["dispatch-unavailable", "dispatch-healthy"],
+                   "one failed pending attempt prevented another from refreshing")
+        try expect(store.agentLink(for: healthyTask.id)?.dispatchState == .awaitingSession,
+                   "healthy pending attempt did not persist its latest dispatch state")
     }
 
     private static func checkRecoveryConfirmationTransport() async throws {
@@ -922,15 +983,17 @@ private func recoveryPreviewFixture(sessionID: String) throws -> KeeplineRecover
 private func attentionSessionFixture(
     id: String,
     status: String,
-    evidenceID: String? = nil
+    evidenceID: String? = nil,
+    evidenceWorkItemID: String? = nil
 ) throws -> KeeplineSession {
+    let workItem = evidenceWorkItemID.map { "\"\($0)\"" } ?? "null"
     let evidence = evidenceID.map { "\"\($0)\"" } ?? "null"
     return try fixture("""
     {
       "id":"row-\(id)","sessionId":"\(id)","runtimeId":"codex",
       "title":"Attention fixture","directory":"/tmp","status":"\(status)",
       "lastActiveAt":"2026-08-30T00:00:00Z","evidenceSummary":null,
-      "completionEvidenceId":\(evidence),"processRunning":true
+      "completionEvidenceId":\(evidence),"completionEvidenceWorkItemId":\(workItem),"processRunning":true
     }
     """)
 }

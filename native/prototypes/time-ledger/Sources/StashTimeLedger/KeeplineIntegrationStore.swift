@@ -100,6 +100,7 @@ final class KeeplineIntegrationStore: ObservableObject {
     private weak var ledgerStore: LedgerStore?
     private var coordinator: StashKeeplineCoordinator?
     private var refreshTask: Task<Void, Never>?
+    private var reconciliationErrors: [UUID: String] = [:]
     private var failureCount = 0
     private var didAttemptServiceLaunch = false
     private var sceneIsActive = true
@@ -191,6 +192,7 @@ final class KeeplineIntegrationStore: ObservableObject {
     }
 
     func clearError(for taskID: UUID) {
+        reconciliationErrors[taskID] = nil
         taskErrors[taskID] = nil
     }
 
@@ -336,11 +338,6 @@ final class KeeplineIntegrationStore: ObservableObject {
             }
 
             let nextSessions = try await transport.listSessions().sorted(by: Self.sessionComesFirst)
-            let notices = try await coordinator.resumePendingAttempts()
-            for notice in notices {
-                publishTaskError(notice.message, for: notice.taskID)
-            }
-            try await coordinator.syncTaskProjections()
             if metadata != nextMetadata { metadata = nextMetadata }
             if sessions != nextSessions { sessions = nextSessions }
             failureCount = 0
@@ -350,6 +347,25 @@ final class KeeplineIntegrationStore: ObservableObject {
                 // Keep the published state stable while refreshing identical values.
             } else {
                 publishState(.ready(refreshedAt))
+            }
+
+            // Task reconciliation failures do not invalidate a successful service snapshot.
+            for (taskID, message) in reconciliationErrors where taskErrors[taskID] == message {
+                taskErrors[taskID] = nil
+            }
+            reconciliationErrors.removeAll()
+            do {
+                let notices = try await coordinator.resumePendingAttempts()
+                for notice in notices {
+                    reconciliationErrors[notice.taskID] = notice.message
+                    publishTaskError(notice.message, for: notice.taskID)
+                }
+                try await coordinator.syncTaskProjections()
+            } catch {
+                for taskID in Set(ledgerStore?.workspace.agentTaskLinks.map(\.taskID) ?? []) {
+                    reconciliationErrors[taskID] = error.localizedDescription
+                    publishTaskError(error.localizedDescription, for: taskID)
+                }
             }
         } catch {
             if didAttemptServiceLaunch, serviceController?.ownsRunningChild != true {
@@ -403,7 +419,7 @@ final class KeeplineIntegrationStore: ObservableObject {
     ) async {
         guard !busyTaskIDs.contains(taskID) else { return }
         busyTaskIDs.insert(taskID)
-        taskErrors[taskID] = nil
+        clearError(for: taskID)
         defer { busyTaskIDs.remove(taskID) }
         do {
             try await operation()
@@ -418,7 +434,7 @@ final class KeeplineIntegrationStore: ObservableObject {
     ) async -> Value? {
         guard !busyTaskIDs.contains(taskID) else { return nil }
         busyTaskIDs.insert(taskID)
-        taskErrors[taskID] = nil
+        clearError(for: taskID)
         defer { busyTaskIDs.remove(taskID) }
         do {
             return try await operation()

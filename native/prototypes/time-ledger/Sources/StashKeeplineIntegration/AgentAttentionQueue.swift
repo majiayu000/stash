@@ -68,11 +68,14 @@ public enum AgentAttentionQueue {
         session: KeeplineSession?
     ) -> AgentAttentionKind? {
         if link.dispatchState == .ambiguous { return .ambiguous }
-        if link.completionDecision == .undecided, session?.completionEvidenceID != nil {
+        if link.completionDecision == .undecided,
+           let workItemID = link.keeplineWorkItemID, !workItemID.isEmpty,
+           session?.completionEvidenceWorkItemID == workItemID,
+           session?.completionEvidenceID != nil {
             return .completionReview
         }
         if session?.status == .waiting { return .waitingInput }
-        if session?.status == .lost || link.dispatchState?.endsAttempt == true { return .interrupted }
+        if session?.status == .lost { return .interrupted }
         return nil
     }
 }
