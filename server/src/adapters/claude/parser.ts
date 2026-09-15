@@ -1,4 +1,5 @@
-import { readFileSync } from 'fs';
+import { closeSync, openSync, readFileSync, readSync } from 'fs';
+import { StringDecoder } from 'string_decoder';
 import type { AgentSession, AgentSessionEvent, AgentSessionStatus, UsageEvent } from '@stash/shared';
 import { isClearlyIncompleteJsonlTail } from '../jsonl-tail.js';
 
@@ -215,11 +216,10 @@ export function parseClaudeAnalytics(
   _activeSinceMs: number,
   _sourceSizeBytes?: number,
 ): ClaudeAnalyticsData {
-  const raw = readFileSync(sourcePath, 'utf8');
   const usage: UsageEvent[] = [];
   let lastActiveAt: string | undefined;
   let lastActiveMs = Number.NEGATIVE_INFINITY;
-  for (const rec of parseClaudeAnalyticsRecords(raw, sourcePath)) {
+  for (const rec of parseClaudeAnalyticsRecords(sourcePath)) {
     if (rec.timestamp) {
       const timestampMs = Date.parse(rec.timestamp);
       if (Number.isNaN(timestampMs)) {
@@ -248,26 +248,50 @@ export function parseClaudeAnalytics(
   };
 }
 
-function parseClaudeAnalyticsRecords(raw: string, sourcePath: string): RawRecord[] {
-  const hasTrailingNewline = raw.endsWith('\n');
-  const lines = raw.split('\n');
-  if (hasTrailingNewline) lines.pop();
-  const records: RawRecord[] = [];
+// Analytics parsing is synchronous: one scratch buffer serves successive files
+// without allocating a history-sized Buffer for every cold-scan candidate.
+const analyticsReadBuffer = Buffer.allocUnsafe(1024 * 1024);
 
-  for (let index = 0; index < lines.length; index++) {
-    const line = lines[index]!;
-    if (!line.trim()) continue;
-    try {
-      records.push(JSON.parse(line) as RawRecord);
-    } catch {
-      const isTrailingPartial = !hasTrailingNewline
-        && index === lines.length - 1
-        && isClearlyIncompleteJsonlTail(line);
-      if (isTrailingPartial) continue;
-      throw new Error(`Claude session contains malformed complete JSONL: ${sourcePath}`);
+function* parseClaudeAnalyticsRecords(sourcePath: string): Generator<RawRecord> {
+  const fd = openSync(sourcePath, 'r');
+  const decoder = new StringDecoder('utf8');
+  let pending = '';
+  try {
+    while (true) {
+      const bytesRead = readSync(fd, analyticsReadBuffer, 0, analyticsReadBuffer.length, null);
+      if (bytesRead === 0) break;
+      const chunk = decoder.write(analyticsReadBuffer.subarray(0, bytesRead));
+      let start = 0;
+      let end: number;
+      while ((end = chunk.indexOf('\n', start)) !== -1) {
+        const line = pending + chunk.slice(start, end);
+        pending = '';
+        const record = parseClaudeAnalyticsLine(line, sourcePath, false);
+        if (record !== undefined) yield record;
+        start = end + 1;
+      }
+      pending += chunk.slice(start);
     }
+    pending += decoder.end();
+    const record = parseClaudeAnalyticsLine(pending, sourcePath, true);
+    if (record !== undefined) yield record;
+  } finally {
+    closeSync(fd);
   }
-  return records;
+}
+
+function parseClaudeAnalyticsLine(
+  line: string,
+  sourcePath: string,
+  unterminated: boolean,
+): RawRecord | undefined {
+  if (!line.trim()) return undefined;
+  try {
+    return JSON.parse(line) as RawRecord;
+  } catch {
+    if (unterminated && isClearlyIncompleteJsonlTail(line)) return undefined;
+    throw new Error(`Claude session contains malformed complete JSONL: ${sourcePath}`);
+  }
 }
 
 function claudeUsageEvent(rec: RawRecord, sourcePath: string): UsageEvent | undefined {
