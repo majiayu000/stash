@@ -108,6 +108,12 @@ other tasks. Completed entries remain visible and keep their estimated share
 of the day's budget; remaining estimates count only open tasks. Yesterday's
 pins and lock reset when the calendar day changes.
 
+**Today's budget…** changes availability for this day only, from zero to sixteen
+hours, or restores the default budget. Saving preserves the current tasks and
+lock. Choose **Replan** while unlocked to fit suggestions to the new budget;
+active and explicitly chosen tasks remain even when over budget. The override
+survives relaunch and backup, then resets on the next calendar day.
+
 Use **Adjust tasks** to move selected work to tomorrow or another date. Dates
 in the future exclude a task from automatic selection before that day. Changes
 to the work date preserve its deadline, with a visible notice when they conflict.
