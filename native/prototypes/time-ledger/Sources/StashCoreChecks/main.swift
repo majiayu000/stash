@@ -55,6 +55,7 @@ struct StashCoreChecks {
         try await checkDailyWorkflow()
         try await checkInboxAndProjectWorkflow()
         try await checkTodayReplacement()
+        try await checkTodayBudget()
         try checkWeeklyReview()
         try await checkLegacyPreviewCleanup()
         try await checkCompletionAndRecurrence()
@@ -64,6 +65,80 @@ struct StashCoreChecks {
         try await checkStoreInteractionPerformance()
         try checkPlannerPerformance()
         print("StashCoreChecks: all checks passed")
+    }
+
+    @MainActor
+    private static func checkTodayBudget() async throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let today = calendar.startOfDay(for: Date(timeIntervalSince1970: 1_790_000_000))
+        let clock = CheckClock(today.addingTimeInterval(3_600))
+        let completed = LedgerTask(title: "Already done", status: .completed, estimateMinutes: 30, completedAt: today)
+        let pinned = LedgerTask(title: "Committed", status: .planned, estimateMinutes: 60, isPinnedToday: true)
+        let active = LedgerTask(title: "In progress", status: .active, estimateMinutes: 45)
+        let other = LedgerTask(title: "Suggested", status: .planned, estimateMinutes: 120)
+        let small = LedgerTask(title: "Small suggestion", status: .planned, estimateMinutes: 30)
+        let tasks = [completed, pinned, active, other, small]
+        let initial = LedgerWorkspace(tasks: tasks, dailyPlan: DailyPlan(day: today, entries: tasks.map {
+            PlanEntry(taskID: $0.id, reason: "Original order", score: 100)
+        }, isLocked: true), planningPreferences: PlanningPreferences(minuteBudget: 360))
+        let repository = MemoryRepository(workspace: initial)
+        let store = LedgerStore(repository: repository, initialWorkspace: initial, calendar: calendar, now: { clock.read() })
+        try expect(store.todayMinuteBudget == 360 && store.todayMinuteBudgetOverride == nil, "default budget was not used")
+        for invalid in [-1, 961] {
+            do {
+                try store.setTodayMinuteBudget(invalid, expectedDay: today)
+                throw CheckFailure.failed("out-of-range daily budget was accepted")
+            } catch is LedgerActionError {}
+            try expect(store.workspace == initial, "invalid budget changed the workspace")
+        }
+        await repository.setFailing(true)
+        try store.setTodayMinuteBudget(150, expectedDay: today)
+        try expect(store.todayMinuteBudget == 150 && store.planningPreferences.minuteBudget == 360, "today budget changed the default")
+        try expect(store.planIsLocked && store.todayRows.map(\.id) == tasks.map(\.id), "changing budget disturbed the locked plan")
+        try expect(store.workspace.tasks == tasks, "changing availability mutated task records")
+        let failed = await store.flush()
+        try expect(!failed, "budget save failure was reported as success")
+        let diskBeforeRetry = try await repository.load()
+        try expect(diskBeforeRetry == initial, "failed budget save changed disk data")
+        await repository.setFailing(false)
+        let saved = await store.flush()
+        try expect(saved, "budget retry failed")
+        let reloaded = LedgerStore(repository: repository, initialWorkspace: LedgerWorkspace(), calendar: calendar, now: { clock.read() })
+        await reloaded.bootstrap()
+        try expect(reloaded.todayMinuteBudgetOverride == 150 && reloaded.planIsLocked, "budget or lock was lost on restart")
+        let exported = try WorkspaceCodec.decode(store.exportData())
+        try expect(exported.dailyPlan?.minuteBudgetOverride == 150, "portable backup omitted today's budget")
+        store.replanToday()
+        try expect(store.todayRows.map(\.id) == tasks.map(\.id), "replan modified a locked budget")
+        store.togglePlanLock()
+        store.replanToday()
+        try expect(store.todayRows.map(\.id) == [completed.id, pinned.id, active.id] && store.todayEstimateMinutes == 135,
+                   "replan ignored the override, completed estimates, or explicit commitments")
+        store.updatePlanningPreferences(PlanningPreferences(minuteBudget: 480))
+        try expect(store.todayMinuteBudget == 150 && store.todayEstimateMinutes == 135, "default settings erased today's override")
+        try store.setTodayMinuteBudget(nil, expectedDay: today)
+        try expect(store.todayMinuteBudget == 480 && store.todayMinuteBudgetOverride == nil, "restore default left an override")
+        try expect(store.todayEstimateMinutes == 135, "restore default silently changed existing tasks")
+        store.replanToday()
+        try expect(store.todayRows.count == tasks.count, "restored default was not used by replan")
+        try store.setTodayMinuteBudget(0, expectedDay: today)
+        store.replanToday()
+        try expect(store.todayMinuteBudget == 0 && store.todayEstimateMinutes == 135, "zero budget lost commitments or added suggestions")
+        let previousDay = store.workspace
+        clock.set(today.addingTimeInterval(86_400 + 3_600))
+        do {
+            try store.setTodayMinuteBudget(120, expectedDay: today)
+            throw CheckFailure.failed("stale budget sheet modified the next day")
+        } catch is LedgerActionError {}
+        try expect(store.workspace == previousDay, "stale budget changed the workspace")
+        try expect(store.todayMinuteBudget == 480, "yesterday's budget leaked into today")
+        store.refreshDay()
+        try expect(store.workspace.dailyPlan?.minuteBudgetOverride == nil && !store.planIsLocked,
+                   "new day retained the override or lock")
+        let nextDaySaved = await store.flush()
+        try expect(nextDaySaved, "new default day did not persist")
+        print("Today budget: defaults, override, lock, replan, zero availability, persistence/retry and day rollover passed")
     }
 
     @MainActor

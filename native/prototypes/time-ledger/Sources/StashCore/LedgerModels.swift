@@ -288,17 +288,20 @@ public struct DailyPlan: Codable, Equatable, Sendable {
     public var entries: [PlanEntry]
     public var isLocked: Bool
     public var generatedAt: Date
+    public var minuteBudgetOverride: Int?
 
     public init(
         day: Date,
         entries: [PlanEntry],
         isLocked: Bool = false,
-        generatedAt: Date = .now
+        generatedAt: Date = .now,
+        minuteBudgetOverride: Int? = nil
     ) {
         self.day = day
         self.entries = entries
         self.isLocked = isLocked
         self.generatedAt = generatedAt
+        self.minuteBudgetOverride = minuteBudgetOverride
     }
 }
 

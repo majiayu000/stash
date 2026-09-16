@@ -5,6 +5,7 @@ struct TodayLedgerView: View {
     @EnvironmentObject private var store: LedgerStore
     @Binding var selectedTaskID: UUID?
     @State private var adjusting = false
+    @State private var showingBudget = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -57,17 +58,23 @@ struct TodayLedgerView: View {
                     .lineLimit(2)
 
                 HStack(alignment: .firstTextBaseline) {
-                    Text("\(ledgerDuration(store.todayEstimateMinutes)) planned / \(ledgerDuration(store.planningPreferences.minuteBudget)) budget" +
-                         (store.todayEstimateMinutes > store.planningPreferences.minuteBudget
-                          ? " · \(ledgerDuration(store.todayEstimateMinutes - store.planningPreferences.minuteBudget)) over" : ""))
+                    Text("\(ledgerDuration(store.todayEstimateMinutes)) planned / \(ledgerDuration(store.todayMinuteBudget)) budget" +
+                         (store.todayEstimateMinutes > store.todayMinuteBudget
+                          ? " · \(ledgerDuration(store.todayEstimateMinutes - store.todayMinuteBudget)) over" : ""))
                         .font(.system(size: 11))
-                        .foregroundStyle(store.todayEstimateMinutes > store.planningPreferences.minuteBudget ? LedgerDesign.warning : Color.secondary)
+                        .foregroundStyle(store.todayEstimateMinutes > store.todayMinuteBudget ? LedgerDesign.warning : Color.secondary)
                     Spacer()
+                    Button("Today's budget…") {
+                        showingBudget = true
+                    }
+                    .buttonStyle(.borderless).font(.system(size: 11, weight: .medium))
+                    .accessibilityIdentifier("stash.today.budget")
+                    .help(store.todayMinuteBudgetOverride == nil ? "Using the default budget" : "Using a budget for today only")
                     Button(adjusting ? "Finish adjusting" : "Adjust tasks") { adjusting.toggle() }
                         .buttonStyle(.borderless).font(.system(size: 11, weight: .medium))
                 }
                 if store.todayRows.count < store.planningPreferences.minimumTasks && store.openTaskCount > 0
-                    && store.todayEstimateMinutes <= store.planningPreferences.minuteBudget {
+                    && store.todayEstimateMinutes <= store.todayMinuteBudget {
                     Text("A shorter plan fits today's availability and budget. Open Inbox or Upcoming to choose more work.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
@@ -120,6 +127,7 @@ struct TodayLedgerView: View {
             }
         }
         .onExitCommand { adjusting = false }
+        .sheet(isPresented: $showingBudget) { TodayBudgetSheet() }
     }
 }
 

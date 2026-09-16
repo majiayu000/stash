@@ -80,8 +80,8 @@ struct ReplaceTodayTaskSheet: View {
                 }
                 let total = applied ? store.todayEstimateMinutes
                     : store.todayEstimateMinutes - (outgoing?.estimateMinutes ?? 0) + incoming.estimateMinutes
-                let over = max(0, total - store.planningPreferences.minuteBudget)
-                Text("\(ledgerDuration(total)) planned / \(ledgerDuration(store.planningPreferences.minuteBudget)) budget"
+                let over = max(0, total - store.todayMinuteBudget)
+                Text("\(ledgerDuration(total)) planned / \(ledgerDuration(store.todayMinuteBudget)) budget"
                      + (over > 0 ? " · \(ledgerDuration(over)) over" : ""))
                     .font(.caption).foregroundStyle(over > 0 ? LedgerDesign.warning : .secondary)
             }

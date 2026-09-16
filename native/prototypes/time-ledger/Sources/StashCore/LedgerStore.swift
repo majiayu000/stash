@@ -99,6 +99,15 @@ public final class LedgerStore: ObservableObject {
         workspace.planningPreferences ?? .default
     }
 
+    public var todayMinuteBudgetOverride: Int? {
+        guard let plan = workspace.dailyPlan, calendar.isDate(plan.day, inSameDayAs: now()) else { return nil }
+        return plan.minuteBudgetOverride
+    }
+
+    public var todayMinuteBudget: Int {
+        todayMinuteBudgetOverride ?? planningPreferences.minuteBudget
+    }
+
     public func bootstrap() async {
         do {
             if let loaded = try await repository.load() {
@@ -593,6 +602,20 @@ public final class LedgerStore: ObservableObject {
         commit(replanIfUnlocked: false)
     }
 
+    /// Changing availability never silently removes or reorders today's commitments.
+    public func setTodayMinuteBudget(_ minutes: Int?, expectedDay: Date) throws {
+        let current = now()
+        guard calendar.isDate(expectedDay, inSameDayAs: current),
+              let plan = workspace.dailyPlan, calendar.isDate(plan.day, inSameDayAs: current) else {
+            throw LedgerActionError("The day changed. Close this sheet and review today's budget again.")
+        }
+        if let minutes, !(0...960).contains(minutes) {
+            throw LedgerActionError("Choose a budget between 0 and 960 minutes.")
+        }
+        workspace.dailyPlan?.minuteBudgetOverride = minutes
+        commit(replanIfUnlocked: false)
+    }
+
     public func exportData() throws -> Data {
         try WorkspaceCodec.encode(workspace)
     }
@@ -818,6 +841,7 @@ public final class LedgerStore: ObservableObject {
             tasksByID[entry.taskID].flatMap { $0.status == .completed ? $0 : nil }
         }
         var planner = DailyPlanner(preferences: planningPreferences, calendar: calendar)
+        planner.minuteBudget = existing?.minuteBudgetOverride ?? planningPreferences.minuteBudget
         planner.minuteBudget -= completed.reduce(0) { $0 + $1.estimateMinutes }
         planner.maximumTasks = max(0, planner.maximumTasks - completed.count)
         let generated = planner.makePlan(tasks: workspace.tasks, for: date)
@@ -843,7 +867,8 @@ public final class LedgerStore: ObservableObject {
             day: generated.day,
             entries: merged,
             isLocked: existing.isLocked,
-            generatedAt: generated.generatedAt
+            generatedAt: generated.generatedAt,
+            minuteBudgetOverride: existing.minuteBudgetOverride
         )
     }
 
