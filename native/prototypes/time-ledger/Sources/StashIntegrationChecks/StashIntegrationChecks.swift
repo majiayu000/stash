@@ -397,7 +397,7 @@ private struct StashIntegrationChecks {
             .write(to: keeplineHome.appendingPathComponent("config.json"), options: [.atomic])
 
         let hookCommand = "KEEPLINE_HOOK_MARKER=keepline-hook-v2 "
-            + "curl -fsS -X POST http://127.0.0.1:\(hookPort)/hook "
+            + "curl -fsS -X POST \"http://127.0.0.1:\(hookPort)/hook?runtime=claude-code\" "
             + "-H \"Content-Type: application/json\" --data-binary @- > /dev/null 2>&1 || true"
         let claudeSettings: [String: Any] = [
             "hooks": [
