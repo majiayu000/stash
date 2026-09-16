@@ -4,6 +4,7 @@ import SwiftUI
 struct TodayLedgerView: View {
     @EnvironmentObject private var store: LedgerStore
     @Binding var selectedTaskID: UUID?
+    @State private var adjusting = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -38,12 +39,12 @@ struct TodayLedgerView: View {
                 }
 
                 HStack(alignment: .firstTextBaseline) {
-                    Text(Date.now.ledgerDayTitle)
+                    Text(store.currentDate.ledgerDayTitle)
                         .font(.system(size: 25, weight: .semibold))
 
                     Spacer()
 
-                    Text("\(store.todayCompletedCount) of \(store.todayRows.count) done · \(durationLabel)")
+                    Text("\(store.todayCompletedCount) of \(store.todayRows.count) done · \(ledgerDuration(store.todayRemainingMinutes)) remaining")
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
                 }
@@ -54,6 +55,22 @@ struct TodayLedgerView: View {
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
+
+                HStack(alignment: .firstTextBaseline) {
+                    Text("\(ledgerDuration(store.todayEstimateMinutes)) planned / \(ledgerDuration(store.planningPreferences.minuteBudget)) budget" +
+                         (store.todayEstimateMinutes > store.planningPreferences.minuteBudget
+                          ? " · \(ledgerDuration(store.todayEstimateMinutes - store.planningPreferences.minuteBudget)) over" : ""))
+                        .font(.system(size: 11))
+                        .foregroundStyle(store.todayEstimateMinutes > store.planningPreferences.minuteBudget ? LedgerDesign.warning : Color.secondary)
+                    Spacer()
+                    Button(adjusting ? "Finish adjusting" : "Adjust tasks") { adjusting.toggle() }
+                        .buttonStyle(.borderless).font(.system(size: 11, weight: .medium))
+                }
+                if store.todayRows.count < store.planningPreferences.minimumTasks && store.openTaskCount > 0
+                    && store.todayEstimateMinutes <= store.planningPreferences.minuteBudget {
+                    Text("A shorter plan fits today's availability and budget. Open Inbox or Upcoming to choose more work.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
 
                 TodayProgressPath(
                     completed: store.todayCompletedCount,
@@ -70,9 +87,9 @@ struct TodayLedgerView: View {
 
             if store.todayRows.isEmpty {
                 ContentUnavailableView(
-                    "A clear day",
+                    store.openTaskCount > 0 ? "Nothing selected for today" : "A clear day",
                     systemImage: "sun.max",
-                    description: Text("Capture work or schedule a task for today. Stash will build the order.")
+                    description: Text(store.openTaskCount > 0 ? "Work may be waiting, scheduled later, or outside the time budget. Open Inbox or Upcoming to choose a task." : "Capture work or schedule a task for today. Stash will build the order.")
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -86,6 +103,10 @@ struct TodayLedgerView: View {
                                 isSelected: selectedTaskID == row.id,
                                 onSelect: { selectedTaskID = row.id }
                             )
+                            if adjusting && row.task.isOpen {
+                                TaskPlanningActions(task: row.task, allowsReplacement: true)
+                                    .padding(.leading, 64).padding(.bottom, 12)
+                            }
                             if index < store.todayRows.count - 1 {
                                 Divider()
                                     .padding(.leading, 74)
@@ -98,16 +119,7 @@ struct TodayLedgerView: View {
                 .scrollIndicators(.never)
             }
         }
-    }
-
-    private var durationLabel: String {
-        let minutes = store.todayEstimateMinutes
-        if minutes >= 60 {
-            let hours = minutes / 60
-            let remainder = minutes % 60
-            return remainder == 0 ? "\(hours)h" : "\(hours)h \(remainder)m"
-        }
-        return "\(minutes)m"
+        .onExitCommand { adjusting = false }
     }
 }
 
@@ -184,63 +196,60 @@ private struct LedgerRouteShape: Shape {
     }
 }
 
+private struct InboxBatch: Identifiable {
+    let id = UUID()
+    let taskIDs: [UUID]
+}
+
 struct InboxView: View {
     @EnvironmentObject private var store: LedgerStore
     @Binding var selectedTaskID: UUID?
+    @State private var batch: InboxBatch?
 
     var body: some View {
         VStack(spacing: 0) {
-            LedgerSectionHeader(
-                eyebrow: "INBOX",
-                title: "Decide once",
-                subtitle: "Captured thoughts stay here until they have a place in time."
-            )
-
+            LedgerSectionHeader(eyebrow: "INBOX", title: "Decide once",
+                                subtitle: "Give each capture a date, a horizon, or a project.")
+            HStack {
+                Spacer()
+                Button("Organize Inbox…") { organize(startingAt: selectedTaskID) }
+                    .disabled(store.inboxTasks.isEmpty)
+            }.padding(.horizontal, 28).padding(.bottom, 12)
             Divider().padding(.horizontal, 28)
-
             if store.inboxTasks.isEmpty {
-                ContentUnavailableView(
-                    "Inbox zero",
-                    systemImage: "tray",
-                    description: Text("Everything has a time or a horizon.")
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                ContentUnavailableView("Inbox zero", systemImage: "tray",
+                                       description: Text("Every capture has a place."))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollView {
                     LazyVStack(spacing: 0) {
-                        ForEach(Array(store.inboxTasks.enumerated()), id: \.element.id) { index, task in
-                            VStack(spacing: 0) {
-                                LedgerTaskRow(
-                                    task: task,
-                                    reason: task.notes.isEmpty ? "Needs a decision" : task.notes,
-                                    dateLabel: nil,
-                                    isSelected: selectedTaskID == task.id,
-                                    onSelect: { selectedTaskID = task.id }
-                                )
-
-                                HStack(spacing: 14) {
-                                    Button("Today") { store.moveToToday(id: task.id) }
-                                    Button("Tomorrow") { store.moveToTomorrow(id: task.id) }
-                                    Button("Long term") { store.moveToLongTerm(id: task.id) }
-                                    Spacer()
-                                }
-                                .buttonStyle(.borderless)
-                                .font(.system(size: 11, weight: .medium))
-                                .padding(.leading, 74)
-                                .padding(.trailing, 28)
-                                .padding(.bottom, 12)
-                            }
-
-                            if index < store.inboxTasks.count - 1 {
+                        ForEach(store.inboxTasks) { task in
+                            VStack(alignment: .leading, spacing: 0) {
+                                LedgerTaskRow(task: task, reason: task.notes.isEmpty ? "Needs a decision" : task.notes,
+                                              dateLabel: nil, isSelected: selectedTaskID == task.id,
+                                              onSelect: { selectedTaskID = task.id })
+                                Button("Organize…") { organize(startingAt: task.id) }
+                                    .buttonStyle(.borderless).font(.system(size: 11, weight: .medium))
+                                    .padding(.leading, 74).padding(.bottom, 12)
+                                    .accessibilityIdentifier("stash.inbox.organize.\(task.id)")
                                 Divider().padding(.leading, 74).padding(.trailing, 28)
                             }
                         }
-                    }
-                    .padding(.vertical, 4)
+                    }.padding(.vertical, 4)
                 }
-                .scrollIndicators(.never)
             }
         }
+        .sheet(item: $batch) { batch in
+            InboxTriageSheet(taskIDs: batch.taskIDs, selectedTaskID: $selectedTaskID)
+                .environmentObject(store)
+        }
+    }
+
+    private func organize(startingAt id: UUID?) {
+        let ids = store.inboxTasks.map(\.id)
+        guard !ids.isEmpty else { return }
+        let index = id.flatMap { ids.firstIndex(of: $0) } ?? 0
+        batch = InboxBatch(taskIDs: Array(ids[index...]) + Array(ids[..<index]))
     }
 }
 
@@ -302,6 +311,9 @@ struct ProjectsView: View {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         ForEach(store.workspace.projects) { project in
                             let tasks = store.tasks(in: project)
+                            let workflow = ProjectWorkflow(
+                                tasks: tasks + store.workspace.tasks.filter { $0.projectID == project.id && $0.status == .completed },
+                                now: store.currentDate, calendar: store.calendar)
                             VStack(alignment: .leading, spacing: 0) {
                                 HStack(spacing: 9) {
                                     Image(systemName: project.symbol)
@@ -326,23 +338,21 @@ struct ProjectsView: View {
                                 .padding(.top, 22)
                                 .padding(.bottom, 8)
 
-                                if tasks.isEmpty {
-                                    Text("Nothing open")
-                                        .font(.system(size: 12))
-                                        .foregroundStyle(.tertiary)
-                                        .padding(.horizontal, 55)
-                                        .padding(.bottom, 16)
+                                if let goal = project.goal, !goal.isEmpty {
+                                    Text(goal).font(.callout).textSelection(.enabled)
+                                        .padding(.horizontal, 55).padding(.bottom, 8)
                                 } else {
-                                    ForEach(tasks) { task in
-                                        LedgerTaskRow(
-                                            task: task,
-                                            reason: task.notes,
-                                            dateLabel: task.scheduledFor?.ledgerShortDate,
-                                            isSelected: selectedTaskID == task.id,
-                                            onSelect: { selectedTaskID = task.id }
-                                        )
-                                    }
+                                    Button("Add a project goal…") { projectEditor = ProjectEditorTarget(project: project) }
+                                        .buttonStyle(.borderless).font(.caption)
+                                        .padding(.horizontal, 55).padding(.bottom, 8)
                                 }
+                                Text(workflow.guidance).font(.caption).foregroundStyle(.secondary)
+                                    .padding(.horizontal, 55).padding(.bottom, 12)
+                                projectTasks("READY FOR A NEXT STEP", tasks: workflow.ready)
+                                projectTasks("WAITING", tasks: workflow.waiting)
+                                projectTasks("LATER", tasks: workflow.later)
+                                projectTasks("NEEDS A DECISION", tasks: workflow.inbox)
+
                             }
 
                             Divider().padding(.horizontal, 28)
@@ -358,6 +368,20 @@ struct ProjectsView: View {
                 .environmentObject(store)
         }
     }
+    @ViewBuilder
+    private func projectTasks(_ title: String, tasks: [LedgerTask]) -> some View {
+        if !tasks.isEmpty {
+            Text(title).font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary)
+                .padding(.horizontal, 55).padding(.top, 8)
+            ForEach(tasks) { task in
+                LedgerTaskRow(task: task, reason: task.waitingOn ?? task.notes,
+                              dateLabel: (task.status == .waiting ? task.reviewAt : task.scheduledFor)?.ledgerShortDate,
+                              isSelected: selectedTaskID == task.id,
+                              onSelect: { selectedTaskID = task.id })
+            }
+        }
+    }
+
 }
 
 private struct ProjectEditorTarget: Identifiable {
@@ -372,6 +396,10 @@ private struct ProjectEditorSheet: View {
 
     @State private var name: String
     @State private var symbol: String
+    @State private var goal: String
+    @State private var savedProjectID: UUID?
+    @State private var saving = false
+    @State private var error: String?
     @State private var confirmDelete = false
 
     private let symbols = ["folder", "hammer", "shippingbox", "paintpalette", "briefcase", "person"]
@@ -380,6 +408,8 @@ private struct ProjectEditorSheet: View {
         self.project = project
         _name = State(initialValue: project?.name ?? "")
         _symbol = State(initialValue: project?.symbol ?? "folder")
+        _goal = State(initialValue: project?.goal ?? "")
+        _savedProjectID = State(initialValue: project?.id)
     }
 
     var body: some View {
@@ -389,6 +419,10 @@ private struct ProjectEditorSheet: View {
 
             TextField("Project name", text: $name)
                 .textFieldStyle(.roundedBorder)
+
+            TextField("What does success look like?", text: $goal, axis: .vertical)
+                .lineLimit(2...4).textFieldStyle(.roundedBorder)
+                .accessibilityIdentifier("stash.project.goal")
 
             Picker("Icon", selection: $symbol) {
                 ForEach(symbols, id: \.self) { value in
@@ -403,21 +437,18 @@ private struct ProjectEditorSheet: View {
                     }
                 }
                 Spacer()
-                Button("Cancel", role: .cancel) { dismiss() }
-                Button("Save") {
-                    if let project {
-                        store.updateProject(id: project.id, name: name, symbol: symbol)
-                    } else {
-                        store.createProject(name: name, symbol: symbol)
-                    }
-                    dismiss()
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                Button("Cancel", role: .cancel) { dismiss() }.disabled(saving)
+                Button(saving ? "Saving…" : "Save", action: save)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(saving || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
+            if let error { Text(error).font(.caption).foregroundStyle(.red) }
+
         }
+        .disabled(saving)
         .padding(24)
-        .frame(width: 360)
+        .frame(width: 400)
+        .interactiveDismissDisabled(saving)
         .confirmationDialog(
             "Delete “\(project?.name ?? "project")”?",
             isPresented: $confirmDelete,
@@ -432,65 +463,31 @@ private struct ProjectEditorSheet: View {
             Text("Tasks are kept and moved to No project.")
         }
     }
-}
-
-struct ReviewView: View {
-    @EnvironmentObject private var store: LedgerStore
-    @Binding var selectedTaskID: UUID?
-
-    private var deferredTasks: [LedgerTask] {
-        store.workspace.tasks
-            .filter { $0.status == .deferred && $0.isOpen }
-            .sorted { ($0.deferredUntil ?? .distantFuture) < ($1.deferredUntil ?? .distantFuture) }
-    }
-
-    var body: some View {
-        VStack(spacing: 0) {
-            LedgerSectionHeader(
-                eyebrow: "REVIEW",
-                title: reviewTitle,
-                subtitle: "A short record of movement and work deliberately left for later."
-            )
-
-            Divider().padding(.horizontal, 28)
-
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    ReviewGroup(
-                        title: "COMPLETED TODAY",
-                        tasks: store.completedToday,
-                        emptyText: "No completed tasks yet",
-                        selectedTaskID: $selectedTaskID
-                    )
-
-                    Divider().padding(.horizontal, 28).padding(.vertical, 16)
-
-                    ReviewGroup(
-                        title: "DEFERRED",
-                        tasks: deferredTasks,
-                        emptyText: "Nothing is waiting to return",
-                        selectedTaskID: $selectedTaskID
-                    )
-
-                    Divider().padding(.horizontal, 28).padding(.vertical, 16)
-
-                    ReviewGroup(
-                        title: "TRASH",
-                        tasks: store.trashedTasks,
-                        emptyText: "Trash is empty",
-                        selectedTaskID: $selectedTaskID
-                    )
-                }
-                .padding(.vertical, 18)
+    private func save() {
+        if let id = savedProjectID {
+            guard store.workspace.projects.contains(where: { $0.id == id }) else {
+                error = "This project no longer exists. Close this editor and create a new project."
+                return
             }
-            .scrollIndicators(.never)
+            store.updateProject(id: id, name: name, symbol: symbol, goal: goal)
+        } else {
+            guard !store.workspace.projects.contains(where: {
+                $0.name.localizedCaseInsensitiveCompare(name.trimmingCharacters(in: .whitespacesAndNewlines)) == .orderedSame
+            }) else {
+                error = "A project with this name already exists. Choose another name."
+                return
+            }
+            savedProjectID = store.createProject(name: name, symbol: symbol, goal: goal)?.id
+        }
+        saving = true
+        Task {
+            let saved = await store.flush()
+            saving = false
+            if saved { dismiss() }
+            else { error = "Could not save. Your name and goal are kept; try again." }
         }
     }
 
-    private var reviewTitle: String {
-        let count = store.completedToday.count
-        return count == 0 ? "The day is still open" : "\(count) meaningful \(count == 1 ? "step" : "steps")"
-    }
 }
 
 struct TaskCollectionView: View {
@@ -570,41 +567,6 @@ struct LedgerSectionHeader: View {
         case "PROJECTS": LedgerDesign.creative
         case "REVIEW": LedgerDesign.mint
         default: LedgerDesign.accent
-        }
-    }
-}
-
-private struct ReviewGroup: View {
-    let title: String
-    let tasks: [LedgerTask]
-    let emptyText: String
-    @Binding var selectedTaskID: UUID?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.system(size: 10, weight: .semibold))
-                .tracking(1)
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 28)
-
-            if tasks.isEmpty {
-                Text(emptyText)
-                    .font(.system(size: 12))
-                    .foregroundStyle(.tertiary)
-                    .padding(.horizontal, 28)
-                    .padding(.vertical, 14)
-            } else {
-                ForEach(tasks) { task in
-                    LedgerTaskRow(
-                        task: task,
-                        reason: task.notes,
-                        dateLabel: nil,
-                        isSelected: selectedTaskID == task.id,
-                        onSelect: { selectedTaskID = task.id }
-                    )
-                }
-            }
         }
     }
 }

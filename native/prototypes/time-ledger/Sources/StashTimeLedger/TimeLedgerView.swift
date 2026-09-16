@@ -13,6 +13,10 @@ struct TimeLedgerView: View {
     @State private var searchText = ""
     @State private var searchResults: [LedgerTask] = []
     @State private var reminderError: String?
+    @State private var reviewWeek = Date.now
+    @State private var reviewShowsWeek = false
+    @State private var reviewScrollID: String?
+    @StateObject private var planning = TaskPlanningPresentation()
 
     var body: some View {
         NavigationSplitView {
@@ -24,6 +28,14 @@ struct TimeLedgerView: View {
         .navigationSplitViewStyle(.balanced)
         .background(LedgerDesign.canvas)
         .tint(LedgerDesign.accent)
+        .environmentObject(planning)
+        .sheet(item: $planning.request) { request in
+            switch request {
+            case let .schedule(taskID, range): ScheduleTaskSheet(taskID: taskID, range: range)
+            case let .waiting(taskID): WaitingTaskSheet(taskID: taskID)
+            case let .replace(taskID): ReplaceTodayTaskSheet(taskID: taskID)
+            }
+        }
         .onAppear {
             keeplineIntegration.start(afterFirstFrameWith: store)
         }
@@ -47,10 +59,12 @@ struct TimeLedgerView: View {
         }
         .onChange(of: scenePhase) { _, phase in
             keeplineIntegration.setSceneActive(phase == .active)
+            if phase == .active { store.refreshDay() }
             if phase != .active {
                 Task { _ = await store.flush() }
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in store.refreshDay() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
             keeplineIntegration.shutdown()
         }
@@ -268,7 +282,7 @@ struct TimeLedgerView: View {
             case .projects:
                 ProjectsView(selectedTaskID: $selectedTaskID)
             case .review:
-                ReviewView(selectedTaskID: $selectedTaskID)
+                ReviewView(selectedTaskID: $selectedTaskID, selectedWeek: $reviewWeek, showsWeek: $reviewShowsWeek, scrollID: $reviewScrollID)
             }
         }
     }
@@ -314,6 +328,8 @@ struct TimeLedgerView: View {
         case let .failed(message):
             Label(message, systemImage: "exclamationmark.triangle.fill")
                 .foregroundStyle(LedgerDesign.warning)
+            Button("Retry save") { Task { _ = await store.flush() } }
+                .buttonStyle(.borderless)
         }
     }
 
@@ -429,7 +445,7 @@ struct LedgerTaskRow: View {
                                 .foregroundStyle(.quaternary)
                         }
 
-                        Text(reason ?? task.notes.nonEmpty ?? task.horizon.label)
+                        Text(task.status == .waiting ? (task.waitingOn ?? "Waiting") : (reason ?? task.notes.nonEmpty ?? task.horizon.label))
                             .font(.system(size: 12))
                             .foregroundStyle(.secondary)
                             .lineLimit(isSelected ? 2 : 1)

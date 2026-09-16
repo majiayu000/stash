@@ -57,13 +57,19 @@ public struct DailyPlanner: Sendable {
         var minutes = 0
         var selectedPrefixCount = 0
 
+        // Explicit commitments survive the automatic count and time limits.
+        let committed = candidates.filter { $0.task.status == .active || $0.task.isPinnedToday }
+            .sorted(by: candidateComesFirst)
+        chosen.append(contentsOf: committed)
+        minutes = committed.reduce(0) { $0 + $1.task.estimateMinutes }
+        candidates.removeAll { $0.task.status == .active || $0.task.isPinnedToday }
+
         while chosen.count < maximumTasks, selectedPrefixCount < candidates.count {
-            let mustFillMinimum = chosen.count < minimumTasks
             var bestIndex: Int?
             for index in selectedPrefixCount..<candidates.count {
                 let candidate = candidates[index]
                 let estimate = max(5, candidate.task.estimateMinutes)
-                guard mustFillMinimum || minutes + estimate <= minuteBudget else { continue }
+                guard minutes + estimate <= minuteBudget else { continue }
                 if let currentBest = bestIndex {
                     if candidateComesFirst(candidate, candidates[currentBest]) {
                         bestIndex = index
@@ -102,13 +108,16 @@ public struct DailyPlanner: Sendable {
         dueSoonEnd: Date,
         ageCutoffs: [Date]
     ) -> Candidate? {
-        guard task.isOpen, includeInbox || task.status != .inbox else { return nil }
+        guard task.isOpen, task.status != .waiting,
+              includeInbox || task.status != .inbox || task.isPinnedToday else { return nil }
         if let deferredUntil = task.deferredUntil,
            deferredUntil >= nextDay {
             return nil
         }
 
         let scheduledDay = task.scheduledFor.map { calendar.startOfDay(for: $0) }
+        if let scheduledDay, scheduledDay > day,
+           task.status != .active, !task.isPinnedToday { return nil }
         let dueDay = task.dueAt.map { calendar.startOfDay(for: $0) }
         let isScheduledNow = scheduledDay.map { $0 <= day } ?? false
         let isOverdue = dueDay.map { $0 < day } ?? false

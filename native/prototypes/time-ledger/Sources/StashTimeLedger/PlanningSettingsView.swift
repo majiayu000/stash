@@ -14,12 +14,12 @@ struct PlanningSettingsView: View {
     var body: some View {
         Form {
             Section("Daily plan") {
-                Stepper("Minimum tasks: \(minimumTasks)", value: $minimumTasks, in: 1...12)
+                Stepper("Target tasks: \(minimumTasks)", value: $minimumTasks, in: 1...12)
                 Stepper("Maximum tasks: \(maximumTasks)", value: $maximumTasks, in: minimumTasks...12)
                 Stepper("Time budget: \(durationLabel)", value: $minuteBudget, in: 30...960, step: 30)
                 Toggle("Let Inbox fill open slots automatically", isOn: $includeInbox)
 
-                Text("Stash fills the minimum first, then respects the time budget up to the maximum.")
+                Text("Stash keeps active and explicitly chosen work, then fits suggestions within the budget. The target is a guide; a shorter plan is fine.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

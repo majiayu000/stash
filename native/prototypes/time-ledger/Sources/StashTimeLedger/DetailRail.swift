@@ -362,6 +362,10 @@ private struct TaskInspector: View {
                     DatePicker("Scheduled date", selection: $scheduledFor, displayedComponents: .date)
                         .labelsHidden()
                         .padding(.bottom, 5)
+                    if hasDueDate && store.calendar.startOfDay(for: scheduledFor) > store.calendar.startOfDay(for: dueAt) {
+                        Text("Scheduled after the deadline")
+                            .font(.caption).foregroundStyle(LedgerDesign.warning)
+                    }
                 }
 
                 inspectorField("DEADLINE") {
@@ -472,7 +476,18 @@ private struct TaskInspector: View {
                         } label: {
                             Label("Delete permanently", systemImage: "trash.slash")
                         }
-                    } else {
+                    } else if task.isOpen {
+                        if task.status == .waiting {
+                            Text(task.waitingOn ?? "Waiting")
+                                .font(.callout).foregroundStyle(LedgerDesign.warning)
+                                .fixedSize(horizontal: false, vertical: true)
+                            if let reviewAt = task.reviewAt {
+                                Text("Review \(reviewAt.formatted(date: .abbreviated, time: .omitted))")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                        TaskPlanningActions(task: task)
+
                         Button {
                             store.start(id: task.id)
                         } label: {
@@ -485,16 +500,12 @@ private struct TaskInspector: View {
                             Label("Move to today", systemImage: "sun.max")
                         }
 
-                        Button {
-                            store.moveToTomorrow(id: task.id)
-                        } label: {
-                            Label("Move to tomorrow", systemImage: "arrow.right")
-                        }
-
-                        Button {
-                            store.deferTask(id: task.id)
-                        } label: {
-                            Label("Defer three days", systemImage: "clock.arrow.2.circlepath")
+                        if task.status != .waiting {
+                            Button {
+                                store.deferTask(id: task.id)
+                            } label: {
+                                Label("Defer three days", systemImage: "clock.arrow.2.circlepath")
+                            }
                         }
 
                         Button(role: .destructive) {
@@ -514,6 +525,19 @@ private struct TaskInspector: View {
         .scrollIndicators(.never)
         .onAppear(perform: loadDraft)
         .onChange(of: task.id) { _, _ in loadDraft() }
+        .onChange(of: task.projectID) { _, value in
+            projectID = value
+            lastSavedDraft?.projectID = value
+        }
+        .onChange(of: task.horizon) { _, value in
+            horizon = value
+            lastSavedDraft?.horizon = value
+        }
+        .onChange(of: task.scheduledFor) { _, value in
+            hasScheduledDate = value != nil
+            scheduledFor = value ?? store.currentDate
+            lastSavedDraft?.scheduledFor = value
+        }
         .task(id: currentDraft) {
             guard hasLoadedDraft, !isDraftSaved else { return }
             let draft = currentDraft
@@ -680,6 +704,7 @@ private struct TaskInspector: View {
         case .active: "In progress"
         case .completed: "Completed"
         case .deferred: "Deferred"
+        case .waiting: "Waiting"
         case .cancelled: "Cancelled"
         }
     }
@@ -688,7 +713,7 @@ private struct TaskInspector: View {
         switch task.status {
         case .active: LedgerDesign.success
         case .completed: LedgerDesign.accent
-        case .deferred: LedgerDesign.warning
+        case .deferred, .waiting: LedgerDesign.warning
         default: .secondary
         }
     }

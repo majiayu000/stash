@@ -19,6 +19,9 @@ private func expect(_ condition: @autoclosure () -> Bool, _ message: String) thr
 private actor MemoryRepository: WorkspaceRepository {
     var workspace: LedgerWorkspace?
     var saveCount = 0
+    private var failWrites = false
+
+    func setFailing(_ value: Bool) { failWrites = value }
 
     init(workspace: LedgerWorkspace? = nil) {
         self.workspace = workspace
@@ -26,9 +29,18 @@ private actor MemoryRepository: WorkspaceRepository {
 
     func load() async throws -> LedgerWorkspace? { workspace }
     func save(_ workspace: LedgerWorkspace) async throws {
+        if failWrites { throw CocoaError(.fileWriteNoPermission) }
         saveCount += 1
         self.workspace = workspace
     }
+}
+
+private final class CheckClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var date: Date
+    init(_ date: Date) { self.date = date }
+    func read() -> Date { lock.lock(); defer { lock.unlock() }; return date }
+    func set(_ date: Date) { lock.lock(); defer { lock.unlock() }; self.date = date }
 }
 
 @main
@@ -40,6 +52,10 @@ struct StashCoreChecks {
         try await checkPersistence()
         try await checkFutureSchemaSafety()
         try await checkLockedPlan()
+        try await checkDailyWorkflow()
+        try await checkInboxAndProjectWorkflow()
+        try await checkTodayReplacement()
+        try checkWeeklyReview()
         try await checkLegacyPreviewCleanup()
         try await checkCompletionAndRecurrence()
         try await checkTrashAndProjects()
@@ -168,8 +184,8 @@ struct StashCoreChecks {
             "same-day schedule time was not normalized"
         )
         try expect(
-            reasons[sameDayTasks[2].id] == "Old unfinished work",
-            "tomorrow schedule leaked into today's normalization"
+            reasons[sameDayTasks[2].id] == nil,
+            "a future scheduled task entered today's automatic plan"
         )
     }
 
@@ -551,6 +567,284 @@ struct StashCoreChecks {
         store.moveToTomorrow(id: firstID)
         try expect(!store.todayRows.contains { $0.id == firstID }, "tomorrow task remained in locked plan")
         try expect(store.upcomingTasks.contains { $0.id == firstID }, "tomorrow task did not reach Upcoming")
+    }
+
+    @MainActor
+    private static func checkTodayReplacement() async throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Asia/Shanghai")!
+        let now = Date(timeIntervalSince1970: 1_789_555_200)
+        let today = calendar.startOfDay(for: now)
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: today)!
+        let project = LedgerProject(name: "Replacement QA", goal: "Keep commitments clear")
+        let completed = LedgerTask(title: "Completed", status: .completed, estimateMinutes: 30, completedAt: now)
+        var outgoing = LedgerTask(title: "Outgoing", projectID: project.id, status: .active, estimateMinutes: 30, scheduledFor: today, dueAt: today)
+        outgoing.checklistItems = [LedgerChecklistItem(title: "Keep context")]
+        let neighbor = LedgerTask(title: "Neighbor", status: .planned, estimateMinutes: 15)
+        let incoming = LedgerTask(title: "Incoming", projectID: project.id, status: .inbox, estimateMinutes: 90, scheduledFor: tomorrow)
+        let waiting = LedgerTask(title: "Waiting", status: .waiting)
+        let link = AgentTaskLink(taskID: outgoing.id, sessionID: "replacement-context", runtimeID: "codex", source: .manuallyLinked, linkedAt: now)
+        let initial = LedgerWorkspace(projects: [project], tasks: [completed, outgoing, neighbor, incoming, waiting],
+            dailyPlan: DailyPlan(day: today, entries: [completed, outgoing, neighbor].map {
+                PlanEntry(taskID: $0.id, reason: "Existing order", score: 100)
+            }, isLocked: true, generatedAt: now), agentTaskLinks: [link])
+        let repository = MemoryRepository(workspace: initial)
+        let clock = CheckClock(now)
+        let store = LedgerStore(repository: repository, initialWorkspace: initial, calendar: calendar, now: { clock.read() })
+        let before = store.workspace
+        for candidate in [outgoing.id, neighbor.id, waiting.id, completed.id, UUID()] {
+            do {
+                try store.replaceTodayTask(id: outgoing.id, with: candidate, rescheduleFor: tomorrow, expectedDay: today)
+                throw CheckFailure.failed("replacement accepted an unavailable candidate")
+            } catch is LedgerActionError {}
+            try expect(store.workspace == before, "invalid candidate partially changed the workspace")
+        }
+        do {
+            try store.replaceTodayTask(id: outgoing.id, with: incoming.id, rescheduleFor: today, expectedDay: today)
+            throw CheckFailure.failed("outgoing task was allowed to stay today")
+        } catch is LedgerActionError {}
+        try expect(store.workspace == before, "invalid date partially changed the workspace")
+        await repository.setFailing(true)
+        try store.replaceTodayTask(id: outgoing.id, with: incoming.id, rescheduleFor: tomorrow, expectedDay: today)
+        try expect(store.todayRows.map(\.id) == [completed.id, incoming.id, neighbor.id] && store.planIsLocked,
+                   "replacement did not retain the exact position, neighbors, completion and lock")
+        try expect(store.task(id: outgoing.id)?.scheduledFor == tomorrow && store.task(id: outgoing.id)?.dueAt == today,
+                   "outgoing schedule or deadline is incorrect")
+        try expect(store.task(id: outgoing.id)?.status == .planned && store.task(id: incoming.id)?.status == .planned,
+                   "replacement automatically started execution")
+        try expect(store.task(id: incoming.id)?.isPinnedToday == true && store.task(id: incoming.id)?.scheduledFor == today,
+                   "incoming task did not become a today commitment")
+        try expect(store.task(id: outgoing.id)?.checklistItems == outgoing.checklistItems && store.workspace.agentTaskLinks == [link],
+                   "replacement lost task context or Agent links")
+        try expect(store.todayEstimateMinutes == 135, "manual replacement incorrectly enforced automatic budget limits")
+        let failed = await store.flush()
+        try expect(!failed, "replacement reported a failed write as success")
+        let diskBeforeRetry = try await repository.load()
+        try expect(diskBeforeRetry == initial, "failed replacement persisted half the operation")
+        await repository.setFailing(false)
+        let saved = await store.flush()
+        try expect(saved, "replacement retry did not save")
+        let reloaded = try await repository.load()!
+        let restored = LedgerStore(repository: MemoryRepository(), initialWorkspace: reloaded, calendar: calendar, now: { now })
+        try expect(restored.todayRows.map(\.id) == [completed.id, incoming.id, neighbor.id] && restored.planIsLocked,
+                   "replacement order or lock was lost after restart")
+        do {
+            try store.replaceTodayTask(id: outgoing.id, with: incoming.id, rescheduleFor: tomorrow, expectedDay: today)
+            throw CheckFailure.failed("repeated replacement was applied twice")
+        } catch is LedgerActionError {}
+        store.togglePlanLock()
+        store.replanToday()
+        try expect(!store.todayRows.contains { $0.id == outgoing.id }, "outgoing task immediately returned on replan")
+        let priorDay = store.workspace
+        clock.set(tomorrow)
+        do {
+            try store.replaceTodayTask(id: incoming.id, with: outgoing.id,
+                                       rescheduleFor: calendar.date(byAdding: .day, value: 1, to: tomorrow)!, expectedDay: today)
+            throw CheckFailure.failed("stale replacement crossed midnight")
+        } catch is LedgerActionError {}
+        try expect(store.workspace == priorDay, "stale replacement mutated the next day")
+        print("Today replacement: position, lock, context, validation, atomic save/retry and midnight checks passed")
+    }
+
+    @MainActor
+    private static func checkInboxAndProjectWorkflow() async throws {
+        let now = Date(timeIntervalSince1970: 1_789_555_200)
+        let calendar = Calendar(identifier: .gregorian)
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: now)!
+        let repository = MemoryRepository()
+        let store = LedgerStore(repository: repository, initialWorkspace: LedgerWorkspace(), calendar: calendar, now: { now })
+        let project = store.createProject(name: "Release", goal: "  Ship the local workflow  ")!
+        let first = store.capture("Inbox first")!
+        let second = store.capture("Inbox second")!
+        store.togglePlanLock()
+        let before = store.todayRows.map(\.id)
+        let unmodified = store.task(id: first.id)
+        do {
+            try store.organizeInboxTask(id: first.id, destination: .project, projectID: nil)
+            throw CheckFailure.failed("project-only organization accepted no project")
+        } catch is LedgerActionError {}
+        try expect(store.task(id: first.id) == unmodified, "invalid organization mutated the task")
+        try store.organizeInboxTask(id: first.id, destination: .project, projectID: project.id)
+        try expect(store.task(id: first.id)?.status == .planned, "project filing did not finish Inbox triage")
+        try expect(store.task(id: first.id)?.scheduledFor == nil && store.task(id: first.id)?.isPinnedToday == false,
+                   "choosing a project scheduled execution")
+        try expect(store.todayRows.map(\.id) == before.filter { $0 != first.id } && store.planIsLocked,
+                   "project-only organization changed unrelated commitments")
+        try expect(store.inboxTasks.map(\.id) == [second.id], "Inbox progression lost the remaining task")
+        await repository.setFailing(true)
+        try store.organizeInboxTask(id: second.id, destination: .today, projectID: project.id)
+        let failed = await store.flush()
+        try expect(!failed, "failed triage write was reported as saved")
+        await repository.setFailing(false)
+        // The user may change their choice before retrying a failed write.
+        try store.organizeInboxTask(id: second.id, destination: .project, projectID: project.id)
+        try expect(!store.todayRows.contains { $0.id == second.id }, "retry retained the previous unsaved Today choice")
+        let saved = await store.flush()
+        try expect(saved, "triage retry failed")
+        let decoded = try WorkspaceCodec.decode(store.exportData())
+        try expect(decoded.projects.first?.goal == "Ship the local workflow", "project goal did not round-trip")
+        let reloaded = LedgerStore(repository: repository, initialWorkspace: decoded, calendar: calendar, now: { now })
+        try expect(reloaded.task(id: second.id)?.projectID == project.id && reloaded.inboxTasks.isEmpty,
+                   "project filing did not survive reload")
+        let dated = store.capture("Dated task")!
+        try store.organizeInboxTask(id: dated.id, destination: .date(tomorrow), projectID: project.id)
+        try expect(store.task(id: dated.id)?.scheduledFor == calendar.startOfDay(for: tomorrow), "triage date lost")
+        let later = store.capture("Long term task")!
+        try store.organizeInboxTask(id: later.id, destination: .longTerm, projectID: project.id)
+        try expect(store.task(id: later.id)?.horizon == .longTerm, "triage horizon lost")
+        var waiting = LedgerTask(title: "Waiting", status: .waiting)
+        waiting.waitingOn = "Approval"
+        let done = LedgerTask(title: "Done", status: .completed)
+        let summary = ProjectWorkflow(tasks: store.tasks(in: project) + [waiting, done], now: now, calendar: calendar)
+        try expect(Set(summary.ready.map(\.id)) == Set([first.id, second.id]), "project ready tasks include future or waiting work")
+        try expect(Set(summary.later.map(\.id)) == Set([dated.id, later.id]) && summary.waiting.count == 1,
+                   "project task groups lost or duplicated work")
+        let blocked = ProjectWorkflow(tasks: [waiting, done], now: now, calendar: calendar)
+        try expect(blocked.guidance.contains("waiting") && !blocked.guidance.contains("completed"), "waiting project looked completed")
+        let complete = ProjectWorkflow(tasks: [done], now: now, calendar: calendar)
+        try expect(complete.guidance.contains("1 completed"), "completed project lost its completion count")
+        let empty = ProjectWorkflow(tasks: [], now: now, calendar: calendar)
+        try expect(empty.guidance.contains("first step"), "empty project looked completed")
+        store.updateProject(id: project.id, name: "Release", symbol: "folder", goal: "New outcome")
+        try expect(store.workspace.projects.first?.goal == "New outcome", "goal edit was lost")
+        print("Inbox and projects: filing, retry, persistence, readiness and waiting/completed states passed")
+    }
+
+    @MainActor
+    private static func checkDailyWorkflow() async throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Asia/Shanghai")!
+        let now = Date(timeIntervalSince1970: 1_789_555_200)
+        let today = calendar.startOfDay(for: now)
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: today)!
+        let expensive = LedgerTask(title: "Big task", status: .planned, estimateMinutes: 90, dueAt: today)
+        let small = LedgerTask(title: "Small task", status: .planned, priority: .p1, estimateMinutes: 20)
+        let third = LedgerTask(title: "Extra task", status: .planned, estimateMinutes: 25)
+        let preferences = PlanningPreferences(minimumTasks: 5, maximumTasks: 8, minuteBudget: 30)
+        let limited = DailyPlanner(preferences: preferences, calendar: calendar)
+            .makePlan(tasks: [expensive, small, third], for: today)
+        try expect(limited.entries.map(\.taskID) == [small.id], "minimum task target overfilled the time budget")
+        let repository = MemoryRepository()
+        let store = LedgerStore(repository: repository,
+            initialWorkspace: LedgerWorkspace(tasks: [expensive, small, third], planningPreferences: preferences),
+            calendar: calendar, now: { now })
+        store.togglePlanLock()
+        let before = store.todayRows.map(\.id)
+        store.moveToToday(id: expensive.id)
+        store.moveToToday(id: expensive.id)
+        try expect(store.todayRows.map(\.id) == before + [expensive.id], "explicit locked insertion reordered or duplicated rows")
+        try expect(store.planIsLocked, "explicit insertion unlocked today")
+        try expect(store.todayEstimateMinutes == 110, "explicit over-budget work was omitted")
+        store.toggleCompletion(id: small.id)
+        try expect(store.todayRemainingMinutes == 90 && store.todayEstimateMinutes == 110,
+                   "completion confused remaining estimates with total plan budget")
+        store.togglePlanLock()
+        store.replanToday()
+        try expect(!store.todayRows.contains { $0.id == third.id }, "completion falsely freed automatic planning capacity")
+        try store.scheduleTask(id: expensive.id, for: tomorrow)
+        store.replanToday()
+        try expect(store.task(id: expensive.id)?.dueAt == today, "rescheduling rewrote the deadline")
+        try expect(!store.todayRows.contains { $0.id == expensive.id }, "rescheduled task returned before its date")
+        store.moveToToday(id: expensive.id)
+        let link = AgentTaskLink(taskID: expensive.id, sessionID: "keep-session", runtimeID: "codex", source: .manuallyLinked, linkedAt: now)
+        try expect(store.persistAgentLink(link), "fixture link was rejected")
+        _ = store.addChecklistItem(taskID: expensive.id, title: "Keep this step")
+        do {
+            try store.waitForTask(id: expensive.id, reason: "   ", reviewAt: tomorrow)
+            throw CheckFailure.failed("empty waiting reason was accepted")
+        } catch is LedgerActionError {}
+        try expect(store.task(id: expensive.id)?.status == .planned, "invalid waiting form mutated the task")
+        try store.waitForTask(id: expensive.id, reason: "  Waiting for access  ", reviewAt: today)
+        try expect(!store.todayRows.contains { $0.id == expensive.id }, "waiting task remained in today's plan")
+        store.replanToday()
+        try expect(!store.todayRows.contains { $0.id == expensive.id }, "review date automatically resumed waiting work")
+        do {
+            try store.scheduleTask(id: expensive.id, for: tomorrow)
+            throw CheckFailure.failed("waiting task was scheduled without resuming")
+        } catch is LedgerActionError {}
+        store.delete(id: expensive.id)
+        store.restore(id: expensive.id)
+        try expect(store.task(id: expensive.id)?.status == .waiting, "trash restore lost waiting status")
+        let flushed = await store.flush()
+        try expect(flushed, "waiting state failed to save")
+        let restored = try WorkspaceCodec.decode(WorkspaceCodec.encode(store.workspace))
+        let savedTask = restored.tasks.first { $0.id == expensive.id }
+        try expect(savedTask?.waitingOn == "Waiting for access" && savedTask?.reviewAt == today,
+                   "waiting explanation or review date failed JSON round-trip")
+        try expect(savedTask?.checklistItems?.count == 1 && restored.agentTaskLinks == [link],
+                   "waiting destroyed task context")
+        let nextDayStore = LedgerStore(repository: MemoryRepository(), initialWorkspace: restored,
+            calendar: calendar, now: { tomorrow })
+        try expect(!nextDayStore.planIsLocked, "yesterday's lock survived into a new day")
+        try expect(nextDayStore.task(id: expensive.id)?.status == .waiting, "cross-day waiting resumed itself")
+        nextDayStore.resumeTask(id: expensive.id)
+        try expect(nextDayStore.task(id: expensive.id)?.status == .planned, "Resume did not restore planned state")
+        nextDayStore.start(id: expensive.id)
+        try expect(nextDayStore.todayRows.contains { $0.id == expensive.id }, "Start now did not put resumed work in today")
+        let clock = CheckClock(tomorrow)
+        let live = LedgerStore(repository: MemoryRepository(), initialWorkspace: nextDayStore.workspace,
+                               calendar: calendar, now: { clock.read() })
+        live.togglePlanLock()
+        clock.set(calendar.date(byAdding: .day, value: 1, to: tomorrow)!)
+        live.refreshDay()
+        try expect(!live.planIsLocked && live.workspace.dailyPlan?.day == calendar.startOfDay(for: clock.read()),
+                   "a running app did not roll over its locked plan")
+        try expect(live.task(id: expensive.id)?.isPinnedToday == false, "yesterday's pin became permanent")
+
+        await repository.setFailing(true)
+        try store.waitForTask(id: third.id, reason: "Keep this draft", reviewAt: tomorrow)
+        let failedFlush = await store.flush()
+        try expect(!failedFlush, "failed disk write reported success")
+        guard case .failed = store.persistenceState else { throw CheckFailure.failed("save failure was invisible") }
+        try expect(store.task(id: third.id)?.waitingOn == "Keep this draft", "failed save discarded the waiting draft")
+        await repository.setFailing(false)
+        let retried = await store.flush()
+        try expect(retried, "retry did not persist the retained draft")
+        let persisted = await repository.workspace
+        try expect(persisted?.tasks.first { $0.id == third.id }?.waitingOn == "Keep this draft", "retry lost waiting state")
+
+        let routine = LedgerTask(title: "Daily", status: .planned, scheduledFor: today, recurrence: .daily)
+        let recurringStore = LedgerStore(repository: MemoryRepository(), initialWorkspace: LedgerWorkspace(tasks: [routine]),
+                                         calendar: calendar, now: { now })
+        try recurringStore.waitForTask(id: routine.id, reason: "Only this occurrence", reviewAt: tomorrow)
+        recurringStore.toggleCompletion(id: routine.id)
+        let next = recurringStore.workspace.tasks.first { $0.recurrenceSourceID == routine.id }
+        try expect(next?.scheduledFor == tomorrow && next?.status == .planned && next?.waitingOn == nil && next?.reviewAt == nil,
+                   "a recurring successor inherited this occurrence's waiting state")
+        print("Daily workflow: budget, locked edits, waiting, recurrence context and persistence passed")
+    }
+
+    private static func checkWeeklyReview() throws {
+        for zone in ["Asia/Shanghai", "America/Los_Angeles", "Europe/Berlin"] {
+            var calendar = Calendar(identifier: .gregorian)
+            calendar.timeZone = TimeZone(identifier: zone)!
+            calendar.firstWeekday = 2
+            calendar.minimumDaysInFirstWeek = 4
+            for components in [DateComponents(year: 2026, month: 1, day: 1),
+                               DateComponents(year: 2026, month: 3, day: 8),
+                               DateComponents(year: 2026, month: 10, day: 25)] {
+                let date = calendar.date(from: components)!
+                let interval = calendar.dateInterval(of: .weekOfYear, for: date)!
+                let project = LedgerProject(name: "A #project")
+                let first = LedgerTask(title: "Boundary [task]", projectID: project.id, status: .completed, completedAt: interval.start)
+                let last = LedgerTask(title: "Last task", status: .completed, completedAt: interval.end.addingTimeInterval(-1))
+                let outside = LedgerTask(title: "Next week completion", status: .completed, completedAt: interval.end)
+                let reopened = LedgerTask(title: "Reopened", status: .planned, completedAt: date)
+                let planned = LedgerTask(title: "Next action", status: .planned, scheduledFor: interval.end)
+                let waiting = LedgerTask(title: "Blocked", status: .waiting, scheduledFor: interval.end,
+                                         waitingOn: "Needs access", reviewAt: date)
+                let review = try LedgerWeekReview(workspace: LedgerWorkspace(projects: [project],
+                    tasks: [first, last, outside, reopened, planned, waiting]), anchor: date, calendar: calendar)
+                let ids = Set(review.completedGroups.flatMap(\.tasks).map(\.id))
+                try expect(ids == Set([first.id, last.id]), "weekly half-open completion range failed in \(zone)")
+                try expect(review.scheduledNextWeek.map(\.id) == [planned.id], "next week included waiting work")
+                try expect(review.waitingTasks.map(\.id) == [waiting.id], "review dropped current waiting work")
+                try expect(review.markdown.contains("Boundary \\[task\\]") && review.markdown.contains(review.rangeLabel),
+                           "Markdown lost escaping or selected date range")
+                try expect(!review.markdown.contains("Reopened"), "reopened task exported as completed")
+            }
+        }
+        print("Weekly review: exact calendar weeks, DST, year boundaries, current state and Markdown passed")
     }
 
     private static func checkPlannerPerformance() throws {

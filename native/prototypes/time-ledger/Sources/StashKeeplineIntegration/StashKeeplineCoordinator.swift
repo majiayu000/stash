@@ -313,7 +313,7 @@ public final class StashKeeplineCoordinator {
         case .planned: "planned"
         case .active: "active"
         case .completed: "done"
-        case .deferred: "blocked"
+        case .deferred, .waiting: "blocked"
         case .cancelled: "archived"
         }
     }

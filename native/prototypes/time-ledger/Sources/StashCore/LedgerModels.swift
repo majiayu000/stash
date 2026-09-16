@@ -6,6 +6,7 @@ public enum TaskStatus: String, Codable, CaseIterable, Sendable {
     case active
     case completed
     case deferred
+    case waiting
     case cancelled
 }
 
@@ -76,17 +77,20 @@ public struct LedgerProject: Identifiable, Codable, Equatable, Sendable {
     public let id: UUID
     public var name: String
     public var symbol: String
+    public var goal: String?
     public var createdAt: Date
 
     public init(
         id: UUID = UUID(),
         name: String,
         symbol: String = "folder",
+        goal: String? = nil,
         createdAt: Date = .now
     ) {
         self.id = id
         self.name = name
         self.symbol = symbol
+        self.goal = goal
         self.createdAt = createdAt
     }
 }
@@ -210,6 +214,8 @@ public struct LedgerTask: Identifiable, Codable, Equatable, Sendable {
     public var statusBeforeTrash: TaskStatus?
     public var recurrenceSourceID: UUID?
     public var checklistItems: [LedgerChecklistItem]?
+    public var waitingOn: String?
+    public var reviewAt: Date?
 
     public init(
         id: UUID = UUID(),
@@ -231,7 +237,9 @@ public struct LedgerTask: Identifiable, Codable, Equatable, Sendable {
         reminderAt: Date? = nil,
         statusBeforeTrash: TaskStatus? = nil,
         recurrenceSourceID: UUID? = nil,
-        checklistItems: [LedgerChecklistItem]? = nil
+        checklistItems: [LedgerChecklistItem]? = nil,
+        waitingOn: String? = nil,
+        reviewAt: Date? = nil
     ) {
         self.id = id
         self.title = title
@@ -253,6 +261,8 @@ public struct LedgerTask: Identifiable, Codable, Equatable, Sendable {
         self.statusBeforeTrash = statusBeforeTrash
         self.recurrenceSourceID = recurrenceSourceID
         self.checklistItems = checklistItems
+        self.waitingOn = waitingOn
+        self.reviewAt = reviewAt
     }
 
     public var isOpen: Bool {
