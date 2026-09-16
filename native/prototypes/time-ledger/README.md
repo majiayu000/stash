@@ -92,12 +92,38 @@ uses the same mark in the app sidebar.
 
 ## Daily planning
 
+The daily-workflow contract and acceptance notes are recorded in
+[`docs/SPEC_native_daily_workflow.md`](../../../docs/SPEC_native_daily_workflow.md).
+It covers plan adjustments, waiting tasks, and daily/weekly review.
+
 Stash ranks active, overdue, scheduled, pinned, high-priority, due-soon, and
-older unfinished work. It selects five to eight tasks within a six-hour default
-budget and shows the leading reason on every row. These limits and whether Inbox
+older unfinished work. It keeps active and explicitly chosen tasks, then fits
+suggestions within a six-hour default budget and the maximum task count. The
+target count is a guide; a shorter plan is valid when work does not fit. It
+shows the leading reason on every row. These limits and whether Inbox
 may fill open slots are configurable in Settings. `Lock today` freezes the order
-for the current date. Captures cannot silently change a locked plan, and
-completed entries remain visible when an unlocked plan refreshes.
+for the current date. Captures cannot silently change a locked plan. Explicitly
+moving a task to Today or starting it appends it without unlocking or reordering
+other tasks. Completed entries remain visible and keep their estimated share
+of the day's budget; remaining estimates count only open tasks. Yesterday's
+pins and lock reset when the calendar day changes.
+
+Use **Adjust tasks** to move selected work to tomorrow or another date. Dates
+in the future exclude a task from automatic selection before that day. Changes
+to the work date preserve its deadline, with a visible notice when they conflict.
+
+**Waiting…** records what is blocking a task and an optional review date. It
+leaves Today and stays out of automatic planning until you choose **Resume**,
+**Move to today**, or **Start now**. The review date prompts a check in Review;
+it does not automatically resume work. Waiting details survive relaunch and
+Trash recovery, and do not transfer to a recurring successor.
+
+**Review** has Today and Week views. Today groups completions, unfinished plan
+items, waiting work, and deferred tasks. Week filters completion records by
+the selected local-calendar week, groups them by project, and lets you schedule
+open tasks into the next week. Current open/waiting work is labeled separately
+from historical completions. **Export week…** saves the selected completion
+range, current waiting work, and the following week's schedule as Markdown.
 
 Capture supports the compact tokens already familiar from Stash:
 
@@ -118,6 +144,14 @@ reminder.
 
 ## Keepline integration
 
+The bundled service reconciles all local session history on startup. The first
+scan of a large archive can take more than a minute; subsequent starts reuse
+persisted summaries for unchanged transcripts and refresh process evidence. The
+startup watchdog allows five minutes; incremental scans retain a 30-second limit. Agent Activity becomes
+available after reconciliation completes. Startup failures report the actual
+scan error, and scan duration is recorded in the Keepline log.
+
+
 The default Local API is `http://127.0.0.1:3377`. Stash probes it after the
 first frame, keeps stale/offline data visibly distinct from live data, and
 never completes a task from Agent evidence without the user's decision.
@@ -136,3 +170,22 @@ uses its bundled `KeeplineService` executable when no override is present.
 Stash launches a service only if no compatible instance answers and terminates
 only the child it launched itself. No keyboard shortcuts are added by this
 integration.
+
+### Inbox organization and project next steps
+
+`Organize Inbox…` opens a sequential review of captured tasks. Choose Today,
+a date, Long term, or Project only, then Save & next. Project-only filing does
+not add a task to Today. A failed write keeps the current task and choices in
+the sheet for retry.
+
+Projects can carry a short goal and group existing tasks into ready, waiting,
+later, and undecided work. Completed and empty projects have separate summaries.
+Select a task to choose the next step using its existing inspector actions.
+
+### Replace one task in Today
+
+In Today, choose Adjust tasks → Replace…. Reschedule the outgoing task for
+tomorrow or later, then select an open task outside Today to take its exact
+position. Other rows and the lock stay unchanged. Waiting tasks require Resume
+before selection. The sheet previews estimates and deadline conflicts; a failed
+save keeps the choices available for Retry save without repeating the operation.
