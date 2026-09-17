@@ -66,7 +66,7 @@ cp "$ICON_OUTPUT" "$RESOURCES_DIR/StashTimeLedger.icns"
 plutil -create xml1 "$CONTENTS_DIR/Info.plist"
 plutil -insert CFBundleDevelopmentRegion -string en "$CONTENTS_DIR/Info.plist"
 plutil -insert CFBundleExecutable -string StashTimeLedger "$CONTENTS_DIR/Info.plist"
-plutil -insert CFBundleIdentifier -string local.stash.time-ledger "$CONTENTS_DIR/Info.plist"
+plutil -insert CFBundleIdentifier -string com.starlight.stash "$CONTENTS_DIR/Info.plist"
 plutil -insert CFBundleIconFile -string StashTimeLedger.icns "$CONTENTS_DIR/Info.plist"
 plutil -insert CFBundleIconName -string StashTimeLedger "$CONTENTS_DIR/Info.plist"
 plutil -insert CFBundleInfoDictionaryVersion -string 6.0 "$CONTENTS_DIR/Info.plist"
@@ -80,9 +80,28 @@ plutil -insert KeeplineSourceRevision -string "$(git -C "$KEEPLINE_DIR" rev-pars
 plutil -insert LSMinimumSystemVersion -string 14.0 "$CONTENTS_DIR/Info.plist"
 plutil -insert NSHighResolutionCapable -bool true "$CONTENTS_DIR/Info.plist"
 
+identity="${STASH_SIGNING_IDENTITY:-${APPLE_SIGNING_IDENTITY:--}}"
+entitlements="$PACKAGE_DIR/Resources/Stash.entitlements"
+if [[ ! -f "$entitlements" ]]; then
+    print -u2 -- "missing entitlements: $entitlements"
+    exit 1
+fi
+if [[ "${STASH_REQUIRE_DEVELOPER_ID:-}" == "1" ]]; then
+    if [[ "$identity" == "-" || "$identity" != Developer\ ID\ Application:* ]]; then
+        print -u2 -- "STASH_REQUIRE_DEVELOPER_ID=1 needs APPLE_SIGNING_IDENTITY to be a Developer ID Application identity"
+        exit 1
+    fi
+fi
+if [[ "$identity" == "-" ]]; then
+    timestamp_args=(--timestamp=none)
+else
+    timestamp_args=(--timestamp)
+fi
+codesign_args=(--force --sign "$identity" --options runtime --entitlements "$entitlements" "${timestamp_args[@]}")
 codesign --remove-signature "$RESOURCES_DIR/KeeplineService"
-codesign --force --sign - "$RESOURCES_DIR/KeeplineService"
-codesign --force --sign - "$STAGING_APP"
+codesign "${codesign_args[@]}" "$RESOURCES_DIR/KeeplineService"
+codesign "${codesign_args[@]}" --identifier com.starlight.stash "$STAGING_APP"
+codesign --verify --deep --strict "$STAGING_APP"
 
 OUTPUT_PARENT=${OUTPUT_APP:h}
 BACKUP_APP="$STAGING_ROOT/previous.app"
