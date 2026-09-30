@@ -6,6 +6,16 @@ hand on the keyboard, and pull the right context forward when you start working.
 Built for power users who live between a terminal, a todo list, and an AI coding
 assistant. Single user, single device, no cloud, no auth, no telemetry.
 
+[Native macOS setup](native/prototypes/time-ledger/README.md) ·
+[Web quick start](#web-quick-start) · [Verification](#verification)
+
+Clone the source before following either setup path:
+
+```sh
+git clone https://github.com/majiayu000/stash.git
+cd stash
+```
+
 ## Why
 
 Generic todo apps don't know your agent ran for four hours yesterday and made
