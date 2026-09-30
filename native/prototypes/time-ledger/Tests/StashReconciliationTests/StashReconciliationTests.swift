@@ -96,6 +96,37 @@ final class StashReconciliationTests: XCTestCase {
         XCTAssertNil(store.taskErrors[projectedTask.id])
     }
 
+    func testTerminalDispatchNoticeSurvivesUntilRecovery() async throws {
+        for state in [AgentDispatchState.failed, .cancelled] {
+            let task = LedgerTask(title: "Terminal dispatch notice")
+            let link = AgentTaskLink(taskID: task.id, keeplineWorkItemID: "work-\(task.id)",
+                                     dispatchID: "terminal", runtimeID: "codex", source: .dispatched)
+            let (store, transport, ledger) = try await makeStore(tasks: [task], links: [link])
+            defer { store.shutdown() }
+            await transport.finishDispatch(taskID: task.id, state: state)
+
+            await store.refreshNow()
+            XCTAssertEqual(store.taskErrors[task.id], FixtureError.resume.localizedDescription)
+            await store.refreshNow()
+            XCTAssertEqual(store.taskErrors[task.id], FixtureError.resume.localizedDescription,
+                           "A terminal dispatch reason disappeared without recovery")
+            await transport.failProjection(taskID: task.id, with: .transport)
+            ledger.toggleCompletion(id: task.id)
+            await store.refreshNow()
+            XCTAssertEqual(store.taskErrors[task.id], FixtureError.resume.localizedDescription,
+                           "A projection failure replaced the terminal dispatch reason")
+
+            var recovered = try XCTUnwrap(ledger.agentLink(for: task.id))
+            recovered.dispatchState = .linked
+            recovered.sessionID = "recovered-session"
+            XCTAssertEqual(ledger.persistAgentLink(recovered), true)
+            await transport.failProjection(taskID: nil, with: .transport)
+            await store.refreshNow()
+            XCTAssertNil(store.taskErrors[task.id], "A recovered dispatch retained its old notice")
+            assertReady(store)
+        }
+    }
+
     private func makeStore(
         tasks: [LedgerTask], links: [AgentTaskLink]
     ) async throws -> (KeeplineIntegrationStore, ProjectionTransport, LedgerStore) {
@@ -149,6 +180,11 @@ private enum ProjectionFailure {
 private actor ProjectionTransport: KeeplineTransport {
     private var failedTaskID: UUID?
     private var failure = ProjectionFailure.transport
+    private var finishedDispatch: (UUID, AgentDispatchState)?
+
+    func finishDispatch(taskID: UUID, state: AgentDispatchState) {
+        finishedDispatch = (taskID, state)
+    }
 
     func failProjection(taskID: UUID?, with failure: ProjectionFailure) {
         failedTaskID = taskID
@@ -182,7 +218,16 @@ private actor ProjectionTransport: KeeplineTransport {
         """)
     }
 
-    func dispatch(id: String) async throws -> KeeplineDispatch { throw FixtureError.resume }
+    func dispatch(id: String) async throws -> KeeplineDispatch {
+        guard let (taskID, state) = finishedDispatch else { throw FixtureError.resume }
+        return try fixture("""
+        {"id":"\(id)","workItemId":"work-\(taskID)","runtimeId":"codex","cwd":"/tmp",
+         "state":"\(state.rawValue)","candidateSessionIds":[],"linkedAgentSessionId":null,
+         "linkedSessionId":null,"error":"specific pending dispatch notice",
+         "launchedAt":"2026-08-30T00:00:00Z","correlationDeadlineAt":"2026-08-30T00:01:00Z",
+         "createdAt":"2026-08-30T00:00:00Z","updatedAt":"2026-08-30T00:00:00Z"}
+        """)
+    }
     func recoveryPreview(sessionID: String) async throws -> KeeplineRecoveryPreview { throw FixtureError.unrelated }
     func executeRecovery(sessionID: String, request: RecoveryExecutionRequest) async throws -> KeeplineRecoveryExecution {
         throw FixtureError.unexpected
