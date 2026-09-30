@@ -73,6 +73,7 @@ jobs:
         run: |
           swift run StashCoreChecks
           swift run StashIntegrationChecks
+          swift test -j 2
 
       - name: Package and verify the app
         working-directory: stash/native/prototypes/time-ledger

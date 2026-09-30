@@ -352,8 +352,7 @@ final class KeeplineIntegrationStore: ObservableObject {
                 let notices = try await coordinator.resumePendingAttempts()
                 let unresolvedTaskIDs = Set(notices.map(\.taskID))
                 for (taskID, message) in reconciliationErrors {
-                    guard !unresolvedTaskIDs.contains(taskID),
-                          ledgerStore?.agentLink(for: taskID)?.dispatchState?.endsAttempt != true else {
+                    guard !unresolvedTaskIDs.contains(taskID) else {
                         continue
                     }
                     if taskErrors[taskID] == message { taskErrors[taskID] = nil }
@@ -364,11 +363,11 @@ final class KeeplineIntegrationStore: ObservableObject {
                     publishTaskError(notice.message, for: notice.taskID)
                 }
                 try await coordinator.syncTaskProjections()
+            } catch let error as StashTaskProjectionError {
+                reconciliationErrors[error.taskID] = error.localizedDescription
+                publishTaskError(error.localizedDescription, for: error.taskID)
             } catch {
-                for taskID in Set(ledgerStore?.workspace.agentTaskLinks.map(\.taskID) ?? []) {
-                    reconciliationErrors[taskID] = error.localizedDescription
-                    publishTaskError(error.localizedDescription, for: taskID)
-                }
+                publishState(.stale(lastUpdated: refreshedAt, message: error.localizedDescription))
             }
         } catch {
             if didAttemptServiceLaunch, serviceController?.ownsRunningChild != true {
