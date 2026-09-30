@@ -181,6 +181,34 @@ describe('ModelRatesPanel', () => {
     expect(invalidate_weekly_snapshot_cache).toHaveBeenCalledTimes(1);
   });
 
+  test.each([
+    [{}, '', ''],
+    [{ cacheReadPerM: 0, cacheWritePerM: 1.25 }, '0', '1.25'],
+  ])('reopens shipped overrides with their stored cache fields %j', async (cache_rates, read_value, write_value) => {
+    const stored = {
+      model: 'claude-opus-4-7', inputPerM: 2, outputPerM: 8,
+      ...cache_rates, createdAt: 'x', updatedAt: 'x',
+    };
+    vi.mocked(getModelRates).mockResolvedValue({ overrides: [stored], effective: [] });
+    vi.mocked(getBudgetSpendSnapshot).mockResolvedValue(budgetSpend({ unknownModels: [], unpricedTokens: 0 }));
+    vi.mocked(upsertModelRate).mockResolvedValue(stored);
+
+    renderPanel();
+    await userEvent.click(await screen.findByRole('button', { name: 'edit' }));
+    expect(await screen.findByLabelText(/input \$\/M/i)).toHaveValue('2');
+    await userEvent.click(screen.getByRole('button', { name: 'next' }));
+    expect(await screen.findByLabelText(/output \$\/M/i)).toHaveValue('8');
+    await userEvent.click(screen.getByRole('button', { name: 'next' }));
+    expect(await screen.findByLabelText(/cache read \$\/M/i)).toHaveValue(read_value);
+    await userEvent.click(screen.getByRole('button', { name: 'next' }));
+    expect(await screen.findByLabelText(/cache write \$\/M/i)).toHaveValue(write_value);
+    await userEvent.click(screen.getByRole('button', { name: 'save rate' }));
+
+    await waitFor(() => expect(upsertModelRate).toHaveBeenCalledWith({
+      model: stored.model, inputPerM: 2, outputPerM: 8, ...cache_rates,
+    }));
+  });
+
   test('does not let an older refresh overwrite a newer saved rate', async () => {
     const first = deferred<Awaited<ReturnType<typeof getModelRates>>>();
     const second = deferred<Awaited<ReturnType<typeof getModelRates>>>();

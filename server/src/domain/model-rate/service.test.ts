@@ -136,6 +136,23 @@ describe('ModelRateService', () => {
     svc.upsert({ model: 'k3', inputPerM: 1, outputPerM: 2 });
     expect(eventCost(usage('some-unlisted-model'), svc.effectiveRates())).toBeUndefined();
   });
+
+  test('omitted shipped cache rates stay unpriced while explicit zero rates stay priced', () => {
+    const model = 'claude-opus-4-7';
+    const event = { ...usage(model), cacheReadTokens: 500_000, cacheWriteTokens: 250_000 };
+    expect(eventCost(event, svc.effectiveRates())).toBeCloseTo(31.8125, 10);
+
+    for (const cache_rates of [{}, { cacheReadPerM: 0.5 }, { cacheWritePerM: 6.25 }]) {
+      svc.upsert({ model, inputPerM: 2, outputPerM: 8, ...cache_rates });
+      expect(eventCost(event, svc.effectiveRates())).toBeUndefined();
+      expect(eventCost(usage(model), svc.effectiveRates())).toBe(10);
+    }
+
+    svc.upsert({ model, inputPerM: 2, outputPerM: 8, cacheReadPerM: 0, cacheWritePerM: 0 });
+    expect(eventCost(event, svc.effectiveRates())).toBe(10);
+    svc.delete(model);
+    expect(eventCost(event, svc.effectiveRates())).toBeCloseTo(31.8125, 10);
+  });
 });
 
 describe('mergeModelRates', () => {
@@ -146,9 +163,8 @@ describe('mergeModelRates', () => {
     );
     expect(merged.map((r) => r.model)).toEqual(['a', 'b']);
     expect(merged[0]!.inputPerM).toBe(9);
-    // Omitting an optional cache field means "keep the shipped price", not
-    // "silently count that token class as free".
-    expect(merged[0]!.cacheReadPerM).toBe(0.1);
+    expect(merged[0]!.cacheReadPerM).toBeUndefined();
+    expect(eventCost({ ...usage('a'), cacheReadTokens: 500_000 }, merged)).toBeUndefined();
   });
 
   test('output is sorted by model id so the card is stable across calls', () => {
@@ -161,8 +177,7 @@ describe('mergeModelRates', () => {
 
   test('no overrides leaves the shipped card intact', () => {
     const merged = mergeModelRates(DEFAULT_MODEL_RATES, []);
-    expect(merged.length).toBe(DEFAULT_MODEL_RATES.length);
-    expect(findModelRate('claude-haiku-4-5', merged)?.outputPerM).toBe(5);
+    expect(merged).toEqual([...DEFAULT_MODEL_RATES].sort((a, b) => a.model.localeCompare(b.model)));
   });
 
   test('every shipped model prices cached input at its published standard rate', () => {

@@ -19,7 +19,7 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-function setupApp(): Hono {
+function setupApp(model = PROXIED_MODEL, cache_usage = {}): Hono {
   const root = mkdtempSync(join(tmpdir(), 'stash-model-rates-'));
   roots.push(root);
   const projectDir = join(root, 'projects', '-Users-test-proxy-repo');
@@ -34,8 +34,8 @@ function setupApp(): Hono {
       uuid: 'a1',
       message: {
         role: 'assistant',
-        model: PROXIED_MODEL,
-        usage: { input_tokens: 1_000_000, output_tokens: 1_000_000 },
+        model,
+        usage: { input_tokens: 1_000_000, output_tokens: 1_000_000, ...cache_usage },
       },
     })}\n`,
   );
@@ -56,6 +56,41 @@ async function jsonReq(app: Hono, method: string, path: string, body?: unknown) 
 }
 
 describe('/api/model-rates', () => {
+  for (const cache_rates of [{}, { cacheReadPerM: 0.5 }, { cacheWritePerM: 6.25 }]) {
+    test(`a shipped override preserves missing cache prices ${JSON.stringify(cache_rates)}`, async () => {
+      const model = 'claude-opus-4-7';
+      const app = setupApp(model, { cache_read_input_tokens: 500_000, cache_creation_input_tokens: 250_000 });
+      const burn_path = '/api/analytics/burn?days=7';
+      const usage_path = '/api/agent-sessions/claude/sess-rates-1/usage';
+      const before = await jsonReq(app, 'GET', burn_path);
+      expect(before.body.data.totals.cost).toBeCloseTo(31.8125, 10);
+      expect(before.body.data.pricing.unknownModels).toEqual([]);
+
+      const put = await jsonReq(app, 'PUT', '/api/model-rates', {
+        model, inputPerM: 2, outputPerM: 8, ...cache_rates,
+      });
+      expect(put.status).toBe(200);
+      const card = await jsonReq(app, 'GET', '/api/model-rates');
+      expect(card.body.data.overrides[0].cacheReadPerM).toBe(cache_rates.cacheReadPerM);
+      expect(card.body.data.overrides[0].cacheWritePerM).toBe(cache_rates.cacheWritePerM);
+      const effective = card.body.data.effective.find((rate: { model: string }) => rate.model === model);
+      expect(effective.cacheReadPerM).toBe(cache_rates.cacheReadPerM);
+      expect(effective.cacheWritePerM).toBe(cache_rates.cacheWritePerM);
+      for (const path of [burn_path, usage_path]) {
+        const after = await jsonReq(app, 'GET', path);
+        expect(after.status).toBe(200);
+        expect(after.body.data.pricing).toEqual({ unknownModels: [model], unpricedTokens: 2_750_000 });
+        expect(after.body.data.totals.cost).toBe(0);
+        expect(after.body.data.modelMix[0].cost).toBeUndefined();
+      }
+
+      expect((await jsonReq(app, 'DELETE', `/api/model-rates/${model}`)).status).toBe(204);
+      const restored = await jsonReq(app, 'GET', burn_path);
+      expect(restored.body.data.totals.cost).toBeCloseTo(31.8125, 10);
+      expect(restored.body.data.pricing.unknownModels).toEqual([]);
+    });
+  }
+
   test('a configured rate prices a model the shipped card never carried', async () => {
     const app = setupApp();
 

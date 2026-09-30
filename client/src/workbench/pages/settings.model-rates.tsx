@@ -64,7 +64,6 @@ export function ModelRatesPanel() {
 
   async function askRate(model: string, existing?: ModelRateOverride) {
     const canonical_model = normalize_model_rate_id(model);
-    const shipped = findModelRate(canonical_model, DEFAULT_MODEL_RATES);
     const inputStr = await dialog.prompt({
       title: `input rate for ${canonical_model}`,
       description: 'USD per million input tokens, from the provider\'s published rate card.',
@@ -95,7 +94,7 @@ export function ModelRatesPanel() {
       title: `cache read rate for ${canonical_model}`,
       description: 'USD per million cache-read tokens. Leave blank only when this token class does not apply; cached usage stays unpriced without it.',
       label: 'cache read $/M',
-      defaultValue: rate_default(existing?.cacheReadPerM ?? shipped?.cacheReadPerM),
+      defaultValue: rate_default(existing?.cacheReadPerM),
       confirmLabel: 'next',
     });
     if (cacheReadStr === null) return;
@@ -108,7 +107,7 @@ export function ModelRatesPanel() {
       title: `cache write rate for ${canonical_model}`,
       description: 'USD per million cache-write tokens. Leave blank only when this token class does not apply; cached usage stays unpriced without it.',
       label: 'cache write $/M',
-      defaultValue: rate_default(existing?.cacheWritePerM ?? shipped?.cacheWritePerM),
+      defaultValue: rate_default(existing?.cacheWritePerM),
       confirmLabel: 'save rate',
     });
     if (cacheWriteStr === null) return;
