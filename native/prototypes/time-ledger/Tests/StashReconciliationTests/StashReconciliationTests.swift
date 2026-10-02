@@ -261,6 +261,45 @@ final class StashReconciliationTests: XCTestCase {
         assertReady(store)
     }
 
+    func testSuccessfulRetryClearsWarningBeforeLaterFailure() async throws {
+        let tasks = (0..<4).map { LedgerTask(title: "Partial projection \($0)", status: .planned) }
+        let links = tasks.map {
+            AgentTaskLink(taskID: $0.id, keeplineWorkItemID: "work-\($0.id)",
+                          dispatchState: .failed, runtimeID: "codex", source: .dispatched)
+        }
+        let (store, transport, ledger) = try await makeStore(tasks: tasks, links: links)
+        defer { store.shutdown() }
+        await store.refreshNow()
+        let order = await transport.projectionAttempts()
+        let warningTaskID = try XCTUnwrap(order.first)
+        let laterTaskID = order[1]
+        for task in tasks { ledger.toggleCompletion(id: task.id) }
+        await transport.failProjection(taskID: warningTaskID, with: .transport)
+        await store.refreshNow()
+        XCTAssertEqual(store.taskErrors[warningTaskID], ProjectionFailure.transport.message)
+
+        await transport.failProjection(taskID: laterTaskID, with: .transport)
+        await transport.resetProjectionAttempts()
+        await store.refreshNow()
+        let partialAttempts = await transport.projectionAttempts()
+        XCTAssertEqual(partialAttempts.first, warningTaskID)
+        XCTAssertEqual(partialAttempts.last, laterTaskID)
+        XCTAssertNil(store.taskErrors[warningTaskID],
+                     "A successful task retry lost its recovery evidence when another task failed")
+        XCTAssertEqual(store.taskErrors[laterTaskID], ProjectionFailure.transport.message)
+        assertReady(store)
+
+        await transport.failProjection(taskID: nil, with: .transport)
+        await transport.resetProjectionAttempts()
+        await store.refreshNow()
+        let nextAttempts = await transport.projectionAttempts()
+        XCTAssertEqual(nextAttempts.contains(warningTaskID), false,
+                       "The already-successful projection should be cached on the next refresh")
+        XCTAssertNil(store.taskErrors[warningTaskID])
+        XCTAssertNil(store.taskErrors[laterTaskID])
+        assertReady(store)
+    }
+
     private func makeStore(
         tasks: [LedgerTask], links: [AgentTaskLink]
     ) async throws -> (KeeplineIntegrationStore, ProjectionTransport, LedgerStore) {

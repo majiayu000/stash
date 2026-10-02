@@ -189,6 +189,14 @@ final class KeeplineIntegrationStore: ObservableObject {
         }
     }
 
+    private func clearProjectionErrors(for taskIDs: [UUID]) {
+        for taskID in taskIDs {
+            guard let error = reconciliationErrors[taskID], !error.dispatchNotice else { continue }
+            if taskErrors[taskID] == error.message { taskErrors[taskID] = nil }
+            reconciliationErrors[taskID] = nil
+        }
+    }
+
     func clearError(for taskID: UUID) {
         reconciliationErrors[taskID] = nil
         taskErrors[taskID] = nil
@@ -367,12 +375,9 @@ final class KeeplineIntegrationStore: ObservableObject {
                     publishTaskError(notice.message, for: notice.taskID)
                 }
                 let projectedTaskIDs = try await coordinator.syncTaskProjections()
-                for taskID in projectedTaskIDs {
-                    guard let error = reconciliationErrors[taskID], !error.dispatchNotice else { continue }
-                    if taskErrors[taskID] == error.message { taskErrors[taskID] = nil }
-                    reconciliationErrors[taskID] = nil
-                }
+                clearProjectionErrors(for: projectedTaskIDs)
             } catch let error as StashTaskProjectionError {
+                clearProjectionErrors(for: error.projectedTaskIDs)
                 let previous = reconciliationErrors[error.taskID]
                 if previous?.dispatchNotice != true,
                    taskErrors[error.taskID] == nil || taskErrors[error.taskID] == previous?.message {

@@ -15,6 +15,7 @@ public struct StashIntegrationNotice: Equatable, Sendable {
 public struct StashTaskProjectionError: LocalizedError {
     public let taskID: UUID
     public let underlyingError: Error
+    public let projectedTaskIDs: [UUID]
 
     public var errorDescription: String? { underlyingError.localizedDescription }
 }
@@ -251,6 +252,7 @@ public final class StashKeeplineCoordinator {
         }
         guard let firstPending = pending.first else { return [] }
         var projectingTaskID = firstPending.0
+        var projectedTaskIDs: [UUID] = []
         do {
             try await WorkspacePersistenceGate.perform(.projectionSync, store: store) {
                 for (taskID, workItemID, input, projection) in pending {
@@ -264,12 +266,15 @@ public final class StashKeeplineCoordinator {
                         throw StashKeeplineCoordinatorError.workItemIdentityChanged
                     }
                     projectedTasks[taskID] = projection
+                    projectedTaskIDs.append(taskID)
                 }
             }
         } catch {
-            throw StashTaskProjectionError(taskID: projectingTaskID, underlyingError: error)
+            throw StashTaskProjectionError(
+                taskID: projectingTaskID, underlyingError: error, projectedTaskIDs: projectedTaskIDs
+            )
         }
-        return pending.map(\.0)
+        return projectedTaskIDs
     }
 
     private func resumeDispatchAttempt(link: AgentTaskLink, task: LedgerTask) async throws {
