@@ -98,7 +98,8 @@ final class KeeplineIntegrationStore: ObservableObject {
     private weak var ledgerStore: LedgerStore?
     private var coordinator: StashKeeplineCoordinator?
     private var refreshTask: Task<Void, Never>?
-    private var reconciliationErrors: [UUID: (message: String, terminalDispatch: Bool)] = [:]
+    private var pendingRefresh: Task<Void, Never>?
+    private var reconciliationErrors: [UUID: (message: String, dispatchNotice: Bool)] = [:]
     private var failureCount = 0
     private var didAttemptServiceLaunch = false
     private var sceneIsActive = true
@@ -186,6 +187,14 @@ final class KeeplineIntegrationStore: ObservableObject {
         case "lost": return .lost
         case "idle": return .other("Idle")
         default: return .other(session.status.rawValue.capitalized)
+        }
+    }
+
+    private func clearProjectionErrors(for taskIDs: [UUID]) {
+        for taskID in taskIDs {
+            guard let error = reconciliationErrors[taskID], !error.dispatchNotice else { continue }
+            if taskErrors[taskID] == error.message { taskErrors[taskID] = nil }
+            reconciliationErrors[taskID] = nil
         }
     }
 
@@ -305,6 +314,21 @@ final class KeeplineIntegrationStore: ObservableObject {
     }
 
     private func refresh(allowServiceLaunch: Bool) async {
+        let previousRefresh = pendingRefresh
+        let nextRefresh = Task { [weak self] in
+            await previousRefresh?.value
+            guard !Task.isCancelled, let self else { return }
+            await self.refreshSnapshot(allowServiceLaunch: allowServiceLaunch)
+        }
+        pendingRefresh = nextRefresh
+        await withTaskCancellationHandler {
+            await nextRefresh.value
+        } onCancel: {
+            nextRefresh.cancel()
+        }
+    }
+
+    private func refreshSnapshot(allowServiceLaunch: Bool) async {
         guard let transport, let coordinator else {
             publishState(.failed(configurationError ?? "Keepline integration is not configured."))
             return
@@ -352,8 +376,8 @@ final class KeeplineIntegrationStore: ObservableObject {
                 let notices = try await coordinator.resumePendingAttempts()
                 let unresolvedTaskIDs = Set(notices.map(\.taskID))
                 for (taskID, error) in reconciliationErrors {
-                    guard !unresolvedTaskIDs.contains(taskID),
-                          !error.terminalDispatch || ledgerStore?.agentLink(for: taskID)?.dispatchState?.endsAttempt != true else {
+                    guard error.dispatchNotice, !unresolvedTaskIDs.contains(taskID),
+                          ledgerStore?.agentLink(for: taskID)?.dispatchState?.endsAttempt != true else {
                         continue
                     }
                     if taskErrors[taskID] == error.message { taskErrors[taskID] = nil }
@@ -362,14 +386,18 @@ final class KeeplineIntegrationStore: ObservableObject {
                 for notice in notices {
                     reconciliationErrors[notice.taskID] = (
                         message: notice.message,
-                        terminalDispatch: ledgerStore?.agentLink(for: notice.taskID)?.dispatchState?.endsAttempt == true
+                        dispatchNotice: true
                     )
                     publishTaskError(notice.message, for: notice.taskID)
                 }
-                try await coordinator.syncTaskProjections()
+                let projectedTaskIDs = try await coordinator.syncTaskProjections()
+                clearProjectionErrors(for: projectedTaskIDs)
             } catch let error as StashTaskProjectionError {
-                if reconciliationErrors[error.taskID]?.terminalDispatch != true {
-                    reconciliationErrors[error.taskID] = (message: error.localizedDescription, terminalDispatch: false)
+                clearProjectionErrors(for: error.projectedTaskIDs)
+                let previous = reconciliationErrors[error.taskID]
+                if previous?.dispatchNotice != true,
+                   taskErrors[error.taskID] == nil || taskErrors[error.taskID] == previous?.message {
+                    reconciliationErrors[error.taskID] = (message: error.localizedDescription, dispatchNotice: false)
                     publishTaskError(error.localizedDescription, for: error.taskID)
                 }
             } catch {
@@ -386,7 +414,7 @@ final class KeeplineIntegrationStore: ObservableObject {
                         for _ in 0..<6 {
                             try? await Task.sleep(for: .milliseconds(250))
                             if await probe(transport) {
-                                await refresh(allowServiceLaunch: false)
+                                await refreshSnapshot(allowServiceLaunch: false)
                                 return
                             }
                         }

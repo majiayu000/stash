@@ -15,6 +15,7 @@ public struct StashIntegrationNotice: Equatable, Sendable {
 public struct StashTaskProjectionError: LocalizedError {
     public let taskID: UUID
     public let underlyingError: Error
+    public let projectedTaskIDs: [UUID]
 
     public var errorDescription: String? { underlyingError.localizedDescription }
 }
@@ -229,7 +230,8 @@ public final class StashKeeplineCoordinator {
         return notices
     }
 
-    public func syncTaskProjections() async throws {
+    @discardableResult
+    public func syncTaskProjections() async throws -> [UUID] {
         let taskIDs = Set(store.workspace.agentTaskLinks.map(\.taskID))
         var pending: [(UUID, String, ExternalWorkItemInput, TaskProjection)] = []
         for taskID in taskIDs {
@@ -248,8 +250,9 @@ public final class StashKeeplineCoordinator {
             guard projectedTasks[taskID] != projection else { continue }
             pending.append((taskID, workItemID, input, projection))
         }
-        guard let firstPending = pending.first else { return }
+        guard let firstPending = pending.first else { return [] }
         var projectingTaskID = firstPending.0
+        var projectedTaskIDs: [UUID] = []
         do {
             try await WorkspacePersistenceGate.perform(.projectionSync, store: store) {
                 for (taskID, workItemID, input, projection) in pending {
@@ -263,11 +266,15 @@ public final class StashKeeplineCoordinator {
                         throw StashKeeplineCoordinatorError.workItemIdentityChanged
                     }
                     projectedTasks[taskID] = projection
+                    projectedTaskIDs.append(taskID)
                 }
             }
         } catch {
-            throw StashTaskProjectionError(taskID: projectingTaskID, underlyingError: error)
+            throw StashTaskProjectionError(
+                taskID: projectingTaskID, underlyingError: error, projectedTaskIDs: projectedTaskIDs
+            )
         }
+        return projectedTaskIDs
     }
 
     private func resumeDispatchAttempt(link: AgentTaskLink, task: LedgerTask) async throws {
