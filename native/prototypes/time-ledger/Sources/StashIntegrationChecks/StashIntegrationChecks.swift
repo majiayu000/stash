@@ -892,8 +892,13 @@ private struct StashIntegrationChecks {
         await store.bootstrap()
         let transport = RecordingTransport()
         let coordinator = StashKeeplineCoordinator(store: store, transport: transport)
-        try await expectPersistenceFailure {
+        do {
             try await coordinator.syncTaskProjections()
+            throw CheckFailure.failed("expected projection persistence failure")
+        } catch let error as StashTaskProjectionError {
+            try expect(error.taskID == task.id, "projection persistence failure lost its task identity")
+            try expect(error.underlyingError is WorkspacePersistenceGateError,
+                       "projection persistence failure lost its underlying error")
         }
         let upserts = await transport.count(.upsert)
         try expect(upserts == 0, "projection sync escaped its production gate")

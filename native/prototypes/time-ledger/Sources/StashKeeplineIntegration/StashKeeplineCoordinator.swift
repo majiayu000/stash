@@ -12,6 +12,13 @@ public struct StashIntegrationNotice: Equatable, Sendable {
     }
 }
 
+public struct StashTaskProjectionError: LocalizedError {
+    public let taskID: UUID
+    public let underlyingError: Error
+
+    public var errorDescription: String? { underlyingError.localizedDescription }
+}
+
 private struct TaskProjection: Equatable {
     let title: String
     let body: String?
@@ -241,19 +248,25 @@ public final class StashKeeplineCoordinator {
             guard projectedTasks[taskID] != projection else { continue }
             pending.append((taskID, workItemID, input, projection))
         }
-        guard !pending.isEmpty else { return }
-        try await WorkspacePersistenceGate.perform(.projectionSync, store: store) {
-            for (taskID, workItemID, input, projection) in pending {
-                let workItem = try await transport.upsertExternalWorkItem(
-                    source: "stash",
-                    externalID: taskID.uuidString,
-                    input: input
-                )
-                guard workItem.id == workItemID else {
-                    throw StashKeeplineCoordinatorError.workItemIdentityChanged
+        guard let firstPending = pending.first else { return }
+        var projectingTaskID = firstPending.0
+        do {
+            try await WorkspacePersistenceGate.perform(.projectionSync, store: store) {
+                for (taskID, workItemID, input, projection) in pending {
+                    projectingTaskID = taskID
+                    let workItem = try await transport.upsertExternalWorkItem(
+                        source: "stash",
+                        externalID: taskID.uuidString,
+                        input: input
+                    )
+                    guard workItem.id == workItemID else {
+                        throw StashKeeplineCoordinatorError.workItemIdentityChanged
+                    }
+                    projectedTasks[taskID] = projection
                 }
-                projectedTasks[taskID] = projection
             }
+        } catch {
+            throw StashTaskProjectionError(taskID: projectingTaskID, underlyingError: error)
         }
     }
 
