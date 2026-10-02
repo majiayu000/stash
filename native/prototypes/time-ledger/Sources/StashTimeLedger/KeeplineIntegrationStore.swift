@@ -98,6 +98,7 @@ final class KeeplineIntegrationStore: ObservableObject {
     private weak var ledgerStore: LedgerStore?
     private var coordinator: StashKeeplineCoordinator?
     private var refreshTask: Task<Void, Never>?
+    private var pendingRefresh: Task<Void, Never>?
     private var reconciliationErrors: [UUID: (message: String, dispatchNotice: Bool)] = [:]
     private var failureCount = 0
     private var didAttemptServiceLaunch = false
@@ -313,6 +314,21 @@ final class KeeplineIntegrationStore: ObservableObject {
     }
 
     private func refresh(allowServiceLaunch: Bool) async {
+        let previousRefresh = pendingRefresh
+        let nextRefresh = Task { [weak self] in
+            await previousRefresh?.value
+            guard !Task.isCancelled, let self else { return }
+            await self.refreshSnapshot(allowServiceLaunch: allowServiceLaunch)
+        }
+        pendingRefresh = nextRefresh
+        await withTaskCancellationHandler {
+            await nextRefresh.value
+        } onCancel: {
+            nextRefresh.cancel()
+        }
+    }
+
+    private func refreshSnapshot(allowServiceLaunch: Bool) async {
         guard let transport, let coordinator else {
             publishState(.failed(configurationError ?? "Keepline integration is not configured."))
             return
@@ -398,7 +414,7 @@ final class KeeplineIntegrationStore: ObservableObject {
                         for _ in 0..<6 {
                             try? await Task.sleep(for: .milliseconds(250))
                             if await probe(transport) {
-                                await refresh(allowServiceLaunch: false)
+                                await refreshSnapshot(allowServiceLaunch: false)
                                 return
                             }
                         }

@@ -300,6 +300,90 @@ final class StashReconciliationTests: XCTestCase {
         assertReady(store)
     }
 
+    func testOverlappingRefreshRetriesAfterProjectionFailure() async throws {
+        for cancelled in [false, true] {
+            let task = LedgerTask(title: "Overlapping refresh projection")
+            let link = AgentTaskLink(taskID: task.id, keeplineWorkItemID: "work-\(task.id)",
+                                     sessionID: "linked-session", runtimeID: "codex", source: .manuallyLinked)
+            let (store, transport, _) = try await makeStore(tasks: [task], links: [link])
+            defer { store.shutdown() }
+            await transport.pauseNextProjection()
+            let first = Task { await store.refreshNow() }
+            await transport.waitForPausedProjection()
+            let second = Task { await store.refreshNow() }
+            for _ in 0..<20 { await Task.yield() }
+            let beforeRelease = await transport.projectionAttempts()
+            XCTAssertEqual(beforeRelease, [task.id], "Concurrent refreshes issued overlapping projections")
+            if cancelled { first.cancel() }
+            await transport.releasePausedProjection(failingWith: cancelled ? CancellationError() : FixtureError.projection)
+            await first.value
+            await second.value
+            let afterRetry = await transport.projectionAttempts()
+            XCTAssertEqual(afterRetry, [task.id, task.id])
+            XCTAssertNil(store.taskErrors[task.id], "The queued successful retry left a stale warning")
+            await transport.resetProjectionAttempts()
+            await store.refreshNow()
+            let cached = await transport.projectionAttempts()
+            XCTAssertEqual(cached, [])
+            XCTAssertNil(store.taskErrors[task.id])
+            assertReady(store)
+        }
+    }
+
+    func testQueuedRefreshSeesChangedTaskAndPreservesOperationError() async throws {
+        let tasks = (0..<2).map { LedgerTask(title: "Queued refresh task \($0)", status: .planned) }
+        let links = tasks.map {
+            AgentTaskLink(taskID: $0.id, keeplineWorkItemID: "work-\($0.id)",
+                          sessionID: "linked-\($0.id)", runtimeID: "codex", source: .manuallyLinked)
+        }
+        let (store, transport, ledger) = try await makeStore(tasks: tasks, links: links)
+        defer { store.shutdown() }
+        await store.refreshNow()
+        await transport.resetProjectionAttempts()
+        ledger.toggleCompletion(id: tasks[0].id)
+        await transport.pauseNextProjection()
+        let first = Task { await store.refreshNow() }
+        await transport.waitForPausedProjection()
+        ledger.toggleCompletion(id: tasks[1].id)
+        _ = await store.recoveryPreview(sessionID: "unrelated", taskID: tasks[1].id)
+        let second = Task { await store.refreshNow() }
+        for _ in 0..<20 { await Task.yield() }
+        let beforeRelease = await transport.projectionAttempts()
+        XCTAssertEqual(beforeRelease, [tasks[0].id])
+        await transport.releasePausedProjection(failingWith: nil)
+        await first.value
+        await second.value
+        let afterRefresh = await transport.projectionAttempts()
+        XCTAssertEqual(afterRefresh, tasks.map(\.id), "The queued refresh ignored a different task's new projection")
+        XCTAssertEqual(store.taskErrors[tasks[1].id], FixtureError.unrelated.localizedDescription)
+        assertReady(store)
+    }
+
+    func testCancelledQueuedRefreshDoesNotProject() async throws {
+        let task = LedgerTask(title: "Cancelled queued refresh")
+        let link = AgentTaskLink(taskID: task.id, keeplineWorkItemID: "work-\(task.id)",
+                                 sessionID: "linked-session", runtimeID: "codex", source: .manuallyLinked)
+        let (store, transport, ledger) = try await makeStore(tasks: [task], links: [link])
+        defer { store.shutdown() }
+        await transport.pauseNextProjection()
+        let first = Task { await store.refreshNow() }
+        await transport.waitForPausedProjection()
+        ledger.toggleCompletion(id: task.id)
+        let second = Task { await store.refreshNow() }
+        for _ in 0..<20 { await Task.yield() }
+        second.cancel()
+        await transport.releasePausedProjection(failingWith: nil)
+        await first.value
+        await second.value
+        let afterCancellation = await transport.projectionAttempts()
+        XCTAssertEqual(afterCancellation, [task.id], "A cancelled queued refresh sent a projection")
+        await store.refreshNow()
+        let afterRetry = await transport.projectionAttempts()
+        XCTAssertEqual(afterRetry, [task.id, task.id], "Cancellation blocked a later normal refresh")
+        XCTAssertNil(store.taskErrors[task.id])
+        assertReady(store)
+    }
+
     private func makeStore(
         tasks: [LedgerTask], links: [AgentTaskLink]
     ) async throws -> (KeeplineIntegrationStore, ProjectionTransport, LedgerStore) {
@@ -351,6 +435,20 @@ private enum ProjectionFailure {
 }
 
 private actor ProjectionTransport: KeeplineTransport {
+    private var pauseNext = false
+    private var paused: CheckedContinuation<Void, Error>?
+    private var pauseWaiter: CheckedContinuation<Void, Never>?
+    func pauseNextProjection() { pauseNext = true }
+    func waitForPausedProjection() async {
+        if paused != nil { return }
+        await withCheckedContinuation { pauseWaiter = $0 }
+    }
+    func releasePausedProjection(failingWith error: Error?) {
+        let continuation = paused
+        paused = nil
+        if let error { continuation?.resume(throwing: error) }
+        else { continuation?.resume() }
+    }
     private var failedTaskID: UUID?
     private var failure = ProjectionFailure.transport
     private var failEveryProjection = false
@@ -384,6 +482,14 @@ private actor ProjectionTransport: KeeplineTransport {
         source: String, externalID: String, input: ExternalWorkItemInput
     ) async throws -> KeeplineWorkItem {
         if let taskID = UUID(uuidString: externalID) { attemptedTaskIDs.append(taskID) }
+        if pauseNext {
+            pauseNext = false
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                paused = continuation
+                pauseWaiter?.resume()
+                pauseWaiter = nil
+            }
+        }
         if failEveryProjection { throw FixtureError.projection }
         var id = "work-\(externalID)"
         if externalID == failedTaskID?.uuidString {
