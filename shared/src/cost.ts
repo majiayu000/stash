@@ -45,7 +45,8 @@ export interface UpsertModelRateInput {
 
 /**
  * The effective rate card: user overrides win over the shipped defaults, keyed
- * on exact model id.
+ * on exact model id. An override replaces the whole row; omitted cache rates
+ * remain unpriced rather than inheriting shipped prices.
  *
  * An override for a model the defaults never mention is an addition, not an
  * error — a third-party model reached through a proxy (`qwen3.8-max-preview`,
@@ -60,14 +61,13 @@ export function mergeModelRates(
 ): ModelRate[] {
   const byModel = new Map<string, ModelRate>();
   for (const rate of [...defaults, ...overrides]) {
-    const previous = byModel.get(rate.model);
     const merged: ModelRate = {
       model: rate.model,
       inputPerM: rate.inputPerM,
       outputPerM: rate.outputPerM,
     };
-    const cache_read_per_m = rate.cacheReadPerM ?? previous?.cacheReadPerM;
-    const cache_write_per_m = rate.cacheWritePerM ?? previous?.cacheWritePerM;
+    const cache_read_per_m = rate.cacheReadPerM;
+    const cache_write_per_m = rate.cacheWritePerM;
     if (cache_read_per_m !== undefined) merged.cacheReadPerM = cache_read_per_m;
     if (cache_write_per_m !== undefined) merged.cacheWritePerM = cache_write_per_m;
     byModel.set(rate.model, merged);
