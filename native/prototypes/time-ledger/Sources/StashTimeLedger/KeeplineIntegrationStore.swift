@@ -98,7 +98,7 @@ final class KeeplineIntegrationStore: ObservableObject {
     private weak var ledgerStore: LedgerStore?
     private var coordinator: StashKeeplineCoordinator?
     private var refreshTask: Task<Void, Never>?
-    private var reconciliationErrors: [UUID: String] = [:]
+    private var reconciliationErrors: [UUID: (message: String, terminalDispatch: Bool)] = [:]
     private var failureCount = 0
     private var didAttemptServiceLaunch = false
     private var sceneIsActive = true
@@ -351,24 +351,29 @@ final class KeeplineIntegrationStore: ObservableObject {
             do {
                 let notices = try await coordinator.resumePendingAttempts()
                 let unresolvedTaskIDs = Set(notices.map(\.taskID))
-                for (taskID, message) in reconciliationErrors {
+                for (taskID, error) in reconciliationErrors {
                     guard !unresolvedTaskIDs.contains(taskID),
-                          ledgerStore?.agentLink(for: taskID)?.dispatchState?.endsAttempt != true else {
+                          !error.terminalDispatch || ledgerStore?.agentLink(for: taskID)?.dispatchState?.endsAttempt != true else {
                         continue
                     }
-                    if taskErrors[taskID] == message { taskErrors[taskID] = nil }
+                    if taskErrors[taskID] == error.message { taskErrors[taskID] = nil }
                     reconciliationErrors[taskID] = nil
                 }
                 for notice in notices {
-                    reconciliationErrors[notice.taskID] = notice.message
+                    reconciliationErrors[notice.taskID] = (
+                        message: notice.message,
+                        terminalDispatch: ledgerStore?.agentLink(for: notice.taskID)?.dispatchState?.endsAttempt == true
+                    )
                     publishTaskError(notice.message, for: notice.taskID)
                 }
                 try await coordinator.syncTaskProjections()
-            } catch {
-                for taskID in Set(ledgerStore?.workspace.agentTaskLinks.map(\.taskID) ?? []) {
-                    reconciliationErrors[taskID] = error.localizedDescription
-                    publishTaskError(error.localizedDescription, for: taskID)
+            } catch let error as StashTaskProjectionError {
+                if reconciliationErrors[error.taskID]?.terminalDispatch != true {
+                    reconciliationErrors[error.taskID] = (message: error.localizedDescription, terminalDispatch: false)
+                    publishTaskError(error.localizedDescription, for: error.taskID)
                 }
+            } catch {
+                publishState(.stale(lastUpdated: refreshedAt, message: error.localizedDescription))
             }
         } catch {
             if didAttemptServiceLaunch, serviceController?.ownsRunningChild != true {

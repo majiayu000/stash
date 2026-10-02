@@ -55,6 +55,15 @@ let package = Package(
                 .product(name: "KeeplineKit", package: "KeeplineKit")
             ],
             path: "Sources/StashIntegrationChecks"
+        ),
+        .testTarget(
+            name: "StashReconciliationTests",
+            dependencies: [
+                "StashTimeLedger",
+                "StashCore",
+                "StashKeeplineIntegration",
+                .product(name: "KeeplineKit", package: "KeeplineKit")
+            ]
         )
     ]
 )
