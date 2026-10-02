@@ -98,7 +98,7 @@ final class KeeplineIntegrationStore: ObservableObject {
     private weak var ledgerStore: LedgerStore?
     private var coordinator: StashKeeplineCoordinator?
     private var refreshTask: Task<Void, Never>?
-    private var reconciliationErrors: [UUID: (message: String, terminalDispatch: Bool)] = [:]
+    private var reconciliationErrors: [UUID: (message: String, dispatchNotice: Bool)] = [:]
     private var failureCount = 0
     private var didAttemptServiceLaunch = false
     private var sceneIsActive = true
@@ -352,8 +352,8 @@ final class KeeplineIntegrationStore: ObservableObject {
                 let notices = try await coordinator.resumePendingAttempts()
                 let unresolvedTaskIDs = Set(notices.map(\.taskID))
                 for (taskID, error) in reconciliationErrors {
-                    guard !unresolvedTaskIDs.contains(taskID),
-                          !error.terminalDispatch || ledgerStore?.agentLink(for: taskID)?.dispatchState?.endsAttempt != true else {
+                    guard error.dispatchNotice, !unresolvedTaskIDs.contains(taskID),
+                          ledgerStore?.agentLink(for: taskID)?.dispatchState?.endsAttempt != true else {
                         continue
                     }
                     if taskErrors[taskID] == error.message { taskErrors[taskID] = nil }
@@ -362,14 +362,21 @@ final class KeeplineIntegrationStore: ObservableObject {
                 for notice in notices {
                     reconciliationErrors[notice.taskID] = (
                         message: notice.message,
-                        terminalDispatch: ledgerStore?.agentLink(for: notice.taskID)?.dispatchState?.endsAttempt == true
+                        dispatchNotice: true
                     )
                     publishTaskError(notice.message, for: notice.taskID)
                 }
-                try await coordinator.syncTaskProjections()
+                let projectedTaskIDs = try await coordinator.syncTaskProjections()
+                for taskID in projectedTaskIDs {
+                    guard let error = reconciliationErrors[taskID], !error.dispatchNotice else { continue }
+                    if taskErrors[taskID] == error.message { taskErrors[taskID] = nil }
+                    reconciliationErrors[taskID] = nil
+                }
             } catch let error as StashTaskProjectionError {
-                if reconciliationErrors[error.taskID]?.terminalDispatch != true {
-                    reconciliationErrors[error.taskID] = (message: error.localizedDescription, terminalDispatch: false)
+                let previous = reconciliationErrors[error.taskID]
+                if previous?.dispatchNotice != true,
+                   taskErrors[error.taskID] == nil || taskErrors[error.taskID] == previous?.message {
+                    reconciliationErrors[error.taskID] = (message: error.localizedDescription, dispatchNotice: false)
                     publishTaskError(error.localizedDescription, for: error.taskID)
                 }
             } catch {

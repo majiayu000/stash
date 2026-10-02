@@ -229,7 +229,8 @@ public final class StashKeeplineCoordinator {
         return notices
     }
 
-    public func syncTaskProjections() async throws {
+    @discardableResult
+    public func syncTaskProjections() async throws -> [UUID] {
         let taskIDs = Set(store.workspace.agentTaskLinks.map(\.taskID))
         var pending: [(UUID, String, ExternalWorkItemInput, TaskProjection)] = []
         for taskID in taskIDs {
@@ -248,7 +249,7 @@ public final class StashKeeplineCoordinator {
             guard projectedTasks[taskID] != projection else { continue }
             pending.append((taskID, workItemID, input, projection))
         }
-        guard let firstPending = pending.first else { return }
+        guard let firstPending = pending.first else { return [] }
         var projectingTaskID = firstPending.0
         do {
             try await WorkspacePersistenceGate.perform(.projectionSync, store: store) {
@@ -268,6 +269,7 @@ public final class StashKeeplineCoordinator {
         } catch {
             throw StashTaskProjectionError(taskID: projectingTaskID, underlyingError: error)
         }
+        return pending.map(\.0)
     }
 
     private func resumeDispatchAttempt(link: AgentTaskLink, task: LedgerTask) async throws {
